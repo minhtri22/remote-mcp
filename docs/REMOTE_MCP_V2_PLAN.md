@@ -1,8 +1,9 @@
 # RemoteMCP v2 — Durable Multi-Agent Runtime Implementation Plan
 
 Status: ACTIVE
-Current gate: REMOTE_MCP_V2A_DURABILITY_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION
+Current gate: REMOTE_MCP_V2B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK
 V2-0 status: PASS (2026-09-30)
+V2-A status: PASS (2026-09-30)
 Repository: minhtri22/remote-mcp
 Local source: D:\WORK\RESEARCH\RemoteMCP-src
 
@@ -539,7 +540,10 @@ Exit gate:
 - existing file containment passes;
 - existing MCP tools behave as before.
 
-### V2-A — Durability core
+### V2-A — Durability core — PASS (2026-09-30)
+
+Closure follows the prospectively frozen execution lock. Durable job/operation semantics are implemented and qualified. The earlier high-level `file_edit_cas` idea was not silently added because no exact CAS crash-consistency contract was frozen; it is explicitly carried into the V2-B workspace-isolation prelock.
+
 
 A1. SQLite WAL + migrations.
 A2. operation_id repository + idempotency.

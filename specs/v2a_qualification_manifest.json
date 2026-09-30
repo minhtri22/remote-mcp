@@ -1,0 +1,64 @@
+{
+  "phase": "V2-A",
+  "gate": "REMOTE_MCP_V2A_DURABILITY_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION",
+  "status": "PASS",
+  "closed_at": "2026-09-30",
+  "implementation_commit": "a5052a9",
+  "allowlist_amendment_commit": "ffaa60b",
+  "tests": {
+    "v2a": "27 passed",
+    "v2_0_regression": "17 passed",
+    "implementation_validator": "PASS",
+    "oauth_integration": "PASS",
+    "public_tunnel_smoke": "PASS",
+    "diff_check": "PASS"
+  },
+  "qualifications": {
+    "duplicate_submit": {
+      "status": "PASS",
+      "payload_executions": 1,
+      "jobs": 1
+    },
+    "restart_recovery": {
+      "status": "PASS",
+      "same_payload_pid_and_start_token": true,
+      "payload_executions": 1,
+      "jobs": 1
+    },
+    "project_tools": {
+      "status": "PASS",
+      "tools": {
+        "ollama": "0.34.2",
+        "llama_cli": "0.4.1-dev build 10964",
+        "cmake": "4.4.3",
+        "ctest": "4.4.3",
+        "ninja": "1.13.2",
+        "uv": "0.11.2",
+        "ffmpeg": "8.1.1"
+      }
+    },
+    "long_job": {
+      "status": "PASS",
+      "job_id": "job_4a0cda97bac669f38e59a87b8514080b",
+      "started_at_ms": 1790734488680,
+      "finished_at_ms": 1790735129412,
+      "duration_ms": 640732,
+      "exit_code": 0,
+      "terminal_event_id": 2,
+      "stdout_markers": [
+        "LONG_START",
+        "LONG_DONE"
+      ]
+    }
+  },
+  "boundaries": {
+    "active_active_supervisors": false,
+    "multi_agent_leases": false,
+    "git_worktree_isolation": false,
+    "context_broker": false,
+    "native_mcp_tasks": false,
+    "legacy_file_mutations_durable": false,
+    "production_8099_deployed": false
+  },
+  "next_gate": "REMOTE_MCP_V2B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK"
+}

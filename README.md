@@ -15,12 +15,23 @@ The current baseline provides OAuth-protected filesystem/search tools and allowl
 
 Current tools:
 
+Compatibility tools:
+
 - `list_dir`
 - `read_file`
 - `write_file`
 - `edit_file`
 - `search`
 - `run_command`
+
+V2-A durable tools:
+
+- `job_submit`
+- `job_get`
+- `job_wait`
+- `job_logs`
+- `job_result`
+- `job_cancel`
 
 ## v2 direction
 
@@ -98,3 +109,52 @@ Known baseline limitations:
 Next authorized phase:
 
 `V2-A — Durability`, beginning with `REMOTE_MCP_V2A_DURABLE_JOB_AND_OPERATION_PRELOCK`.
+
+### V2-A — Durability core: PASS
+
+Closed: 2026-09-30.
+
+Delivered:
+
+- SQLite WAL schema v1 with migration checksum enforcement;
+- durable `operation_id` idempotency and request-hash conflict detection;
+- detached worker/supervisor model for long-running jobs;
+- process ownership fingerprint using PID + creation time + executable + command hash;
+- startup reconciliation with conservative `LOST/IN_DOUBT` handling and no automatic relaunch;
+- append-only job events and per-subscriber terminal-event ACK cursors;
+- durable stdout/stderr/result files;
+- exact `job_submit`, `job_get`, `job_wait`, `job_logs`, `job_result`, `job_cancel` MCP tools;
+- legacy `run_command` compatibility with the Windows child-environment defect repaired;
+- default durable allowlist for the existing dev commands plus Ollama, the observed llama.cpp executable family, CMake/CTest/Ninja, uv and FFmpeg.
+
+Qualification evidence:
+
+- V2-A implementation tests: **27 passed**;
+- V2-0 frozen regression: **17 passed**;
+- full OAuth integration: **PASS**;
+- public tunnel metadata/401 smoke: **PASS**;
+- duplicate-submit: **PASS**, one operation produced exactly one payload;
+- restart recovery: **PASS**, same payload PID/start token survived service restart;
+- project-tool execution: **PASS** for Ollama, llama-cli, CMake, CTest, Ninja, uv and FFmpeg;
+- durable long-job gate: **PASS**, same job completed after **640,732 ms** with exit code 0 and terminal event persisted.
+
+Implementation notes:
+
+- Windows transient `WinError 5` on atomic metadata replacement is handled by unique temp files plus bounded replace retry.
+- launch nonces use an `ln_` prefix so argparse cannot misinterpret a nonce beginning with `-`.
+- a 2-second stale-identity grace prevents very short jobs from being falsely classified LOST while `terminal.json` is being atomically published.
+
+Known limitations / next-phase boundaries:
+
+- V2-A assumes one active RemoteMCP supervisor per runtime directory; active-active multi-server scheduling is not claimed.
+- agent/session/task leases and Git worktree isolation are not implemented yet.
+- Context Broker/resume packages are not implemented yet.
+- native MCP Tasks integration is deferred to V2-D.
+- legacy `write_file/edit_file` remain compatibility tools; durable multi-agent file mutation requires a prospectively locked CAS/workspace-isolation contract rather than silently changing them.
+- this repository closure does **not** automatically replace the currently running production process on port 8099; deployment/connector refresh is a separate operational action.
+
+Detailed evidence: `docs/V2_A_IMPLEMENTATION_AND_QUALIFICATION.md`.
+
+Next authorized phase:
+
+`V2-B — Multi-agent`, beginning with `REMOTE_MCP_V2B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK`.
