@@ -43,6 +43,19 @@ CREATE TABLE node_commands (
   finished_at_ms INTEGER
 );
 
+CREATE TABLE node_cas_mutations (
+  command_id TEXT PRIMARY KEY REFERENCES node_commands(command_id),
+  task_id TEXT NOT NULL,
+  path_rel TEXT NOT NULL,
+  expected_before_hash TEXT NOT NULL,
+  intended_after_hash TEXT NOT NULL,
+  temp_rel TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('PREPARED','REPLACED','COMMITTED','ABORTED')),
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX idx_node_cas_task_state ON node_cas_mutations(task_id,state);
+
 CREATE TABLE node_routed_jobs (
   proxy_job_id TEXT PRIMARY KEY,
   node_job_id TEXT NOT NULL UNIQUE,

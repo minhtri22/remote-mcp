@@ -36,13 +36,20 @@ def main():
         "device_commands","routed_jobs","device_events"
     ):
         assert name in tables,name
+    cmd_cols={r[1] for r in con.execute("PRAGMA table_info(device_commands)")}
+    assert "operation_step" in cmd_cols
+    idx={r[1] for r in con.execute("PRAGMA index_list(device_commands)")}
+    assert "uq_device_commands_operation_step" in idx
     con.close()
 
     # Node schema is independently valid.
     node=sqlite3.connect(":memory:")
     node.executescript(NODE.read_text(encoding="utf-8"))
     nt={r[0] for r in node.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"node_meta","node_projects","node_tasks","node_commands","node_routed_jobs"}<=nt
+    assert {
+        "node_meta","node_projects","node_tasks","node_commands",
+        "node_cas_mutations","node_routed_jobs"
+    }<=nt
     node.close()
 
     assert s["architecture"]["no_automatic_device_selection"] is True
@@ -65,11 +72,21 @@ def main():
     assert transport["command_mutation_ttl_seconds"]==30
     assert "same bound device" in transport["delivery_semantics"]
     assert "COMMAND_CONFLICT" in transport["node_duplicate_rule"]
+    assert "(operation_id, operation_step)" in transport["operation_command_key"]
+    assert "PROJECT_PROBE" in transport["operation_step_rule"]
+    assert "PROJECT_BIND" in transport["operation_step_rule"]
 
     task=s["task_binding"]
     assert task["immutable"] is True
     assert task["caller_override"] is False
     assert "never changes" in task["no_silent_migration"]
+
+    node_runtime=s["node_runtime"]
+    assert node_runtime["durable_runtime_dir"].endswith("/durable")
+    assert "V2-A DurableService" in node_runtime["durable_job_engine"]
+    cas=s["routed_operations"]["node_cas_intent_journal"]
+    assert cas["table"]=="node_cas_mutations"
+    assert cas["prepare_before_replace"] is True
 
     project=s["project_binding"]
     assert "Forbidden" in project["offline_rebind"]
@@ -97,7 +114,8 @@ def main():
         "same proxy_job_id/node_job_id",
         "DEVICE_REPLAY",
         "DEVICE_SIGNATURE_STALE",
-        "COMMAND_CONFLICT"
+        "COMMAND_CONFLICT",
+        "node CAS crash after atomic replace"
     ):
         assert phrase in joined,phrase
 
@@ -121,6 +139,9 @@ def main():
     print("PASS ONLINE/OFFLINE/REVOKED state semantics")
     print("PASS outbound-only single-endpoint routing contract")
     print("PASS durable same-device command delivery/idempotency")
+    print("PASS multi-step operation command journal")
+    print("PASS node-local CAS crash-recovery journal")
+    print("PASS node-local V2-A durable subruntime contract")
     print("PASS project->device binding and immutable task inheritance")
     print("PASS no-silent-migration/offline-no-failover contract")
     print("PASS routed-job proxy/offline survival contract")

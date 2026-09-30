@@ -518,3 +518,80 @@ Pairing codes, private keys, signatures, OAuth secrets and lease tokens must nev
 After static prelock validation PASS:
 
 `REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK`
+
+## Prospective amendment before implementation lock
+
+Implementation-feasibility review found two correctness gaps before any V2-BD runtime code was written.
+
+### Multi-step routed commands per operation
+
+A high-level operation may require more than one durable routed command. The canonical example is `project_register_on_device`:
+
+```text
+operation_id
+  step 0 -> PROJECT_PROBE
+  step 1 -> PROJECT_BIND
+```
+
+Therefore `device_commands.operation_id` is **not unique by itself**.
+
+The central schema now stores:
+
+- `operation_id`;
+- `operation_step`.
+
+A partial unique index freezes:
+
+```text
+UNIQUE(operation_id, operation_step)
+WHERE operation_id IS NOT NULL
+```
+
+This preserves command creation idempotency while allowing ordered multi-command workflows.
+
+### Node-local CAS intent journal
+
+A routed CAS write can crash after atomic replacement but before the node persists the command result. The node therefore needs the same crash-proof evidence pattern already proven in V2-B.
+
+Node schema now adds:
+
+`node_cas_mutations`
+
+with:
+
+```text
+PREPARED -> REPLACED -> COMMITTED
+     \----------------> ABORTED
+```
+
+The node records expected-before hash, intended-after hash and temp path before filesystem replacement. On restart it reconciles file/temp hashes and never blindly repeats the replacement.
+
+If the routed mutation has expired before replacement, no new replacement is permitted. If replacement already happened, the node may finalize/replay evidence only.
+
+### Dedicated node durable-job subruntime
+
+The execution node reuses the existing V2-A `DurableService` for process durability, isolated under:
+
+```text
+<MCP_NODE_RUNTIME_DIR>/durable/
+  runtime.db
+  jobs/
+```
+
+Routing/idempotency state remains separately owned by:
+
+`<MCP_NODE_RUNTIME_DIR>/node.db`
+
+The local V2-A operation ID for a routed job submit is deterministic:
+
+```text
+v2bd-node-job:<device_id>:<command_id>
+```
+
+so replay after node-agent crash discovers/reuses the same local durable job rather than launching a duplicate.
+
+A node also holds an exclusive local runtime lock:
+
+`<MCP_NODE_RUNTIME_DIR>/node.lock`
+
+to prevent two node-agent processes from using the same runtime directory on one host.

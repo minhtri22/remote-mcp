@@ -60,7 +60,8 @@ CREATE TABLE device_commands (
   command_id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL REFERENCES devices(device_id),
   route_generation INTEGER NOT NULL CHECK (route_generation >= 1),
-  operation_id TEXT UNIQUE REFERENCES operations(operation_id),
+  operation_id TEXT REFERENCES operations(operation_id),
+  operation_step INTEGER NOT NULL DEFAULT 0 CHECK (operation_step >= 0),
   project_id TEXT REFERENCES projects(project_id),
   task_id TEXT REFERENCES tasks(task_id),
   command_type TEXT NOT NULL,
@@ -81,6 +82,9 @@ CREATE TABLE device_commands (
 );
 CREATE INDEX idx_device_commands_dispatch ON device_commands(device_id,state,created_at_ms);
 CREATE INDEX idx_device_commands_task ON device_commands(task_id,created_at_ms);
+CREATE UNIQUE INDEX uq_device_commands_operation_step
+  ON device_commands(operation_id,operation_step)
+  WHERE operation_id IS NOT NULL;
 
 CREATE TABLE routed_jobs (
   proxy_job_id TEXT PRIMARY KEY,

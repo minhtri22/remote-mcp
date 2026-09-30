@@ -158,7 +158,10 @@
     "mutation_expiry_rule": "Node refuses a mutating command after command_expires_at_ms. Gateway also refuses dispatch when current task lease epoch no longer matches the command.",
     "bounded_gateway_wait_seconds": 55,
     "timeout_result": "If routed command remains durable but unfinished beyond gateway wait, return/raise DEVICE_COMMAND_PENDING keyed by command_id; same operation_id resumes/replays rather than creating a new command.",
-    "poll_long_wait_seconds": 25
+    "poll_long_wait_seconds": 25,
+    "operation_command_key": "Mutation commands are uniquely identified by (operation_id, operation_step), allowing one high-level operation to persist multiple ordered routed commands.",
+    "operation_step_rule": "operation_step starts at 0 and is prospectively fixed by each workflow. PROJECT_REGISTER_ON_DEVICE uses step 0=PROJECT_PROBE and step 1=PROJECT_BIND.",
+    "command_creation_idempotency": "Same operation_id + operation_step + request_hash reuses the existing command. Same operation_id + operation_step with a different request_hash => COMMAND_CONFLICT."
   },
   "project_binding": {
     "table": "project_device_bindings",
@@ -168,9 +171,9 @@
     "path_semantics": "projects.root_rel is relative to that device's MCP_NODE_ROOT, not gateway filesystem.",
     "register_protocol": [
       "require device ONLINE",
-      "route PROJECT_PROBE to device to canonicalize path under MCP_NODE_ROOT and detect GIT/NON_GIT",
+      "operation step 0: route PROJECT_PROBE to device to canonicalize path under MCP_NODE_ROOT and detect GIT/NON_GIT",
       "persist project + project_device_binding only after successful probe",
-      "route PROJECT_BIND so node persists project_id->root mapping",
+      "operation step 1: route PROJECT_BIND so node persists project_id->root mapping",
       "operation succeeds only after both central and node binding records agree"
     ],
     "existing_project_bind": "Allowed only when project has no non-terminal tasks, no non-terminal routed jobs, and no task_device_bindings requiring the old device.",
@@ -210,7 +213,19 @@
     "reads": "Task-scoped routed reads are retryable and never mutate node state except bounded command-journal/cache metadata.",
     "mutations": "Gateway validates current task lease/epoch before creating command and binds operation_id+request_hash+task binding+route_generation.",
     "filesystem_containment": "Node resolves all project/task paths under local MCP_NODE_ROOT and local project binding; symlink/path escape rejected.",
-    "execution_env": "Node injects REMOTEMCP_DEVICE_ID and REMOTEMCP_PROJECT_ID into task-bound job environment for diagnostics/qualification; these variables are not routing authority."
+    "execution_env": "Node injects REMOTEMCP_DEVICE_ID and REMOTEMCP_PROJECT_ID into task-bound job environment for diagnostics/qualification; these variables are not routing authority.",
+    "node_cas_intent_journal": {
+      "table": "node_cas_mutations",
+      "states": [
+        "PREPARED",
+        "REPLACED",
+        "COMMITTED",
+        "ABORTED"
+      ],
+      "prepare_before_replace": true,
+      "recovery": "On node restart, compare current target hash/temp hash against expected_before_hash/intended_after_hash. Never blindly repeat a filesystem replacement.",
+      "lease_expiry_boundary": "If replacement has not happened and the routed mutation command is expired or its central task lease is no longer valid, node must not perform a new replace. If replacement already happened, node may only finalize/replay evidence."
+    }
   },
   "routed_jobs": {
     "proxy_id": "rjob_<random>",
@@ -220,7 +235,9 @@
     "generic_v2a_job_tools": "Gateway-local V2-A job_* stay local. Remote task jobs are observed/cancelled through task_jobs/task_job_cancel and routed-job proxy metadata.",
     "offline_behavior": "If device becomes OFFLINE, proxy preserves last_known_state and reports device_state=OFFLINE. It is not marked FAILED/LOST and is not relaunched elsewhere.",
     "node_restart": "Node local V2-A supervisor reconciles its process. On reconnect it reports same proxy_job_id/node_job_id and current terminal/running state.",
-    "revoke_behavior": "Existing remote job state becomes unreachable/unknown from gateway; metadata preserved. No kill or migration is assumed."
+    "revoke_behavior": "Existing remote job state becomes unreachable/unknown from gateway; metadata preserved. No kill or migration is assumed.",
+    "node_v2a_operation_id": "Deterministic local V2-A operation_id = v2bd-node-job:<device_id>:<command_id>. JOB_SUBMIT replay queries/reuses that operation/job rather than launching a second payload.",
+    "node_runtime_dir": "<MCP_NODE_RUNTIME_DIR>/durable"
   },
   "public_tools": {
     "device_pair_begin": "async def device_pair_begin(operation_id: str, device_name: str) -> dict",
@@ -248,12 +265,17 @@
       "<MCP_NODE_RUNTIME_DIR>/device-ed25519.pem",
       "<MCP_NODE_RUNTIME_DIR>/device.json",
       "<MCP_NODE_RUNTIME_DIR>/node.db",
-      "<MCP_NODE_RUNTIME_DIR>/jobs/"
+      "<MCP_NODE_RUNTIME_DIR>/node.lock",
+      "<MCP_NODE_RUNTIME_DIR>/durable/runtime.db",
+      "<MCP_NODE_RUNTIME_DIR>/durable/jobs/"
     ],
     "local_schema": "specs/v2bd_node_schema_v1.sql",
     "no_oauth_server": true,
     "no_public_inbound_listener": true,
-    "outbound_only": true
+    "outbound_only": true,
+    "durable_runtime_dir": "<MCP_NODE_RUNTIME_DIR>/durable",
+    "durable_job_engine": "Reuse existing V2-A DurableService inside the node with workspace_root=MCP_NODE_ROOT and runtime_dir=<MCP_NODE_RUNTIME_DIR>/durable. Node routing state remains in node.db.",
+    "single_process_lock": "Node agent holds an exclusive OS advisory lock on <MCP_NODE_RUNTIME_DIR>/node.lock. A second local process using the same runtime fails NODE_ALREADY_RUNNING."
   },
   "observability": {
     "immediate": "device_list/device_status expose state, last_seen, route_generation, bound project count, active command count and routed-job counts.",
@@ -317,6 +339,7 @@
       "redeliver same command_id/request_hash and prove node replays stored result without duplicate side effect",
       "send same command_id with different request_hash and verify COMMAND_CONFLICT",
       "send a validly signed request with stale route_generation and verify DEVICE_ROUTE_GENERATION_MISMATCH",
+      "inject node CAS crash after atomic replace before routed command result; restart same node and prove intended hash is finalized without a second filesystem write",
       "at qualification end create a disposable extra pairing identity, revoke it, and verify REVOKED is terminal without revoking either primary test device"
     ],
     "pass_rule": "Every gate passes once with frozen code/config; no selective rerun to rescue a failed routing assertion. Infrastructure-only retry is allowed only after documenting an external transport interruption before any affected command outcome was observed.",
@@ -335,5 +358,17 @@
     "implement /ops UI",
     "run two-execution-device qualification"
   ],
-  "next_gate": "REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+  "next_gate": "REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "prelock_amendment_before_implementation_lock": {
+    "reason": [
+      "PROJECT_REGISTER_ON_DEVICE requires two ordered routed commands under one high-level operation, so UNIQUE(operation_id) would be incorrect.",
+      "Remote FILE_WRITE_CAS/FILE_EDIT_CAS need a node-local intent journal to reconcile crash after atomic replace before result persistence."
+    ],
+    "schema_changes": [
+      "device_commands.operation_step + partial UNIQUE(operation_id,operation_step)",
+      "node_cas_mutations table"
+    ],
+    "node_runtime_change": "Freeze a dedicated <MCP_NODE_RUNTIME_DIR>/durable subruntime that reuses V2-A DurableService for local process durability while node.db owns routing/idempotency state.",
+    "implementation_started": false
+  }
 }
