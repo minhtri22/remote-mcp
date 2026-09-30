@@ -28,9 +28,13 @@ from urllib.parse import urlparse
 
 from oauth_provider import SCOPE, OwnerOAuthProvider
 from remotemcp.durable.config import DurableConfig, safe_child_env
+from remotemcp.durable.process import windows_process_options
 from remotemcp.durable.service import DurableService
 from remotemcp.multiagent.config import MultiAgentConfig
 from remotemcp.multiagent.service import MultiAgentService
+from remotemcp.routing.config import RoutingConfig
+from remotemcp.routing.service import RoutingService
+from remotemcp.routing.http import register_device_routes
 
 import mcp.server.auth.routes as auth_routes
 
@@ -66,15 +70,19 @@ DURABLE_CONFIG = DurableConfig.from_env(ROOT)
 durable_service = DurableService(DURABLE_CONFIG)
 MULTIAGENT_CONFIG = MultiAgentConfig.from_durable(DURABLE_CONFIG)
 multiagent_service = MultiAgentService(MULTIAGENT_CONFIG, durable_service)
+ROUTING_CONFIG = RoutingConfig.from_env(DURABLE_CONFIG.runtime_dir, PUBLIC_URL)
+routing_service = RoutingService(ROUTING_CONFIG, durable_service, multiagent_service)
 
 
 @asynccontextmanager
 async def durable_lifespan(_app):
     await durable_service.start()
     await multiagent_service.start()
+    await routing_service.start()
     try:
         yield {}
     finally:
+        await routing_service.stop()
         await multiagent_service.stop()
         await durable_service.stop()
 
@@ -131,6 +139,9 @@ mcp = FastMCP(
 @mcp.custom_route("/login", methods=["GET", "POST"])
 async def login(request):
     return await provider.login(request)
+
+
+register_device_routes(mcp, routing_service)
 
 
 def safe(rel: str) -> Path:
@@ -208,10 +219,13 @@ async def run_command(command: str) -> str:
     argv = shlex.split(command)
     if not argv or argv[0] not in ALLOWED_CMDS:
         return f"Từ chối: '{argv[0] if argv else ''}' không nằm trong allowlist {sorted(ALLOWED_CMDS)}"
+    creationflags, startupinfo = windows_process_options()
     proc = await asyncio.create_subprocess_exec(
         *argv, cwd=ROOT,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         env=safe_child_env(ROOT),  # allowlist tối thiểu; không kế thừa toàn bộ server env
+        creationflags=creationflags,
+        startupinfo=startupinfo,
     )
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), CMD_TIMEOUT)
@@ -245,6 +259,7 @@ async def job_submit(
 @mcp.tool()
 def job_get(job_id: str) -> dict:
     """Return durable job status."""
+    routing_service.guard_local_job_id(job_id)
     return durable_service.job_get(job_id)
 
 
@@ -257,6 +272,7 @@ async def job_wait(
     timeout_seconds: int = 55,
 ) -> dict:
     """Bounded wait for terminal/heartbeat/progress state."""
+    routing_service.guard_local_job_id(job_id)
     return await durable_service.job_wait(
         job_id,
         subscriber_id,
@@ -274,6 +290,7 @@ def job_logs(
     limit_bytes: int = 65536,
 ) -> dict:
     """Read bounded raw-log bytes by cursor."""
+    routing_service.guard_local_job_id(job_id)
     return durable_service.job_logs(job_id, stream, cursor, limit_bytes)
 
 
@@ -285,6 +302,7 @@ def job_result(
     operation_id: str = "",
 ) -> dict:
     """Return normalized result and optionally ACK terminal event idempotently."""
+    routing_service.guard_local_job_id(job_id)
     return durable_service.job_result(
         job_id,
         subscriber_id,
@@ -302,6 +320,7 @@ async def job_cancel(
     task_id: str = "",
 ) -> dict:
     """Request idempotent, ownership-verified cancellation."""
+    routing_service.guard_local_job_id(job_id)
     multiagent_service.guard.guard_job_cancel(job_id, durable_service.db)
     return await durable_service.job_cancel(
         operation_id,
@@ -352,14 +371,14 @@ async def project_register(
     path: str,
     max_active_tasks: int = 4,
 ) -> dict:
-    return await multiagent_service.project_register(
+    return await routing_service.project_register_or_local(
         operation_id, path, max_active_tasks
     )
 
 
 @mcp.tool()
 def project_status(project_id: str) -> dict:
-    return multiagent_service.project_status(project_id)
+    return routing_service.project_status_or_local(project_id)
 
 
 @mcp.tool()
@@ -369,7 +388,7 @@ async def task_create(
     title: str,
     base_ref: str = "HEAD",
 ) -> dict:
-    return await multiagent_service.task_create(
+    return await routing_service.task_create_or_local(
         operation_id, project_id, title, base_ref
     )
 
@@ -381,14 +400,14 @@ async def task_claim(
     agent_id: str,
     session_id: str,
 ) -> dict:
-    return await multiagent_service.task_claim(
+    return await routing_service.task_claim_or_local(
         operation_id, task_id, agent_id, session_id
     )
 
 
 @mcp.tool()
 def task_status(task_id: str) -> dict:
-    return multiagent_service.task_status(task_id)
+    return routing_service.task_status_or_local(task_id)
 
 
 @mcp.tool()
@@ -449,7 +468,7 @@ async def task_complete(
     lease_epoch: int,
     outcome_summary: str,
 ) -> dict:
-    return await multiagent_service.task_complete(
+    return await routing_service.task_complete_or_local(
         operation_id, task_id, lease_token, lease_epoch, outcome_summary
     )
 
@@ -491,7 +510,7 @@ async def file_write_cas(
     expected_sha256: str,
     content: str,
 ) -> dict:
-    return await multiagent_service.file_write_cas(
+    return await routing_service.file_write_cas_or_local(
         operation_id, task_id, lease_token, lease_epoch,
         path, expected_sha256, content
     )
@@ -509,7 +528,7 @@ async def file_edit_cas(
     new: str,
     expected_occurrences: int = 1,
 ) -> dict:
-    return await multiagent_service.file_edit_cas(
+    return await routing_service.file_edit_cas_or_local(
         operation_id, task_id, lease_token, lease_epoch,
         path, expected_sha256, old, new, expected_occurrences
     )
@@ -524,14 +543,14 @@ async def task_job_submit(
     argv: list[str],
     cwd: str = ".",
 ) -> dict:
-    return await multiagent_service.task_job_submit(
+    return await routing_service.task_job_submit_or_local(
         operation_id, task_id, lease_token, lease_epoch, argv, cwd
     )
 
 
 @mcp.tool()
 def task_jobs(task_id: str) -> dict:
-    return multiagent_service.task_jobs(task_id)
+    return routing_service.task_jobs_or_local(task_id)
 
 
 @mcp.tool()
@@ -542,9 +561,116 @@ async def task_job_cancel(
     lease_epoch: int,
     job_id: str,
 ) -> dict:
-    return await multiagent_service.task_job_cancel(
+    return await routing_service.task_job_cancel_or_local(
         operation_id, task_id, lease_token, lease_epoch, job_id
     )
+
+
+@mcp.tool()
+async def device_pair_begin(
+    operation_id: str,
+    device_name: str,
+) -> dict:
+    return await routing_service.device_pair_begin(operation_id, device_name)
+
+
+@mcp.tool()
+def device_list() -> dict:
+    return routing_service.device_list()
+
+
+@mcp.tool()
+def device_status(device_id: str) -> dict:
+    return routing_service.device_status(device_id)
+
+
+@mcp.tool()
+async def device_revoke(
+    operation_id: str,
+    device_id: str,
+    reason: str = "",
+) -> dict:
+    return await routing_service.device_revoke(operation_id, device_id, reason)
+
+
+@mcp.tool()
+async def project_register_on_device(
+    operation_id: str,
+    device_id: str,
+    path: str,
+    max_active_tasks: int = 4,
+) -> dict:
+    return await routing_service.project_register_on_device(
+        operation_id, device_id, path, max_active_tasks
+    )
+
+
+@mcp.tool()
+async def project_bind_device(
+    operation_id: str,
+    project_id: str,
+    device_id: str,
+) -> dict:
+    return await routing_service.project_bind_device(
+        operation_id, project_id, device_id
+    )
+
+
+@mcp.tool()
+async def task_list_dir(
+    task_id: str,
+    path: str = ".",
+) -> dict:
+    return await routing_service.task_list_dir(task_id, path)
+
+
+@mcp.tool()
+async def task_read_file(
+    task_id: str,
+    path: str,
+    offset: int = 0,
+    limit: int = 120000,
+) -> dict:
+    return await routing_service.task_read_file(task_id, path, offset, limit)
+
+
+@mcp.tool()
+async def task_search(
+    task_id: str,
+    pattern: str,
+    path: str = ".",
+) -> dict:
+    return await routing_service.task_search(task_id, pattern, path)
+
+
+@mcp.tool()
+async def task_job_get(
+    task_id: str,
+    proxy_job_id: str,
+    refresh: bool = True,
+) -> dict:
+    return await routing_service.task_job_get(task_id, proxy_job_id, refresh)
+
+
+@mcp.tool()
+async def task_job_logs(
+    task_id: str,
+    proxy_job_id: str,
+    stream: str = "stdout",
+    cursor: int = 0,
+    max_bytes: int = 65536,
+) -> dict:
+    return await routing_service.task_job_logs(
+        task_id, proxy_job_id, stream, cursor, max_bytes
+    )
+
+
+@mcp.tool()
+async def task_job_result(
+    task_id: str,
+    proxy_job_id: str,
+) -> dict:
+    return await routing_service.task_job_result(task_id, proxy_job_id)
 
 
 if __name__ == "__main__":

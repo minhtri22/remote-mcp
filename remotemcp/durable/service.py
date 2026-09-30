@@ -86,6 +86,8 @@ class DurableService:
         agent_id: str = "",
         project_id: str = "",
         task_id: str = "",
+        *,
+        env_overrides: dict[str, str] | None = None,
     ) -> dict:
         await self.start()
         if not isinstance(argv, list) or not argv or not all(
@@ -96,7 +98,15 @@ class DurableService:
         cwd_path = self._safe_cwd(cwd)
         resolved = resolve_executable(argv[0], cwd_path, self.config.allowed_cmds)
         normalized_argv = [resolved, *argv[1:]]
+        env_overrides = dict(env_overrides or {})
+        allowed_env = {"REMOTEMCP_DEVICE_ID", "REMOTEMCP_PROJECT_ID"}
+        if any(k not in allowed_env for k in env_overrides):
+            raise DurableError("INVALID_ARGUMENT", "unsupported durable env override")
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in env_overrides.items()):
+            raise DurableError("INVALID_ARGUMENT", "env overrides must be string pairs")
         normalized = {"argv": normalized_argv, "cwd": cwd}
+        if env_overrides:
+            normalized["env_overrides"] = env_overrides
 
         op, created = self.operations.reserve(
             operation_id,
@@ -132,6 +142,7 @@ class DurableService:
         command = {
             "argv": normalized_argv,
             "workspace_root": str(self.config.workspace_root),
+            "env_overrides": env_overrides,
         }
         row, _ = self.jobs.create(operation_id, command, cwd)
         result = self._job_response(row)

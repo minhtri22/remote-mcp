@@ -194,8 +194,13 @@ class OwnerOAuthProvider:
         return RefreshToken(token=refresh_token, **e)
 
     async def exchange_refresh_token(self, client, refresh_token: RefreshToken, scopes: list[str]):
-        self.refresh.pop(_h(refresh_token.token), None)  # xoay vòng
-        return self._issue(client.client_id, scopes or refresh_token.scopes, refresh_token.resource)
+        # Newer MCP SDK RefreshToken models may not expose resource.
+        # Preserve it from our stored token record while rotating the old token.
+        stored = self.refresh.pop(_h(refresh_token.token), None)  # xoay vòng
+        resource = getattr(refresh_token, "resource", None)
+        if resource is None and stored is not None:
+            resource = stored.get("resource")
+        return self._issue(client.client_id, scopes or refresh_token.scopes, resource)
 
     async def load_access_token(self, token: str):
         e = self.access.get(_h(token))

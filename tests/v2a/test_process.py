@@ -4,7 +4,12 @@ import os
 
 from remotemcp.durable.config import DEFAULT_DURABLE_ALLOWED_CMDS, safe_child_env
 from remotemcp.durable.models import ProcessFingerprint
-from remotemcp.durable.process import command_sha256, fingerprint_process, verify_fingerprint
+from remotemcp.durable.process import (
+    command_sha256,
+    fingerprint_process,
+    verify_fingerprint,
+    windows_process_options,
+)
 
 
 def test_current_process_fingerprint_and_pid_reuse_rejection():
@@ -46,3 +51,16 @@ def test_atomic_metadata_replace_retries_transient_permission_error(tmp_path, mo
     procmod.atomic_write_json(target,{"ok":True})
     assert calls["n"]==3
     assert target.read_text(encoding="utf-8")=='{"ok":true}'
+
+def test_windows_process_options_hide_console_by_default(monkeypatch):
+    if os.name!="nt":
+        return
+    import subprocess
+    monkeypatch.delenv("REMOTEMCP_SHOW_CONSOLE",raising=False)
+    flags, startupinfo = windows_process_options()
+    assert flags & getattr(subprocess,"CREATE_NO_WINDOW",0x08000000)
+    assert flags & getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0x00000200)
+    assert not (flags & getattr(subprocess,"DETACHED_PROCESS",0x00000008))
+    assert startupinfo is not None
+    assert startupinfo.dwFlags & getattr(subprocess,"STARTF_USESHOWWINDOW",0x00000001)
+    assert startupinfo.wShowWindow == getattr(subprocess,"SW_HIDE",0)

@@ -1,10 +1,11 @@
 # RemoteMCP v2 — Durable Multi-Agent Runtime Implementation Plan
 
 Status: ACTIVE
-Current gate: REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION
+Current gate: REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTION
 V2-0 status: PASS (2026-09-30)
 V2-A status: PASS (2026-09-30)
 V2-B status: PASS (2026-09-30)
+V2-BD implementation status: PASS / real two-machine pilot pending (2026-10-01)
 Repository: minhtri22/remote-mcp
 Local source: D:\WORK\RESEARCH\RemoteMCP-src
 

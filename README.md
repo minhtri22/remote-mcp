@@ -251,3 +251,73 @@ Release evidence: `docs/V2_B_PRODUCTION_RELEASE_2026-09-30.md`.
 Next authorized phase:
 
 `V2-BD — Multi-device execution routing`, beginning with `REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK`.
+
+### V2-BD — Routing implementation + zero-science qualification: PASS
+
+Closed subphase: 2026-10-01.
+
+Delivered:
+
+- migration 003 and node-local schema v1;
+- stable execution-device identity dev_* with Ed25519 pairing/revoke;
+- outbound-only node transport through the existing public origin;
+- timestamp/nonce/route-generation replay protection;
+- ONLINE/OFFLINE/REVOKED semantics;
+- project -> device binding and immutable task -> device inheritance;
+- same-device durable command routing with no silent migration/failover;
+- node-local crash-recoverable CAS;
+- routed durable-job proxy backed by the V2-A node-local durable runtime;
+- exact 12-tool V2-BD public surface, bringing the source-qualified MCP surface to 44 tools;
+- Windows headless child-process execution so RemoteMCP workers/jobs do not open console windows or steal focus;
+- target-device identity observability: device status and device-bound project/task/read/CAS/job results expose routing.device_id, device name, hostname and device state.
+
+Routing rule:
+
+    device_list / device_status
+            ↓
+    project_register_on_device(device_id, ...)
+            ↓
+    project_device_bindings
+            ↓
+    task_create
+            ↓
+    immutable task_device_bindings
+            ↓
+    task_* routed operations
+
+Legacy run_command/read_file/write_file remain gateway-local compatibility tools and intentionally do not accept a device_id. A task-scoped call also does not accept a device override; it derives execution placement from the frozen task binding.
+
+Qualification evidence:
+
+- V2-BD implementation tests: **30/30 PASS**;
+- V2-B regression: **24/24 PASS**;
+- V2-A regression: **28/28 PASS**;
+- V2-0 regression: **17/17 PASS**;
+- OAuth integration: **PASS with 44 tools**;
+- pairing/auth/command replay qualification: **PASS**;
+- node CAS restart recovery: **PASS**;
+- routed-job restart recovery: **PASS**;
+- two-node loopback routing: **PASS**, no_cross_route=true;
+- real-Windows headless-process qualification: **PASS** (console_handle=0, zero visible child windows, foreground unchanged);
+- public tunnel smoke and post-implementation static validator: **PASS**.
+
+A physical-machine-2 check against the still-deployed V2-B production surface returned HOSTNAME=DESKTOP-4PSD0G2 through legacy run_command. That is retained as negative evidence that the production 32-tool gateway-local surface must not be confused with V2-BD execution routing.
+
+Current boundary:
+
+- **V2-BD as a whole is not yet PASS**;
+- the public production runtime is still the earlier V2-B release;
+- no real V2-BD execution node has yet been paired for the physical pilot;
+- no research project has been bound to a V2-BD execution device.
+
+Detailed evidence:
+
+- docs/V2_BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION.md
+- docs/V2_BD_TARGET_DEVICE_IDENTITY_OBSERVABILITY_AMENDMENT.md
+- specs/v2bd_implementation_qualification_manifest.json
+
+Next authorized gate:
+
+REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTION
+
+The pilot must use isolated disposable roots on both physical machines and prove distinct dev_* identities, distinct physical host identity/marker evidence, project/task binding, routed-job execution on the expected host, offline/reconnect behavior, and no cross-route execution before V2-BD can be closed.

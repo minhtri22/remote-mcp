@@ -646,3 +646,25 @@ The clear pairing code is never persisted in SQLite, operation result JSON, logs
 A replay of the same successful `device_pair_begin` may re-derive the same code only while that exact pairing is unused and unexpired. If the pairing has already been consumed, replay returns its used status/device ID without returning the clear code.
 
 If unused/unexpired pairing rows exist but the pairing secret is missing or unreadable, startup fails closed with `STARTUP_FATAL_PAIRING_KEY_MISSING`.
+
+## Pairing CLI identity amendment
+
+Implementation exposed one transport/CLI mismatch before the pair CLI was written:
+
+- `/device/v1/pair` requires `pairing_id`;
+- the secret code format `pc1_<nonce>_<mac>` intentionally does not encode `pairing_id`;
+- the previously frozen CLI accepted only `--code-file`, so a node could not construct the required pair request.
+
+Prospective correction:
+
+```text
+python -m remotemcp.node pair
+  --url <URL>
+  --pairing-id <PAIRING_ID>
+  --code-file <FILE>
+  --name <NAME>
+  --root <ROOT>
+  --runtime-dir <RUNTIME>
+```
+
+`pairing_id` is non-secret routing metadata. The clear pairing code remains secret, remains file-only, and is still deleted before the network request. No pairing-code format, HMAC derivation, one-time semantics, or HTTP pair payload semantics are weakened.

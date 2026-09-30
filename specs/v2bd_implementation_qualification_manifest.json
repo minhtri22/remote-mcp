@@ -1,0 +1,50 @@
+{
+  "gate": "REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION",
+  "status": "PASS",
+  "closed_at": "2026-10-01",
+  "qualified_source_parent_head": "ab7eb76",
+  "tests": {
+    "v2bd": "30/30 PASS",
+    "v2b": "24/24 PASS",
+    "v2a": "28/28 PASS",
+    "v2_0": "17/17 PASS",
+    "oauth_integration": "PASS / 44 tools",
+    "public_smoke": "PASS",
+    "diff_check": "PASS",
+    "post_implementation_validator": "PASS"
+  },
+  "qualifications": {
+    "pairing_replay": "PASS",
+    "auth_replay_stale_timestamp_stale_generation": "PASS",
+    "command_replay_idempotency": "PASS",
+    "node_cas_restart": "PASS",
+    "routed_job_restart": "PASS",
+    "two_node_loopback_no_cross_route": "PASS",
+    "windows_headless_processes": "PASS"
+  },
+  "target_device_identity_amendment": {
+    "spec": "specs/v2bd_target_identity_amendment.json",
+    "legacy_gateway_negative_evidence": {
+      "caller_context": "physical-machine-2 chat",
+      "legacy_tool": "run_command",
+      "observed_hostname": "DESKTOP-4PSD0G2",
+      "interpretation": "Current deployed V2-B legacy tool is gateway-local; not evidence of V2-BD routing."
+    },
+    "routing_authority": "device_id dev_* via project binding and immutable task inheritance",
+    "auth_client_id_is_execution_identity": false,
+    "task_device_override_allowed": false,
+    "routed_identity_fields": [
+      "device_id",
+      "device_name",
+      "hostname",
+      "device_state"
+    ]
+  },
+  "production_boundary": {
+    "deployed_release": "V2-B / 32-tool surface",
+    "v2bd_candidate_deployed": false,
+    "real_execution_devices_paired": false,
+    "research_projects_bound": false
+  },
+  "next_gate": "REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTION"
+}

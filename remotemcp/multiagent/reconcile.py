@@ -29,12 +29,24 @@ class MultiAgentReconciler:
                         (lease["task_id"],lease["agent_id"],lease["session_id"],t),
                     )
 
+    def _is_routed_task(self,task_id:str)->bool:
+        table=self.db.query_one(
+            "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='task_device_bindings'"
+        )
+        if table is None:
+            return False
+        return self.db.query_one(
+            "SELECT 1 AS x FROM task_device_bindings WHERE task_id=?",(task_id,)
+        ) is not None
+
     def reconcile_claimed(self)->None:
         t=now_ms()
         rows=self.db.query_all(
             "SELECT t.*,p.root_rel,p.project_kind FROM tasks t JOIN projects p ON p.project_id=t.project_id WHERE t.state='CLAIMED'"
         )
         for task in rows:
+            if self._is_routed_task(task["task_id"]):
+                continue
             lease=self.db.query_one("SELECT * FROM task_leases WHERE task_id=?",(task["task_id"],))
             if lease is None or lease["expires_at_ms"]<=t:
                 continue
@@ -54,6 +66,8 @@ class MultiAgentReconciler:
             "SELECT t.*,p.root_rel,p.project_kind FROM tasks t JOIN projects p ON p.project_id=t.project_id WHERE t.state='RUNNING'"
         )
         for task in rows:
+            if self._is_routed_task(task["task_id"]):
+                continue
             if task["project_kind"]!="GIT": continue
             try:
                 self.worktrees.validate(self.projects.root_path(task),task)
@@ -71,6 +85,8 @@ class MultiAgentReconciler:
             "SELECT * FROM operations WHERE kind='TASK_CLAIM' AND state IN ('RESERVED','EXECUTING') ORDER BY created_at_ms"
         )
         for op in rows:
+            if op["task_id"] and self._is_routed_task(op["task_id"]):
+                continue
             task=self.db.query_one("SELECT * FROM tasks WHERE task_id=?",(op["task_id"],))
             if task is None:
                 if op["state"]=="RESERVED":

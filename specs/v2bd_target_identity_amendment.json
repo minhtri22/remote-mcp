@@ -1,0 +1,108 @@
+{
+  "amendment_id": "REMOTE_MCP_V2BD_TARGET_DEVICE_IDENTITY_OBSERVABILITY_AMENDMENT",
+  "status": "FROZEN_BEFORE_RUNTIME_PATCH",
+  "rationale": "A ChatGPT session on physical machine 2 currently invokes the legacy gateway-local run_command and observes HOSTNAME=DESKTOP-4PSD0G2. The V2-BD routing surface must make execution-device selection and inferred task placement externally observable before the real two-machine pilot can PASS.",
+  "invariants": {
+    "legacy_tools": [
+      "list_dir",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "search",
+      "run_command",
+      "job_submit",
+      "job_get",
+      "job_wait",
+      "job_logs",
+      "job_result",
+      "job_cancel"
+    ],
+    "legacy_semantics": "Remain gateway-local compatibility tools. They do not accept device_id/client_id and are not evidence of V2-BD execution routing.",
+    "selection_surface": [
+      "device_list() enumerates paired execution devices and their execution identity",
+      "device_status(device_id) observes one execution device",
+      "project_register_on_device(..., device_id, ...) explicitly selects the execution device",
+      "project_bind_device(..., device_id) explicitly selects/rebinds only where frozen safety rules allow",
+      "task_create inherits the selected project device in task_device_bindings"
+    ],
+    "task_routing": "Task-scoped operations must never accept a caller device override. They infer target device exclusively from immutable task_device_bindings.",
+    "oauth_client_not_execution_identity": "auth_client_id identifies OAuth/DCR session context and may legitimately be identical across two physical ChatGPT login machines. It MUST NOT be used as execution-device identity.",
+    "execution_identity": "Stable device_id (dev_*) is routing authority. device_name and node hostname are observability fields only."
+  },
+  "platform_reporting": {
+    "pair_request_fields": [
+      "platform.hostname",
+      "platform.system",
+      "platform.release",
+      "platform.machine",
+      "platform.python_version"
+    ],
+    "heartbeat_refreshes_platform": true,
+    "device_status_exposes": [
+      "device_id",
+      "device_name",
+      "state",
+      "route_generation",
+      "hostname",
+      "platform"
+    ],
+    "hostname_is_not_authority": true
+  },
+  "routed_response_metadata": {
+    "key": "routing",
+    "required_fields": [
+      "device_id",
+      "device_name",
+      "hostname",
+      "device_state"
+    ],
+    "optional_fields": [
+      "project_id",
+      "task_id",
+      "binding_generation"
+    ],
+    "required_on": [
+      "project_status for device-bound projects",
+      "task_status for device-bound tasks",
+      "project_register_on_device",
+      "project_bind_device",
+      "task_create for device-bound projects",
+      "task_claim for device-bound tasks",
+      "task_complete for device-bound tasks",
+      "task_list_dir",
+      "task_read_file",
+      "task_search",
+      "file_write_cas",
+      "file_edit_cas",
+      "task_job_submit",
+      "task_jobs",
+      "task_job_get",
+      "task_job_logs",
+      "task_job_result",
+      "task_job_cancel"
+    ]
+  },
+  "acceptance": {
+    "current_negative_evidence": "From physical machine 2, legacy run_command returned HOSTNAME=DESKTOP-4PSD0G2; this is expected for the still-deployed V2-B gateway-local surface and is NOT a V2-BD PASS.",
+    "real_pilot_requires": [
+      "device_list shows two distinct dev_* execution identities",
+      "device A and device B report distinct expected hostnames or equivalent physical-node marker evidence",
+      "project A explicitly bound to device A; project B explicitly bound to device B",
+      "task A/task B status expose matching routing.device_id and routing.hostname",
+      "a routed job on task B prints REMOTEMCP_DEVICE_ID matching device B and socket hostname matching physical machine 2",
+      "the same routed operation on task A resolves to physical machine 1",
+      "no task tool accepts a device override and no cross-route execution occurs"
+    ],
+    "auth_client_id_difference_required": false
+  },
+  "public_tool_count_unchanged": 44,
+  "schema_signature_change": false,
+  "next_gate_after_patch": "REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION",
+  "implementation_status": "PASS",
+  "qualified_at": "2026-10-01",
+  "qualification_evidence": {
+    "v2bd_tests": "30/30 PASS",
+    "two_node_loopback": "PASS / no_cross_route=true",
+    "oauth_surface": "PASS / 44 tools"
+  }
+}

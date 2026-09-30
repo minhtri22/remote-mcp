@@ -204,7 +204,7 @@
       "device_name",
       "node_pair_command"
     ],
-    "node_pair_command": "python -m remotemcp.node pair --url https://remote.threadon.xyz --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>"
+    "node_pair_command": "python -m remotemcp.node pair --url https://remote.threadon.xyz --pairing-id <PAIRING_ID> --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>"
   },
   "signed_request_verifier": {
     "headers": [
@@ -316,8 +316,8 @@
   "routed_workflow_steps": {
     "PROJECT_REGISTER_ON_DEVICE": [
       "step 0 PROJECT_PROBE",
-      "central project + project_device_binding persist after probe",
-      "step 1 PROJECT_BIND",
+      "derive internal projects.root_rel storage key and persist central project + project_device_binding.node_root_rel after probe",
+      "step 1 PROJECT_BIND with true node_root_rel",
       "operation success only after node binding ACK"
     ],
     "TASK_CREATE": "If project is device-bound, create tasks row + task_device_bindings row + TASK_CREATED/TASK_READY events in one BEGIN IMMEDIATE transaction.",
@@ -355,7 +355,8 @@
       "task_job_result": "terminal cached result may replay; otherwise route JOB_RESULT; offline => DEVICE_OFFLINE",
       "task_job_cancel": "requires current task lease; route JOB_CANCEL to bound device"
     },
-    "local_job_guard": "Gateway-local job_get/job_wait/job_logs/job_result/job_cancel reject rjob_* with ROUTED_JOB_USE_TASK_TOOLS."
+    "local_job_guard": "Gateway-local job_get/job_wait/job_logs/job_result/job_cancel reject rjob_* with ROUTED_JOB_USE_TASK_TOOLS.",
+    "terminal_result_cache": "Persist terminal JOB_RESULT response in routed_jobs.terminal_result_json; offline task_job_result replays it without contacting node."
   },
   "node_cas": {
     "journal": "node_cas_mutations",
@@ -390,7 +391,7 @@
   },
   "exact_cli": {
     "commands": {
-      "pair": "python -m remotemcp.node pair --url <HTTPS_OR_LOOPBACK_URL> --code-file <FILE> --name <NAME> --root <ROOT> --runtime-dir <RUNTIME>",
+      "pair": "python -m remotemcp.node pair --url <HTTPS_OR_LOOPBACK_URL> --pairing-id <PAIRING_ID> --code-file <FILE> --name <NAME> --root <ROOT> --runtime-dir <RUNTIME>",
       "run": "python -m remotemcp.node run --runtime-dir <RUNTIME>",
       "status": "python -m remotemcp.node status --runtime-dir <RUNTIME>",
       "doctor": "python -m remotemcp.node doctor --url <URL> --root <ROOT> --runtime-dir <RUNTIME>"
@@ -405,7 +406,8 @@
       "auth_or_revoked": 3,
       "transient_network": 4,
       "runtime_conflict": 5
-    }
+    },
+    "pairing_id": "Required non-secret pair_<...> returned by device_pair_begin; passed via --pairing-id. Never inferred from pairing code."
   },
   "server_integration": {
     "construction_order": [
@@ -579,5 +581,37 @@
     "implement automatic device migration/failover",
     "implement /ops UI"
   ],
-  "next_gate_on_pass": "REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
+  "next_gate_on_pass": "REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION",
+  "implementation_amendment_pairing_cli": {
+    "reason": "Pair HTTP requires pairing_id but the frozen pc1_<nonce>_<mac> secret does not encode it.",
+    "change": "Add required --pairing-id to node pair CLI and generated node_pair_command.",
+    "implementation_started_before_discovery": true,
+    "production_affected": false
+  },
+  "schema_path_namespace_amendment": {
+    "reason": "V2-B projects.root_rel has global UNIQUE constraint and cannot represent identical relative paths on different execution devices.",
+    "central_schema_change": [
+      "project_device_bindings.node_root_rel TEXT NOT NULL",
+      "UNIQUE(device_id,node_root_rel)"
+    ],
+    "remote_project_storage_key": "projects.root_rel = @v2bd/<device_id>/<sha256(node_root_rel)[:24]> for project_register_on_device only",
+    "routing_authority": "project_device_bindings.node_root_rel is the only physical node path authority for device-bound projects",
+    "existing_local_projects": "Unchanged. If explicitly bound to a device before any task state, their probed node path is persisted into node_root_rel.",
+    "destructive_changes": false,
+    "discovered_during_implementation_before_any_v2bd_runtime_qualification": true
+  },
+  "routed_job_terminal_cache_amendment": {
+    "reason": "Frozen routed-job observation semantics require terminal result replay while device is offline.",
+    "central_schema_change": "routed_jobs.terminal_result_json TEXT",
+    "destructive_changes": false,
+    "discovered_during_implementation_before_any_v2bd_runtime_qualification": true
+  },
+  "target_device_identity_observability_amendment": {
+    "status": "FROZEN_BEFORE_RUNTIME_PATCH",
+    "spec": "specs/v2bd_target_identity_amendment.json",
+    "public_tool_count_unchanged": 44,
+    "task_device_override_forbidden": true,
+    "auth_client_id_is_not_execution_identity": true,
+    "real_two_machine_pilot_requires_hostname_and_device_id_evidence": true
+  }
 }

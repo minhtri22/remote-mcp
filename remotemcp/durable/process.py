@@ -234,6 +234,51 @@ def signal_owned_process(expected: ProcessFingerprint) -> bool:
         return False
 
 
+def windows_show_console() -> bool:
+    value = os.environ.get("REMOTEMCP_SHOW_CONSOLE", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def windows_process_options(
+    *,
+    show_console: bool | None = None,
+    new_process_group: bool = True,
+) -> tuple[int, subprocess.STARTUPINFO | None]:
+    """Return Windows subprocess options that never create/show a console by default.
+
+    Debugging is opt-in with REMOTEMCP_SHOW_CONSOLE=1.  CREATE_NO_WINDOW is
+    used instead of DETACHED_PROCESS so console executables such as Python,
+    Ollama, llama.cpp and test runners stay invisible without changing their
+    stdout/stderr pipe/file semantics.
+    """
+    if os.name != "nt":
+        return 0, None
+
+    visible = windows_show_console() if show_console is None else bool(show_console)
+    flags = 0
+    if new_process_group:
+        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+
+    startupinfo = None
+    if not visible:
+        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001)
+        startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+
+    return flags, startupinfo
+
+
+def current_console_window_handle() -> int:
+    """Best-effort diagnostic used by qualification tests on Windows."""
+    if os.name != "nt":
+        return 0
+    try:
+        return int(ctypes.windll.kernel32.GetConsoleWindow() or 0)
+    except Exception:
+        return -1
+
+
 def worker_argv(runtime_dir: Path, job_id: str, launch_nonce: str) -> list[str]:
     return [
         sys.executable,
@@ -265,12 +310,8 @@ def spawn_worker(
 
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     log = open(stderr_path, "ab", buffering=0)
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = (
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-            | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-        )
+    creationflags, startupinfo = windows_process_options()
+    env["REMOTEMCP_SHOW_CONSOLE"] = "1" if windows_show_console() else "0"
     try:
         proc = subprocess.Popen(
             argv,
@@ -281,6 +322,7 @@ def spawn_worker(
             stderr=log,
             shell=False,
             creationflags=creationflags,
+            startupinfo=startupinfo,
             close_fds=True,
         )
     finally:

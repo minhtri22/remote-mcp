@@ -20,12 +20,14 @@ class Database:
         # by the frozen checksum-drift regression harness.
         self.migration_path = durable_dir / "migrations" / "001_v2a.sql"
         self.migration_v2_path = package_root / "multiagent" / "migrations" / "002_v2b.sql"
+        self.migration_v3_path = package_root / "routing" / "migrations" / "003_v2bd.sql"
 
     @property
     def migrations(self):
         return [
             (1, self.migration_path),
             (2, self.migration_v2_path),
+            (3, self.migration_v3_path),
         ]
 
     def connect(self) -> sqlite3.Connection:
@@ -60,7 +62,7 @@ class Database:
             if version > int(target_version):
                 break
             if not path.exists():
-                if version == 2:
+                if version in (2, 3):
                     continue
                 raise DurableError(
                     "STARTUP_FATAL_SCHEMA_MISMATCH",

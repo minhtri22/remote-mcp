@@ -20,6 +20,8 @@ from .process import (
     read_json,
     signal_owned_process,
     worker_argv,
+    windows_process_options,
+    current_console_window_handle,
 )
 
 
@@ -98,6 +100,7 @@ def main() -> int:
         "phase": "WAITING_FOR_COMMIT",
         "worker_fingerprint": worker_fp.to_dict(),
         "payload_fingerprint": None,
+        "worker_console_window_handle": current_console_window_handle(),
         "updated_at_ms": now_ms(),
     }
     atomic_write_json(job_dir / "worker.json", worker_meta)
@@ -146,9 +149,13 @@ def main() -> int:
         return 0
 
     env = safe_child_env(workspace_root)
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+    for key, value in dict(command.get("env_overrides") or {}).items():
+        if key not in {"REMOTEMCP_DEVICE_ID", "REMOTEMCP_PROJECT_ID"}:
+            return 25
+        if not isinstance(value, str):
+            return 25
+        env[key] = value
+    creationflags, startupinfo = windows_process_options()
 
     stdout_path = runtime_dir / row["stdout_path"]
     stderr_path = runtime_dir / row["stderr_path"]
@@ -164,6 +171,7 @@ def main() -> int:
             stderr=err,
             shell=False,
             creationflags=creationflags,
+            startupinfo=startupinfo,
             close_fds=True,
         )
 

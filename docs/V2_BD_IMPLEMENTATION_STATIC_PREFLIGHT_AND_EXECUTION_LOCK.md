@@ -229,3 +229,25 @@ Production `127.0.0.1:8099` must remain untouched during V2-BD implementation an
 After static PASS:
 
 `REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION`
+
+## Pairing CLI identity amendment
+
+Implementation exposed one transport/CLI mismatch before the pair CLI was written:
+
+- `/device/v1/pair` requires `pairing_id`;
+- the secret code format `pc1_<nonce>_<mac>` intentionally does not encode `pairing_id`;
+- the previously frozen CLI accepted only `--code-file`, so a node could not construct the required pair request.
+
+Prospective correction:
+
+```text
+python -m remotemcp.node pair
+  --url <URL>
+  --pairing-id <PAIRING_ID>
+  --code-file <FILE>
+  --name <NAME>
+  --root <ROOT>
+  --runtime-dir <RUNTIME>
+```
+
+`pairing_id` is non-secret routing metadata. The clear pairing code remains secret, remains file-only, and is still deleted before the network request. No pairing-code format, HMAC derivation, one-time semantics, or HTTP pair payload semantics are weakened.

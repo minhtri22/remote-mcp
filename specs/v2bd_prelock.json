@@ -62,7 +62,7 @@
     "ttl_seconds": 600,
     "one_time": true,
     "completion_endpoint": "POST /device/v1/pair",
-    "node_cli": "python -m remotemcp.node pair --url https://remote.threadon.xyz --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>",
+    "node_cli": "python -m remotemcp.node pair --url https://remote.threadon.xyz --pairing-id <PAIRING_ID> --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>",
     "proof_of_possession": "Initial pair request includes Ed25519 public key and a signature over canonical pairing payload; gateway verifies signature with submitted public key plus one-time pairing code.",
     "result": "Gateway creates dev_* identity, route_generation=1, state ONLINE; node persists device_id/public origin/key fingerprint.",
     "re_pair_revoked": "Forbidden. Pair as a new device identity.",
@@ -74,7 +74,8 @@
     "code_format": "pc1_<nonce>_<base64url(HMAC-SHA256(pairing_secret, pairing_id|owner_account_id|requested_name|nonce))>",
     "code_derivation": "Clear pairing code is deterministically re-derived only while that exact unused, unexpired pairing row exists. Clear code is never persisted in SQLite, operation results, logs, or events.",
     "pair_begin_replay": "Same successful device_pair_begin operation may re-derive and return the same clear pairing code while unused/unexpired. If pairing is already used, replay returns pairing_id/device_id/status=USED without clear code.",
-    "secret_startup_rule": "Create key atomically once. If an unused unexpired pairing exists but device-pairing.key is missing/unreadable, startup fails STARTUP_FATAL_PAIRING_KEY_MISSING."
+    "secret_startup_rule": "Create key atomically once. If an unused unexpired pairing exists but device-pairing.key is missing/unreadable, startup fails STARTUP_FATAL_PAIRING_KEY_MISSING.",
+    "pairing_id_cli_rule": "pairing_id is non-secret routing metadata and is passed explicitly via --pairing-id; pairing_code remains secret and is accepted only from --code-file."
   },
   "auth_replay_protection": {
     "protocol_version": "RMCPNODE1",
@@ -177,19 +178,22 @@
     "create_tool": "project_register_on_device",
     "explicit_rebind_tool": "project_bind_device",
     "binding_generation": "Monotonic integer per project binding.",
-    "path_semantics": "projects.root_rel is relative to that device's MCP_NODE_ROOT, not gateway filesystem.",
+    "path_semantics": "For a device-bound project, project_device_bindings.node_root_rel is the canonical path relative to that device's MCP_NODE_ROOT. projects.root_rel remains the V2-B globally-unique storage key; for new remote projects it is an internal @v2bd/<device_id>/<hash> key and is not routing authority.",
     "register_protocol": [
       "require device ONLINE",
       "operation step 0: route PROJECT_PROBE to device to canonicalize path under MCP_NODE_ROOT and detect GIT/NON_GIT",
-      "persist project + project_device_binding only after successful probe",
-      "operation step 1: route PROJECT_BIND so node persists project_id->root mapping",
+      "derive internal globally-unique projects.root_rel storage key from device_id + canonical node_root_rel",
+      "persist project + project_device_binding(node_root_rel) only after successful probe",
+      "operation step 1: route PROJECT_BIND with the true node_root_rel so node persists project_id->root mapping",
       "operation succeeds only after both central and node binding records agree"
     ],
     "existing_project_bind": "Allowed only when project has no non-terminal tasks, no non-terminal routed jobs, and no task_device_bindings requiring the old device.",
     "rebind_online_rule": "Explicit rebind requires old device ONLINE and clean/no-active-work confirmation, unless project has never executed a task.",
     "offline_rebind": "Forbidden in V2-BD. Offline-device migration requires a separate prospectively locked migration protocol.",
     "revoked_rebind": "Forbidden in V2-BD for projects with prior task/worktree state.",
-    "direct_project_register_guard": "After the first execution device is paired, legacy project_register is rejected DEVICE_CONTEXT_REQUIRED; use project_register_on_device."
+    "direct_project_register_guard": "After the first execution device is paired, legacy project_register is rejected DEVICE_CONTEXT_REQUIRED; use project_register_on_device.",
+    "remote_storage_key": "@v2bd/<device_id>/<sha256(node_root_rel)[:24]>",
+    "node_path_uniqueness": "UNIQUE(device_id,node_root_rel)"
   },
   "task_binding": {
     "table": "task_device_bindings",
@@ -253,7 +257,8 @@
       "task_job_logs": "Route bounded JOB_LOGS to bound device; OFFLINE returns DEVICE_OFFLINE and never falls back to gateway-local job logs.",
       "task_job_result": "Route JOB_RESULT when ONLINE; terminal cached result may replay centrally once persisted. OFFLINE with no cached terminal result returns DEVICE_OFFLINE.",
       "gateway_v2a_job_tools": "job_get/job_logs/job_result remain gateway-local and MUST reject rjob_* with ROUTED_JOB_USE_TASK_TOOLS."
-    }
+    },
+    "central_terminal_result_cache": "routed_jobs.terminal_result_json stores the last terminal JOB_RESULT payload so task_job_result can replay while the bound device is offline."
   },
   "public_tools": {
     "device_pair_begin": "async def device_pair_begin(operation_id: str, device_name: str) -> dict",
@@ -394,6 +399,9 @@
     "routed_job_api_gap": "Added task_job_get/task_job_logs/task_job_result because gateway-local V2-A job observation tools cannot safely observe rjob_* on remote execution nodes.",
     "public_tool_count_after_amendment": 12,
     "pairing_cli_hardening": "Pairing secret moved from argv to one-time --code-file to avoid process-list/shell-history disclosure.",
-    "pairing_response_replay": "Added device_pairings.code_nonce + runtime-local device-pairing.key so a lost device_pair_begin response can replay the same clear code without persisting that code."
+    "pairing_response_replay": "Added device_pairings.code_nonce + runtime-local device-pairing.key so a lost device_pair_begin response can replay the same clear code without persisting that code.",
+    "pair_cli_gap": "Added explicit --pairing-id because pair HTTP requires pairing_id while pc1_<nonce>_<mac> code does not encode it.",
+    "multi_device_project_path_namespace": "V2-B projects.root_rel is globally UNIQUE, which cannot represent the same relative path on two devices. V2-BD therefore stores the real path in project_device_bindings.node_root_rel with UNIQUE(device_id,node_root_rel), while projects.root_rel is an internal unique storage key for newly remote-registered projects.",
+    "routed_job_terminal_cache": "Added routed_jobs.terminal_result_json because the frozen offline task_job_result contract requires central terminal-result replay storage."
   }
 }

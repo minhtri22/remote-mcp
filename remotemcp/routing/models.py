@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class DeviceState(StrEnum):
+    ONLINE="ONLINE"
+    OFFLINE="OFFLINE"
+    REVOKED="REVOKED"
+
+
+class CommandState(StrEnum):
+    QUEUED="QUEUED"
+    LEASED="LEASED"
+    SUCCEEDED="SUCCEEDED"
+    FAILED="FAILED"
+    CANCELLED="CANCELLED"
+    IN_DOUBT="IN_DOUBT"
+
+
+TERMINAL_COMMAND_STATES={
+    CommandState.SUCCEEDED.value,
+    CommandState.FAILED.value,
+    CommandState.CANCELLED.value,
+    CommandState.IN_DOUBT.value,
+}
+
+MUTATING_COMMANDS={
+    "PROJECT_BIND",
+    "TASK_WORKTREE_ENSURE",
+    "FILE_WRITE_CAS",
+    "FILE_EDIT_CAS",
+    "JOB_SUBMIT",
+    "JOB_CANCEL",
+    "TASK_WORKTREE_CLEANUP",
+}
+
+ALLOWED_COMMANDS={
+    "PROJECT_PROBE","PROJECT_BIND","TASK_WORKTREE_ENSURE",
+    "TASK_LIST_DIR","TASK_READ_FILE","TASK_SEARCH",
+    "FILE_WRITE_CAS","FILE_EDIT_CAS",
+    "JOB_SUBMIT","JOB_GET","JOB_LOGS","JOB_RESULT","JOB_CANCEL",
+    "TASK_WORKTREE_STATUS","TASK_WORKTREE_CLEANUP",
+}
