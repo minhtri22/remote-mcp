@@ -24,20 +24,37 @@ def main():
     root=(user/"RemoteMCP-V2BD-Pilot"/"workspace").resolve()
     runtime=(user/"RemoteMCP-V2BD-Pilot"/"runtime").resolve()
     lowered=(str(root)+" "+str(runtime)).lower()
+    repo=Path(__file__).resolve().parents[1]
+    plan=(repo/"docs"/"REMOTE_MCP_V2_PLAN.md").read_text(encoding="utf-8")
+    gate="REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTION"
     checks={
         "host":host,"expected_host":host in EXPECTED,
         "root":str(root),"runtime":str(runtime),
         "forbidden_research_path":any(x in lowered for x in FORBIDDEN),
         "root_absent_or_empty":(not root.exists()) or not any(root.iterdir()),
         "runtime_absent_or_empty":(not runtime.exists()) or not any(runtime.iterdir()),
+        "gate_open":f"Current gate: {gate}" in plan,
     }
     print(json.dumps(checks,indent=2))
     if not a.execute:
         raise SystemExit("PILOT_LOCKED: implementation qualification may not execute the real two-machine pilot")
     if not a.ack_isolated_pilot:
         raise SystemExit("PILOT_LOCKED: --ack-isolated-pilot required")
-    if not checks["expected_host"] or checks["forbidden_research_path"] or not checks["root_absent_or_empty"] or not checks["runtime_absent_or_empty"]:
+    if (
+        not checks["expected_host"]
+        or checks["forbidden_research_path"]
+        or not checks["root_absent_or_empty"]
+        or not checks["runtime_absent_or_empty"]
+        or not checks["gate_open"]
+    ):
         raise SystemExit("PILOT_PREFLIGHT_FAILED")
-    raise SystemExit("PILOT_EXECUTION_NOT_OPENED_BY_CURRENT_GATE")
+    print(json.dumps({
+        "verdict":"PASS",
+        "gate":"REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTION",
+        "host":host,
+        "expected":EXPECTED[host],
+        "root":str(root),
+        "runtime":str(runtime),
+    },indent=2))
 
 if __name__=="__main__":main()
