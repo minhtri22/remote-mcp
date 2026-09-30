@@ -29,6 +29,7 @@ def test_legacy_run_command_preserves_output_and_safe_env(tmp_path, monkeypatch)
     assert env["HOME"]==str(tmp_path.resolve())
     assert env["PATH"]==os.environ["PATH"]
     assert "OWNER_PASSWORD" not in env
+    assert captured["kwargs"]["creationflags"]==server.background_process_creationflags()
 
 
 def test_legacy_run_command_rejects_shell():
