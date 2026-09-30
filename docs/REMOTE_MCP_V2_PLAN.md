@@ -16,6 +16,7 @@ Target properties:
 - survive browser/client disconnects and OAuth reconnects;
 - never blindly replay mutating operations;
 - allow multiple agents to work concurrently without corrupting a shared workspace;
+- allow one owner account to stay logged in on multiple client devices concurrently, and require a later multi-execution-device routing phase before production release;
 - isolate Git work by task/worktree;
 - persist task/job/event state in SQLite WAL;
 - support long-running llama/Ollama/pytest/research jobs without holding one HTTP request open;
@@ -273,7 +274,16 @@ When it does not, expose the fallback job_* tools above.
 
 Do not make the persistence layer depend on one MCP SDK version.
 
-## 6. Multi-agent model
+## 6. Multi-agent and multi-device model
+
+Account identity is distinct from OAuth client identity.
+
+One stable `owner_account_id` owns the control-plane namespace. Different OAuth DCR clients from two login machines may keep concurrent ACTIVE sessions under that owner; routing is by explicit `session_id`, never by last login.
+
+V2-B covers this multi-login-device requirement.
+
+A separate mandatory pre-release phase, **V2-BD — Multi-device execution routing**, will cover multiple RemoteMCP execution machines under the same owner account. Projects will bind to a stable `device_id`; tasks inherit the project device; no non-terminal task silently migrates between devices.
+
 
 Every call that participates in durable work is associated with:
 
@@ -582,6 +592,26 @@ Exit gate:
 - dead agent lease recovers without killing its durable process;
 - resumed agent receives deterministic task state.
 
+### V2-BD — Multi-device execution routing
+
+BD1. stable device_id per RemoteMCP installation.
+BD2. device pairing/registration under one owner account.
+BD3. project -> device binding.
+BD4. task inherits project device.
+BD5. single-endpoint routing to the correct execution device.
+BD6. device heartbeat/offline semantics.
+BD7. no silent cross-device task migration.
+BD8. node authentication/transport replay protection.
+BD9. two-device qualification.
+
+Exit gate:
+
+- one owner account can use at least two execution machines through one control-plane namespace;
+- projects/tasks route deterministically to the bound device;
+- device offline does not reassign or corrupt task/job/worktree state;
+- reconnect restores routing without duplicating work;
+- both login devices and execution devices coexist without last-login-wins behavior.
+
 ### V2-C — Context Broker
 
 C1. project registry/manifest.
@@ -657,7 +687,8 @@ Required order:
 
     V2-0 baseline freeze
       -> V2-A durability
-      -> V2-B multi-agent
+      -> V2-B multi-agent + multi-login-device
+      -> V2-BD multi-device execution routing
       -> V2-C context broker
       -> V2-D native MCP Tasks integration
 
@@ -706,6 +737,7 @@ A major phase includes at minimum:
 - V2-0
 - V2-A
 - V2-B
+- V2-BD
 - V2-C
 - V2-D
 
