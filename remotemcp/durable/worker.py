@@ -15,6 +15,7 @@ from .jobs import JobRepository
 from .models import JobState, now_ms
 from .process import (
     atomic_write_json,
+    background_process_creationflags,
     command_sha256,
     fingerprint_process,
     read_json,
@@ -146,9 +147,7 @@ def main() -> int:
         return 0
 
     env = safe_child_env(workspace_root)
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+    creationflags = background_process_creationflags()
 
     stdout_path = runtime_dir / row["stdout_path"]
     stderr_path = runtime_dir / row["stderr_path"]
