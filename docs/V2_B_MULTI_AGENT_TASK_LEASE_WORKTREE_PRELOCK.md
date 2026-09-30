@@ -22,18 +22,42 @@ The redesign is deployed only after the remaining planned phases are complete, a
 
 ## Identity model
 
-`principal_key` comes from authenticated server context and is never caller supplied.
+The account identity is **not** OAuth `client_id`.
+
+RemoteMCP is currently a single-owner control plane, so it persists one stable server-generated `owner_account_id` (`own_...`). Every successfully authorized OAuth client maps to that owner account.
+
+The current OAuth `AccessToken.client_id` is stored only as `auth_client_id` on the session for audit/client isolation.
 
 A logical agent has:
 
 - stable server-generated `agent_id`;
-- caller-generated opaque `client_instance_id`, unique under one principal;
+- caller-generated opaque `client_instance_id`, unique under one owner account;
 - human `agent_name`;
 - zero or more sessions.
 
-Same principal + client instance resolves the same agent ID. Each registration creates a fresh `session_id`.
+Same `owner_account_id + client_instance_id` resolves the same agent ID. Every successful registration creates a fresh `session_id` bound to the current `auth_client_id`.
+
+Multiple sessions from two different login machines/OAuth clients may remain ACTIVE concurrently. There is no last-login-wins rule.
 
 A task lease belongs to exactly one session.
+
+## Multi-device requirement
+
+V2-B directly covers **multi-login-device**:
+
+```text
+one owner account
+   ├── laptop A / OAuth client A / session A
+   └── laptop B / OAuth client B / session B
+```
+
+Both sessions can register, heartbeat and use tasks concurrently. They are routed by explicit `session_id` and lease epoch/token, never by whichever device logged in most recently.
+
+A second layer is required when both physical machines are also **execution machines with their own local workspace/processes**. That is a mandatory pre-release successor:
+
+`REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK`
+
+V2-BD will freeze stable `device_id`, project→device binding, task inheritance, offline behavior, node pairing/authentication and the single-endpoint routing transport. A non-terminal task may never silently migrate between devices.
 
 ## Task state machine
 
