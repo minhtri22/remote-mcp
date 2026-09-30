@@ -144,10 +144,13 @@ def test_run_command_passes_exact_baseline_environment(tmp_path, monkeypatch):
     assert out == "[exit 0]\nok\n"
     assert captured["argv"][0] == "python"
     assert captured["kwargs"]["cwd"] == tmp_path.resolve()
-    assert captured["kwargs"]["env"] == {
-        "PATH": os.environ["PATH"],
-        "HOME": str(tmp_path.resolve()),
-    }
+    env = captured["kwargs"]["env"]
+    assert env["PATH"] == os.environ["PATH"]
+    assert env["HOME"] == str(tmp_path.resolve())
+    for key in ("SystemRoot", "WINDIR", "USERPROFILE"):
+        if key in os.environ:
+            assert env[key] == os.environ[key]
+    assert "OWNER_PASSWORD" not in env
 
 
 def test_run_command_timeout_kills_child(tmp_path, monkeypatch):

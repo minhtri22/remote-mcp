@@ -15,6 +15,7 @@ os.environ.setdefault("PUBLIC_URL", "http://localhost:8765")
 os.environ.setdefault("OWNER_PASSWORD", "correct-horse-battery")
 os.environ.setdefault("MCP_ROOT", str(SRC_ROOT / ".v2test-root"))
 os.environ.setdefault("MCP_STATE", str(SRC_ROOT / ".v2test-state.json"))
+os.environ.setdefault("MCP_RUNTIME_DIR", str(SRC_ROOT / ".v2test-runtime"))
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))

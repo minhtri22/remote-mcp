@@ -1,9 +1,7 @@
-"""Run V2-0 pytest suite from the frozen RemoteMCP run_command environment.
+"""Run only the frozen V2-0 regression denominator (17 tests).
 
-The current run_command intentionally passes only PATH + HOME. On Windows this
-breaks asyncio/anyio before pytest can load conftest.py. This bootstrap restores
-only the host variables required to start the test runner. It does NOT change
-RemoteMCP runtime behavior.
+The bootstrap keeps the test runner independent from the invoking process
+environment and does not add V2-A tests to the V2-0 denominator.
 """
 import os
 import sys
@@ -16,5 +14,9 @@ os.environ.setdefault("USERPROFILE", r"C:\Users\minht")
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-args = [str(ROOT / "tests"), "-q"]
+args = [
+    str(ROOT / "tests" / "test_baseline_contract.py"),
+    str(ROOT / "tests" / "test_oauth_provider_unit.py"),
+    "-q",
+]
 raise SystemExit(pytest.main(args))

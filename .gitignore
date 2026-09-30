@@ -9,6 +9,11 @@ venv/
 *.log
 .mcp-commander-state.json
 .remotemcp/
+.v2test-runtime/
+.v2test-runtime-impl/
+.v2test-root/
+.v2test-state.json
+.qualification/
 .remote-worktrees/
 dist/
 build/

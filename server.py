@@ -15,6 +15,7 @@ import asyncio
 import os
 import re
 import shlex
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
@@ -26,6 +27,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 from urllib.parse import urlparse
 
 from oauth_provider import SCOPE, OwnerOAuthProvider
+from remotemcp.durable.config import DurableConfig, safe_child_env
+from remotemcp.durable.service import DurableService
 
 import mcp.server.auth.routes as auth_routes
 
@@ -57,6 +60,19 @@ ALLOWED_CMDS = {"ls", "cat", "grep", "rg", "git", "python", "pip", "node", "npm"
 MAX_OUT = 20_000       # ký tự tối đa trả về cho agent
 CMD_TIMEOUT = 60       # giây
 
+DURABLE_CONFIG = DurableConfig.from_env(ROOT)
+durable_service = DurableService(DURABLE_CONFIG)
+
+
+@asynccontextmanager
+async def durable_lifespan(_app):
+    await durable_service.start()
+    try:
+        yield {}
+    finally:
+        await durable_service.stop()
+
+
 provider = OwnerOAuthProvider(
     base_url=PUBLIC_URL,
     state_file=Path(os.environ.get("MCP_STATE", "~/.mcp-commander-state.json")).expanduser(),
@@ -69,6 +85,7 @@ mcp = FastMCP(
     "local-commander",
     stateless_http=True,
     json_response=True,
+    lifespan=durable_lifespan,
     auth_server_provider=provider,
     auth=AuthSettings(
         # issuer_url=AnyHttpUrl(PUBLIC_URL),
@@ -185,7 +202,7 @@ async def run_command(command: str) -> str:
     proc = await asyncio.create_subprocess_exec(
         *argv, cwd=ROOT,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        env={"PATH": os.environ["PATH"], "HOME": str(ROOT)},  # không lộ biến môi trường của bạn
+        env=safe_child_env(ROOT),  # allowlist tối thiểu; không kế thừa toàn bộ server env
     )
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), CMD_TIMEOUT)
@@ -194,6 +211,94 @@ async def run_command(command: str) -> str:
         return f"Timeout sau {CMD_TIMEOUT}s"
     return clip(f"[exit {proc.returncode}]\n" + out.decode(errors="replace"))
 
+
+@mcp.tool()
+async def job_submit(
+    operation_id: str,
+    argv: list[str],
+    cwd: str = ".",
+    agent_id: str = "",
+    project_id: str = "",
+    task_id: str = "",
+) -> dict:
+    """Submit a durable, idempotent long-running job."""
+    return await durable_service.job_submit(
+        operation_id,
+        argv,
+        cwd,
+        agent_id,
+        project_id,
+        task_id,
+    )
+
+
+@mcp.tool()
+def job_get(job_id: str) -> dict:
+    """Return durable job status."""
+    return durable_service.job_get(job_id)
+
+
+@mcp.tool()
+async def job_wait(
+    job_id: str,
+    subscriber_id: str,
+    mode: str = "terminal",
+    after_event_id: int = 0,
+    timeout_seconds: int = 55,
+) -> dict:
+    """Bounded wait for terminal/heartbeat/progress state."""
+    return await durable_service.job_wait(
+        job_id,
+        subscriber_id,
+        mode,
+        after_event_id,
+        timeout_seconds,
+    )
+
+
+@mcp.tool()
+def job_logs(
+    job_id: str,
+    stream: str = "stdout",
+    cursor: int = 0,
+    limit_bytes: int = 65536,
+) -> dict:
+    """Read bounded raw-log bytes by cursor."""
+    return durable_service.job_logs(job_id, stream, cursor, limit_bytes)
+
+
+@mcp.tool()
+def job_result(
+    job_id: str,
+    subscriber_id: str = "",
+    ack_event_id: int = 0,
+    operation_id: str = "",
+) -> dict:
+    """Return normalized result and optionally ACK terminal event idempotently."""
+    return durable_service.job_result(
+        job_id,
+        subscriber_id,
+        ack_event_id,
+        operation_id,
+    )
+
+
+@mcp.tool()
+async def job_cancel(
+    operation_id: str,
+    job_id: str,
+    agent_id: str = "",
+    project_id: str = "",
+    task_id: str = "",
+) -> dict:
+    """Request idempotent, ownership-verified cancellation."""
+    return await durable_service.job_cancel(
+        operation_id,
+        job_id,
+        agent_id,
+        project_id,
+        task_id,
+    )
 
 
 if __name__ == "__main__":

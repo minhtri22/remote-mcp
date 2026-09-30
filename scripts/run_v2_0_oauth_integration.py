@@ -41,6 +41,7 @@ def main():
                 "OWNER_PASSWORD": "correct-horse-battery",
                 "MCP_ROOT": str(workspace),
                 "MCP_STATE": str(tmp_path / "oauth-state.json"),
+                "MCP_RUNTIME_DIR": str(tmp_path / "durable-runtime"),
                 "PORT": "8765",
                 "PYTHONIOENCODING": "utf-8",
             }
