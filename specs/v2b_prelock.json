@@ -366,5 +366,112 @@
       "symlink/path escape rejected",
       "legacy write/edit rejected inside managed registered project",
       "crash after replace before operation result reconciles through cas_mutations without second write",
- 
-...[cắt bớt 5440 ký tự]
+      "claim response replay re-derives same lease token without persisted clear token"
+    ],
+    "durable_job": [
+      "task job survives session heartbeat loss",
+      "task lease expiry does not cancel payload",
+      "takeover can observe same job",
+      "stale lease cannot cancel job",
+      "current lease can cancel job through task_job_cancel",
+      "task completion rejected while bound job non-terminal",
+      "direct V2-A job_submit/cancel rejected for managed task/project paths",
+      "legacy run_command rejected once managed mode is active",
+      "direct V2-A job_submit rejected once any V2-B project is registered",
+      "NON_GIT task_job_submit requires project-root TREE write lease"
+    ],
+    "crash_recovery": [
+      "server crash after task CLAIMED before worktree creation",
+      "server crash after worktree creation before RUNNING",
+      "server crash after lease persisted before response",
+      "server crash during CAS after temp write before replace",
+      "server crash after replace before operation result persistence",
+      "server restart with expired leases marks tasks RECOVERABLE without killing jobs"
+    ],
+    "scale_smoke": "At least 3 agents across at least 2 projects, including 2 concurrent tasks in one Git project, must qualify."
+  },
+  "observability_successor": {
+    "recommendation": "YES",
+    "successor_gate": "REMOTE_MCP_OBSERVABILITY_AGENT_GROUPED_VIEW_PRELOCK",
+    "timing": "After V2-B identity/task semantics are implemented and qualified; may be done before or alongside V2-C, but not inside this prelock.",
+    "design": {
+      "ui": "Read-only owner-authenticated endpoint/view, suggested /ops with JSON API under /ops/api.",
+      "grouping": [
+        "project",
+        "task",
+        "agent",
+        "session",
+        "job"
+      ],
+      "filters": [
+        "state",
+        "time range",
+        "project",
+        "agent",
+        "task",
+        "job",
+        "event type"
+      ],
+      "data_sources": [
+        "SQLite control-plane tables",
+        "append-only task/job events",
+        "bounded stdout/stderr cursors"
+      ],
+      "live_behavior": "Bounded polling/SSE may be added later; UI must not require holding agent MCP context.",
+      "security": [
+        "owner auth",
+        "read-only by default",
+        "secret/lease-token redaction",
+        "no command execution from dashboard in first version"
+      ],
+      "rationale": "Once multiple agents exist, operational visibility becomes necessary for diagnosing contention, stuck leases, long jobs and project load without consuming agent context."
+    }
+  },
+  "prelock_forbidden": [
+    "modify production process on port 8099",
+    "implement V2-B runtime modules/tables",
+    "create/delete real Git worktrees",
+    "change V2-A durable job semantics",
+    "implement observability UI/endpoint",
+    "implement V2-C Context Broker",
+    "implement native MCP Tasks extension"
+  ],
+  "next_gate": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "prelock_amendment": {
+    "reason": "Implementation feasibility review found two correctness gaps before runtime implementation: clear lease-token replay after response loss, and CAS crash recovery after atomic replace before operation result persistence. The prospective schema/spec were amended before implementation lock.",
+    "added_schema": [
+      "task_leases.lease_token_nonce",
+      "cas_mutations"
+    ],
+    "added_execution_guards": [
+      "managed-mode legacy run_command disable",
+      "managed-mode direct job_submit disable"
+    ]
+  },
+  "multi_device": {
+    "login_devices": {
+      "status": "IN_SCOPE_V2B",
+      "requirement": "One owner account can be logged in from at least two machines simultaneously and both can register/heartbeat/use independent sessions without invalidating each other.",
+      "routing": "For V2-B, both login devices may control the same currently deployed execution node. Session routing is by session_id, never by last login."
+    },
+    "execution_devices": {
+      "status": "MANDATORY_SUCCESSOR_BEFORE_RELEASE",
+      "successor_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
+      "requirement": "Support multiple RemoteMCP execution machines under one owner account, each with its own workspace/processes, and route project/task operations to the correct device.",
+      "planned_identity": "device_id prefix dev_, stable per RemoteMCP installation; project binds to exactly one device_id; task inherits project.device_id.",
+      "planned_route": "Single public control-plane endpoint routes by project/task device_id. Exact node transport/authentication is prospectively frozen in V2-BD, not guessed inside V2-B.",
+      "no_cross_device_task_migration": "A non-terminal task never silently migrates between execution devices.",
+      "offline_behavior": "Device-offline must preserve task/worktree/job metadata; no automatic reassignment.",
+      "release_blocker": true
+    }
+  },
+  "prelock_amendment_multi_device": {
+    "reason": "User requirement added before V2-B implementation: the same account must work concurrently from two login machines, and future multi-execution-device routing must be a release blocker.",
+    "schema_changes": [
+      "owner_accounts table",
+      "agents.owner_account_id",
+      "agent_sessions.auth_client_id"
+    ],
+    "execution_successor": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
+  }
+}
