@@ -102,3 +102,36 @@ Once any V2-B project is registered, managed mode intentionally blocks:
 The next architecture phase remains:
 
 `REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK`
+
+## Two-device connector finding
+
+Production OAuth/tool-schema probing after cutover established:
+
+- production MCP exposes **32 tools** through a fresh OAuth-bound `tools/list`;
+- required V2-B tools such as `agent_register`, `agent_heartbeat`, `task_claim`, `file_write_cas` and `task_job_submit` are live;
+- the currently open ChatGPT conversation on machine 2 still exposes the previously cached 6-tool connector schema;
+- OpenAI MCP app updates therefore require a client-side tool refresh before the new actions become available in that ChatGPT session.
+
+The OAuth registry currently contains one real `ChatGPT` DCR client (plus test/Codex clients). This indicates that the ChatGPT app connection is account-level and can be shared across login devices.
+
+Therefore physical-device identity MUST NOT require distinct OAuth `auth_client_id` values.
+
+Correct production smoke criterion:
+
+```text
+same owner_account_id
++ distinct client_instance_id
++ distinct session_id
++ both sessions ACTIVE concurrently
+```
+
+The two physical devices may legitimately share the same `auth_client_id`.
+
+Status at this record:
+
+- machine 1 -> production V2-B: PASS;
+- machine 2 -> production V2-B: PASS;
+- production 32-tool schema: PASS;
+- machine-2 conversation refreshed to 32 tools: PENDING client-side Refresh;
+- two physical-device `agent_register` sessions: PENDING client-side Refresh;
+- managed project registration: NOT STARTED.
