@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 
 from oauth_provider import SCOPE, OwnerOAuthProvider
 from remotemcp.durable.config import DurableConfig, safe_child_env
+from remotemcp.durable.process import background_process_creationflags
 from remotemcp.durable.service import DurableService
 from remotemcp.multiagent.config import MultiAgentConfig
 from remotemcp.multiagent.service import MultiAgentService
@@ -212,6 +213,7 @@ async def run_command(command: str) -> str:
         *argv, cwd=ROOT,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         env=safe_child_env(ROOT),  # allowlist tối thiểu; không kế thừa toàn bộ server env
+        creationflags=background_process_creationflags(),
     )
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), CMD_TIMEOUT)
