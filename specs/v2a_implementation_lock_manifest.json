@@ -4,16 +4,20 @@
   "frozen_at": "2026-09-30",
   "binds_prelock_commit": "6e4aa565aa6cc022b88f33f4d3ee8f076f6ecec7",
   "artifact_git_blobs": {
-    "docs/V2_A_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK.md": "0af9f97824e40868ec3d4b7c22e9b6ecadbc906f",
-    "scripts/validate_v2a_implementation_lock.py": "458cc0a214a24d457fcc7c999421771a406fa1aa",
-    "specs/v2a_implementation_lock.json": "598aed43279ba6299d8f05721350c83e97683714"
+    "docs/V2_A_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK.md": "86ccddacb9577dfd12950f3a47765d583c10abee",
+    "scripts/validate_v2a_implementation_lock.py": "a11cd6eb1d60776b7c4b31e09c597ea77a2dec27",
+    "specs/v2a_implementation_lock.json": "3067f53598b6b25d93220463fbb1fd64c5a45d33"
   },
   "qa": {
     "static_validator": "PASS",
     "v2_0_regression": "17 passed",
     "diff_check": "PASS",
     "runtime_source_modified": false,
-    "runtime_package_present_before_authorization": false
+    "runtime_package_present_before_authorization": false,
+    "edge_case_corrections": [
+      "RUNNING + verified WAITING_FOR_COMMIT worker + missing launch.commit => republish same commit, never spawn second worker",
+      "terminal ACK mutation requires operation_id and uses operation idempotency"
+    ]
   },
   "authorized_next_gate": "REMOTE_MCP_V2A_DURABILITY_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
 }

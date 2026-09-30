@@ -111,6 +111,8 @@ terminal.json
 
 `LOST` is never emitted by the worker. It is only a reconciler classification.
 
+Recovery rule for the DB/file commit gap: if the database already records the verified launch commitment as `RUNNING`, the worker is still in `WAITING_FOR_COMMIT`, and `launch.commit` is missing, startup reconciliation must **republish the same `launch.commit` atomically** from persisted state. It must not spawn a second worker.
+
 ## 4. Exact durable command contract
 
 `job_submit` accepts `argv: list[str]`, not a shell command string.
@@ -154,6 +156,7 @@ def job_result(
     job_id: str,
     subscriber_id: str = "",
     ack_event_id: int = 0,
+    operation_id: str = "",
 ) -> dict
 
 async def job_cancel(
@@ -167,7 +170,7 @@ async def job_cancel(
 
 All return JSON-serializable dictionaries.
 
-Important ACK rule: `job_wait` never implicitly ACKs. A terminal event is ACKed only through `job_result(..., subscriber_id=..., ack_event_id=...)`.
+Important ACK rule: `job_wait` never implicitly ACKs. A terminal event is ACKed only through `job_result(..., subscriber_id=..., ack_event_id=..., operation_id=...)`. When `ack_event_id > 0`, both `subscriber_id` and `operation_id` are mandatory; the cursor mutation uses the operations table with kind `EVENT_ACK`, so ACK replay follows the same idempotency/conflict rules as every other mutation.
 
 ## 6. Execution model
 

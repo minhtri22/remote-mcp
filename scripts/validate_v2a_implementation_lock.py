@@ -74,6 +74,10 @@ def main() -> None:
     assert tools["job_logs"]["limit_bounds_bytes"] == [1, 262144]
     assert "does not ACK" in tools["job_wait"]["semantics"]
     assert "ACK" in tools["job_result"]["mutation"]
+    assert "operation_id: str" in tools["job_result"]["python"]
+    assert "operation_id is mandatory" in tools["job_result"]["mutation"]
+    assert "republish launch.commit" in lock["worker_protocol"]["recovery_rule"]
+    assert "MUST NOT spawn another worker" in lock["worker_protocol"]["recovery_rule"]
 
     # Prelock invariants must remain represented in tests.
     required_cases = set(lock["implementation_test_matrix"]["required_cases"])

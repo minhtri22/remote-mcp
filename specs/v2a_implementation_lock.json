@@ -151,7 +151,8 @@
     ],
     "lost_emission": "Worker never emits LOST; LOST is a reconciler classification.",
     "cancellation": "Server marks CANCELLING then signals only the persisted payload fingerprint after ownership verification. Worker observes payload exit and emits CANCELLED if cancellation was requested and ownership matched.",
-    "crash_rule": "No payload may exist before durable launch commitment; any unverifiable process is never signalled."
+    "crash_rule": "No payload may exist before durable launch commitment; any unverifiable process is never signalled.",
+    "recovery_rule": "If DB state is RUNNING with a verified worker in WAITING_FOR_COMMIT and launch.commit is absent, reconciliation MUST atomically republish launch.commit from the persisted launch commitment; it MUST NOT spawn another worker."
   },
   "command_contract": {
     "job_submit_argv": "list[str]",
@@ -250,8 +251,8 @@
       ]
     },
     "job_result": {
-      "python": "def job_result(job_id: str, subscriber_id: str = '', ack_event_id: int = 0) -> dict",
-      "mutation": "Only monotonic event-cursor ACK when subscriber_id and ack_event_id are provided.",
+      "python": "def job_result(job_id: str, subscriber_id: str = '', ack_event_id: int = 0, operation_id: str = '') -> dict",
+      "mutation": "Read-only when ack_event_id=0. When ack_event_id>0, operation_id is mandatory and the monotonic cursor ACK is executed idempotently as operation kind EVENT_ACK.",
       "response_required_keys": [
         "job_id",
         "state",
@@ -261,7 +262,8 @@
         "terminal_event_id",
         "acked_event_id"
       ],
-      "pre_terminal_behavior": "Return terminal=false and current state; never block."
+      "pre_terminal_behavior": "Return terminal=false and current state; never block.",
+      "ack_rule": "ack_event_id>0 requires non-empty subscriber_id and operation_id; same operation_id+same hash replays, different hash conflicts."
     },
     "job_cancel": {
       "python": "async def job_cancel(operation_id: str, job_id: str, agent_id: str = '', project_id: str = '', task_id: str = '') -> dict",
@@ -327,7 +329,9 @@
       "legacy run_command output/allowlist/timeout compatibility",
       "V2-0 17-test regression remains PASS",
       "OAuth integration remains PASS",
-      "public OAuth smoke remains PASS"
+      "public OAuth smoke remains PASS",
+      "crash after DB launch commitment before launch.commit is recovered by republishing commit without second worker",
+      "terminal ACK requires operation_id and is idempotent through operations table"
     ],
     "failure_injection": [
       "crash after operation RESERVED",
@@ -340,7 +344,8 @@
       "DB_BUSY during reservation",
       "invalid executable before child creation",
       "log file unavailable",
-      "cancel race with natural success"
+      "cancel race with natural success",
+      "crash after DB RUNNING launch commitment before launch.commit atomic publish"
     ],
     "qualification_scripts": [
       "scripts/qualify_v2a_long_job.py",
