@@ -117,7 +117,7 @@ Recovery rule for the DB/file commit gap: if the database already records the ve
 
 `job_submit` accepts `argv: list[str]`, not a shell command string.
 
-The executable must match the owner-configured durable allowlist. Default durable allowlist equals the V2-0 ten-command allowlist. The owner may add executables such as Ollama/llama binaries using startup configuration `MCP_DURABLE_ALLOWED_CMDS`; callers cannot extend the allowlist.
+The executable must match the owner-configured durable allowlist. The default durable allowlist includes the V2-0 commands plus the owner's observed research/runtime tools: `ollama`, the discovered `llama*` executable family (`llama`, `llama-cli`, `llama-server`, `llama-bench`, `llama-batched-bench`, `llama-completion`, `llama-fit-params`, `llama-gemma3-cli`, `llama-gguf-split`, `llama-imatrix`, `llama-llava-cli`, `llama-minicpmv-cli`, `llama-mtmd-cli`, `llama-mtmd-debug`, `llama-perplexity`, `llama-quantize`, `llama-qwen2vl-cli`, `llama-results`, `llama-tokenize`, `llama-tts`) and `cmake`, `ctest`, `ninja`, `uv`, `ffmpeg`. General-purpose shells such as `powershell`, `cmd`, and `bash` remain excluded. The owner may extend the allowlist using startup configuration `MCP_DURABLE_ALLOWED_CMDS`; callers cannot extend it.
 
 `cwd` is a relative path resolved through the same workspace containment contract as baseline `safe()`.
 
