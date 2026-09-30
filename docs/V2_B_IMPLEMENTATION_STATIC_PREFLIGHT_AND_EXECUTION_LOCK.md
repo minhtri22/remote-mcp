@@ -1,6 +1,6 @@
 # V2-B Implementation Static Preflight and Execution Lock
 
-Status: **FROZEN / PASS**
+Status: **FROZEN / AMENDED — LOCAL REVALIDATION PENDING**
 Gate: `REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK`
 Date: 2026-09-30
 
@@ -52,15 +52,27 @@ The existing V2-A database bootstrap is generalized to ordered migrations:
 
 Each migration is SHA-256 checked in `schema_migrations`. There are no destructive drops/renames in V2-B.
 
-## Authenticated principal and replayable lease tokens
+## Owner account, OAuth client identity and replayable lease tokens
 
-The exact principal key is:
+The owner account identity is **not** the OAuth client ID.
+
+The control plane persists one stable:
+
+```text
+owner_account_id = own_...
+```
+
+in `<MCP_RUNTIME_DIR>/owner-account.json`.
+
+The current request still obtains:
 
 ```python
 mcp.server.auth.middleware.auth_context.get_access_token().client_id
 ```
 
-Missing token is `AUTH_REQUIRED`.
+but that value is only `auth_client_id` for session audit/isolation. Missing access token is `AUTH_REQUIRED`.
+
+Two different OAuth clients from two login machines map to the same `owner_account_id` and may hold ACTIVE sessions concurrently. There is no last-login-wins routing.
 
 Lease cleartext is never persisted. A runtime-local 32-byte HMAC key at:
 
@@ -73,6 +85,26 @@ lt1_<nonce>_<HMAC(task_id|epoch|agent_id|session_id|nonce)>
 ```
 
 The DB stores nonce + SHA-256(clear token). This lets a lost `task_claim` response be replayed with the same current token without writing the token to SQLite/logs.
+
+## Multi-device release sequence
+
+V2-B implementation must qualify concurrent login from at least two machines/OAuth clients under the same owner account.
+
+Routing in V2-B is session-scoped:
+
+```text
+owner account
+  ├── auth client A -> session A
+  └── auth client B -> session B
+```
+
+The project/task namespace is shared at owner-account scope.
+
+Routing to **multiple execution machines** is a separate mandatory successor before production release:
+
+`REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK`
+
+That gate will freeze `device_id`, project→device binding, task device inheritance, node authentication/transport and offline behavior. V2-B must not guess or partially implement the distributed node transport.
 
 ## Claim transaction boundary
 
