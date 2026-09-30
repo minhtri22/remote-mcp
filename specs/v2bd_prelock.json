@@ -237,7 +237,14 @@
     "node_restart": "Node local V2-A supervisor reconciles its process. On reconnect it reports same proxy_job_id/node_job_id and current terminal/running state.",
     "revoke_behavior": "Existing remote job state becomes unreachable/unknown from gateway; metadata preserved. No kill or migration is assumed.",
     "node_v2a_operation_id": "Deterministic local V2-A operation_id = v2bd-node-job:<device_id>:<command_id>. JOB_SUBMIT replay queries/reuses that operation/job rather than launching a second payload.",
-    "node_runtime_dir": "<MCP_NODE_RUNTIME_DIR>/durable"
+    "node_runtime_dir": "<MCP_NODE_RUNTIME_DIR>/durable",
+    "public_observation": {
+      "task_jobs": "Cached list of routed-job proxy metadata; never requires device online.",
+      "task_job_get": "If refresh=True and device ONLINE, route JOB_GET and update cached proxy state; if OFFLINE, return cached state plus device_state=OFFLINE.",
+      "task_job_logs": "Route bounded JOB_LOGS to bound device; OFFLINE returns DEVICE_OFFLINE and never falls back to gateway-local job logs.",
+      "task_job_result": "Route JOB_RESULT when ONLINE; terminal cached result may replay centrally once persisted. OFFLINE with no cached terminal result returns DEVICE_OFFLINE.",
+      "gateway_v2a_job_tools": "job_get/job_logs/job_result remain gateway-local and MUST reject rjob_* with ROUTED_JOB_USE_TASK_TOOLS."
+    }
   },
   "public_tools": {
     "device_pair_begin": "async def device_pair_begin(operation_id: str, device_name: str) -> dict",
@@ -248,14 +255,18 @@
     "project_bind_device": "async def project_bind_device(operation_id: str, project_id: str, device_id: str) -> dict",
     "task_list_dir": "async def task_list_dir(task_id: str, path: str = '.') -> dict",
     "task_read_file": "async def task_read_file(task_id: str, path: str, offset: int = 0, limit: int = 120000) -> dict",
-    "task_search": "async def task_search(task_id: str, pattern: str, path: str = '.') -> dict"
+    "task_search": "async def task_search(task_id: str, pattern: str, path: str = '.') -> dict",
+    "task_job_get": "async def task_job_get(task_id: str, proxy_job_id: str, refresh: bool = True) -> dict",
+    "task_job_logs": "async def task_job_logs(task_id: str, proxy_job_id: str, stream: str = 'stdout', cursor: int = 0, max_bytes: int = 65536) -> dict",
+    "task_job_result": "async def task_job_result(task_id: str, proxy_job_id: str) -> dict"
   },
   "compatibility": {
     "existing_v2b_tools": "agent/session/task lease semantics remain central. task_create/task_claim/file_write_cas/file_edit_cas/task_job_submit/task_jobs/task_job_cancel become device-routed internally when task binding points to an execution node.",
     "gateway_local_mode": "Before any device is paired, current V2-B local behavior remains available.",
     "post_pair_legacy_project_register": "Rejected DEVICE_CONTEXT_REQUIRED.",
     "legacy_list_read_search": "Remain gateway-local compatibility tools and are never used for remote managed task paths.",
-    "legacy_run_command_direct_job_submit": "Remain subject to existing managed-mode V2-B guards."
+    "legacy_run_command_direct_job_submit": "Remain subject to existing managed-mode V2-B guards.",
+    "routed_job_guard": "Gateway-local job_get/job_wait/job_logs/job_result/job_cancel reject rjob_* proxy IDs with ROUTED_JOB_USE_TASK_TOOLS. Remote jobs use task_job_get/task_job_logs/task_job_result/task_job_cancel."
   },
   "node_runtime": {
     "root_env": "MCP_NODE_ROOT",
@@ -334,6 +345,7 @@
       "machine-1 task continues working while machine 2 is offline",
       "restart same machine-2 node identity; OFFLINE->ONLINE without new device_id and without duplicate command execution",
       "run a durable job on machine 2, restart node agent, reconnect and observe same proxy_job_id/node_job_id to terminal state",
+      "for a routed job, verify task_job_get/task_job_logs/task_job_result resolve through the bound execution device and never gateway-local V2-A job storage",
       "replay the same signed device nonce and verify DEVICE_REPLAY",
       "send stale timestamp and verify DEVICE_SIGNATURE_STALE",
       "redeliver same command_id/request_hash and prove node replays stored result without duplicate side effect",
@@ -369,6 +381,8 @@
       "node_cas_mutations table"
     ],
     "node_runtime_change": "Freeze a dedicated <MCP_NODE_RUNTIME_DIR>/durable subruntime that reuses V2-A DurableService for local process durability while node.db owns routing/idempotency state.",
-    "implementation_started": false
+    "implementation_started": false,
+    "routed_job_api_gap": "Added task_job_get/task_job_logs/task_job_result because gateway-local V2-A job observation tools cannot safely observe rjob_* on remote execution nodes.",
+    "public_tool_count_after_amendment": 12
   }
 }

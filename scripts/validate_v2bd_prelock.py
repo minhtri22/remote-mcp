@@ -93,12 +93,13 @@ def main():
     assert "DEVICE_CONTEXT_REQUIRED" in project["direct_project_register_guard"]
 
     tools=s["public_tools"]
-    assert len(tools)==9
-    assert len(set(tools.values()))==9
+    assert len(tools)==12
+    assert len(set(tools.values()))==12
     for name in (
         "device_pair_begin","device_list","device_status","device_revoke",
         "project_register_on_device","project_bind_device",
-        "task_list_dir","task_read_file","task_search"
+        "task_list_dir","task_read_file","task_search",
+        "task_job_get","task_job_logs","task_job_result"
     ):
         assert name in tools
 
@@ -115,7 +116,8 @@ def main():
         "DEVICE_REPLAY",
         "DEVICE_SIGNATURE_STALE",
         "COMMAND_CONFLICT",
-        "node CAS crash after atomic replace"
+        "node CAS crash after atomic replace",
+        "task_job_get/task_job_logs/task_job_result"
     ):
         assert phrase in joined,phrase
 
@@ -145,7 +147,9 @@ def main():
     print("PASS project->device binding and immutable task inheritance")
     print("PASS no-silent-migration/offline-no-failover contract")
     print("PASS routed-job proxy/offline survival contract")
+    assert "ROUTED_JOB_USE_TASK_TOOLS" in s["compatibility"]["routed_job_guard"]
     print("PASS exact public V2-BD tool signatures")
+    print("PASS routed-job task-scoped observation parity")
     print("PASS real two-execution-machine qualification matrix")
     print("PASS spec-only gate: no V2-BD runtime implementation")
 

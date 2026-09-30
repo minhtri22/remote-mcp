@@ -595,3 +595,23 @@ A node also holds an exclusive local runtime lock:
 `<MCP_NODE_RUNTIME_DIR>/node.lock`
 
 to prevent two node-agent processes from using the same runtime directory on one host.
+
+### Routed-job observation parity
+
+Implementation review found that remote durable jobs cannot safely use gateway-local V2-A `job_get/job_logs/job_result`, because those tools read the gateway's local job store rather than the bound execution node.
+
+V2-BD therefore adds three task-scoped read tools:
+
+- `task_job_get(task_id, proxy_job_id, refresh=True)`;
+- `task_job_logs(task_id, proxy_job_id, stream='stdout', cursor=0, max_bytes=65536)`;
+- `task_job_result(task_id, proxy_job_id)`.
+
+Rules:
+
+- `task_jobs` remains a cached central list and works while the device is OFFLINE;
+- `task_job_get(refresh=True)` refreshes from the node only when ONLINE, otherwise returns cached state plus device state;
+- `task_job_logs` routes only to the task's bound device and returns `DEVICE_OFFLINE` if that node is offline;
+- `task_job_result` routes to the bound device unless a terminal result is already durably cached centrally;
+- gateway-local `job_get/job_wait/job_logs/job_result/job_cancel` reject `rjob_*` IDs with `ROUTED_JOB_USE_TASK_TOOLS`.
+
+This keeps local and remote job namespaces explicit and prevents accidental observation of the wrong job database.
