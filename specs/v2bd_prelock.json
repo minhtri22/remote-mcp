@@ -1,0 +1,339 @@
+{
+  "spec_id": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
+  "spec_version": 1,
+  "status": "FROZEN",
+  "frozen_at": "2026-09-30",
+  "binds": {
+    "git_head": "7dbb2093e1f5ef970dd8af4ebd913bf30683f40d",
+    "two_device_session_smoke_blob": "b976f7f0473c8d1d934d75f7d789ffb84a983c6d",
+    "v2b_production_release_manifest_blob": "99d410d2db0c8fa9484cdcc8d2311b1373e8a197",
+    "production_port": 8099,
+    "production_pid_at_freeze": 11372
+  },
+  "scope": {
+    "prelock_only": true,
+    "implementation_allowed": false,
+    "production_mutation_allowed": false,
+    "real_device_pairing_allowed": false,
+    "real_project_binding_allowed": false,
+    "qualification_execution_allowed": false
+  },
+  "architecture": {
+    "public_mcp_endpoint": "https://remote.threadon.xyz/mcp",
+    "device_transport_origin": "https://remote.threadon.xyz",
+    "topology": "Single public control-plane endpoint. Execution nodes initiate outbound HTTPS long-poll connections to the control plane. No inbound listener, port-forward, or per-device public tunnel is required.",
+    "control_plane_authority": [
+      "owner account",
+      "agent/session identity",
+      "project/task/task-lease state",
+      "project->device and task->device bindings",
+      "routing command journal",
+      "proxy routed-job metadata"
+    ],
+    "node_authority": [
+      "device private key",
+      "node-local project root mapping",
+      "node-local task/worktree materialization",
+      "node command idempotency journal",
+      "node-local V2-A durable job supervisor",
+      "local filesystem/process effects"
+    ],
+    "routing_rule": "Login device never selects execution device. Project binding selects device; task inherits immutable task-device binding; all task-scoped routed operations resolve through that binding.",
+    "no_automatic_device_selection": true
+  },
+  "device_identity": {
+    "device_id": "Server-generated stable ID prefix dev_, assigned after successful pairing and persisted by both control plane and node.",
+    "device_name": "Human-readable label only; never used as routing identity.",
+    "key_type": "Ed25519",
+    "implementation_dependency": "cryptography (Ed25519 support); observed available version at prelock host: 48.0.0",
+    "node_key_file": "<MCP_NODE_RUNTIME_DIR>/device-ed25519.pem",
+    "node_identity_file": "<MCP_NODE_RUNTIME_DIR>/device.json",
+    "node_db": "<MCP_NODE_RUNTIME_DIR>/node.db",
+    "private_key_rule": "Private key never leaves execution node and is never logged. File permissions are owner-only/best-effort Windows ACL.",
+    "public_key_fingerprint": "sha256(raw Ed25519 public key bytes), lowercase hex",
+    "revoked_identity_reuse": false,
+    "key_rotation": "Deferred; a revoked key/device cannot be un-revoked or silently rotated."
+  },
+  "pairing": {
+    "owner_tool": "device_pair_begin",
+    "pairing_id": "pair_<random 128-bit+>",
+    "pairing_code": "At least 144 bits random URL-safe secret shown exactly once.",
+    "code_storage": "SHA-256 only in central DB.",
+    "ttl_seconds": 600,
+    "one_time": true,
+    "completion_endpoint": "POST /device/v1/pair",
+    "node_cli": "python -m remotemcp.node pair --url https://remote.threadon.xyz --code <PAIRING_CODE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT>",
+    "proof_of_possession": "Initial pair request includes Ed25519 public key and a signature over canonical pairing payload; gateway verifies signature with submitted public key plus one-time pairing code.",
+    "result": "Gateway creates dev_* identity, route_generation=1, state ONLINE; node persists device_id/public origin/key fingerprint.",
+    "re_pair_revoked": "Forbidden. Pair as a new device identity."
+  },
+  "auth_replay_protection": {
+    "protocol_version": "RMCPNODE1",
+    "signed_headers": [
+      "X-RMCP-Device",
+      "X-RMCP-Route-Generation",
+      "X-RMCP-Timestamp",
+      "X-RMCP-Nonce",
+      "X-RMCP-Signature"
+    ],
+    "canonical_string": "RMCPNODE1\\n<device_id>\\n<route_generation>\\n<HTTP_METHOD>\\n<PATH>\\n<timestamp_ms>\\n<nonce>\\n<body_sha256>",
+    "signature": "Ed25519 over canonical UTF-8 bytes; signature base64url without padding.",
+    "timestamp_window_seconds": 60,
+    "nonce_min_entropy_bits": 128,
+    "nonce_replay_retention_seconds": 600,
+    "nonce_uniqueness": "UNIQUE(device_id, nonce) in central DB; duplicates rejected DEVICE_REPLAY.",
+    "route_generation": "Every revoke or future explicit re-pair generation change invalidates older signed traffic. Exact generation must match current device row.",
+    "transport_security": "HTTPS required for non-loopback node traffic. Node trusts configured public origin TLS certificate chain; no plaintext remote node transport.",
+    "server_response_auth": "HTTPS origin authentication plus command envelope binding to device_id/route_generation/request_hash. No separate server-signature layer in v1.",
+    "stale_request_error": "DEVICE_SIGNATURE_STALE",
+    "bad_signature_error": "DEVICE_SIGNATURE_INVALID",
+    "replay_error": "DEVICE_REPLAY"
+  },
+  "device_states": {
+    "states": [
+      "ONLINE",
+      "OFFLINE",
+      "REVOKED"
+    ],
+    "node_heartbeat_interval_seconds": 15,
+    "poll_long_wait_seconds": 25,
+    "offline_after_seconds": 60,
+    "ONLINE": "Valid signed heartbeat/poll observed within 60 seconds and route generation matches.",
+    "OFFLINE": "No valid signed device request within 60 seconds. New routed mutations/jobs fail DEVICE_OFFLINE and are never reassigned.",
+    "REVOKED": "Owner explicitly revoked device. All further signed node traffic is rejected DEVICE_REVOKED. State is terminal.",
+    "offline_transition": "ONLINE -> OFFLINE is automatic by timeout.",
+    "online_recovery": "OFFLINE -> ONLINE only when same device key/device_id/route_generation reconnects with valid signed request.",
+    "revoked_transition": "ONLINE/OFFLINE -> REVOKED only via owner-authenticated device_revoke.",
+    "revoke_effects": [
+      "increment route_generation",
+      "reject future polls/heartbeats",
+      "cancel QUEUED not-yet-leased commands with DEVICE_REVOKED",
+      "mark LEASED commands IN_DOUBT because side effect may already exist",
+      "preserve project/task/worktree/job metadata",
+      "never move projects/tasks to another device"
+    ]
+  },
+  "transport": {
+    "model": "Node-initiated outbound HTTPS long-poll.",
+    "internal_endpoints": {
+      "pair": "POST /device/v1/pair",
+      "heartbeat": "POST /device/v1/heartbeat",
+      "poll": "POST /device/v1/poll",
+      "result": "POST /device/v1/commands/{command_id}/result"
+    },
+    "poll_response": "204 when no command; otherwise exactly one command envelope.",
+    "command_envelope_fields": [
+      "command_id",
+      "device_id",
+      "route_generation",
+      "operation_id",
+      "project_id",
+      "task_id",
+      "command_type",
+      "request_hash",
+      "payload",
+      "issued_at_ms",
+      "command_expires_at_ms"
+    ],
+    "central_command_states": [
+      "QUEUED",
+      "LEASED",
+      "SUCCEEDED",
+      "FAILED",
+      "CANCELLED",
+      "IN_DOUBT"
+    ],
+    "node_command_states": [
+      "RECEIVED",
+      "EXECUTING",
+      "SUCCEEDED",
+      "FAILED",
+      "IN_DOUBT"
+    ],
+    "delivery_semantics": "At-least-once delivery to the same bound device until durable result; node-local command_id journal makes side effects idempotent.",
+    "lease_seconds": 45,
+    "command_mutation_ttl_seconds": 30,
+    "redelivery": "LEASED command with lost response may return to QUEUED only after delivery lease expiry and before command_expires_at_ms. It is redelivered only to the same device_id.",
+    "node_duplicate_rule": "Same command_id + same request_hash returns persisted node result without executing again. Same command_id + different hash => COMMAND_CONFLICT.",
+    "mutation_expiry_rule": "Node refuses a mutating command after command_expires_at_ms. Gateway also refuses dispatch when current task lease epoch no longer matches the command.",
+    "bounded_gateway_wait_seconds": 55,
+    "timeout_result": "If routed command remains durable but unfinished beyond gateway wait, return/raise DEVICE_COMMAND_PENDING keyed by command_id; same operation_id resumes/replays rather than creating a new command.",
+    "poll_long_wait_seconds": 25
+  },
+  "project_binding": {
+    "table": "project_device_bindings",
+    "create_tool": "project_register_on_device",
+    "explicit_rebind_tool": "project_bind_device",
+    "binding_generation": "Monotonic integer per project binding.",
+    "path_semantics": "projects.root_rel is relative to that device's MCP_NODE_ROOT, not gateway filesystem.",
+    "register_protocol": [
+      "require device ONLINE",
+      "route PROJECT_PROBE to device to canonicalize path under MCP_NODE_ROOT and detect GIT/NON_GIT",
+      "persist project + project_device_binding only after successful probe",
+      "route PROJECT_BIND so node persists project_id->root mapping",
+      "operation succeeds only after both central and node binding records agree"
+    ],
+    "existing_project_bind": "Allowed only when project has no non-terminal tasks, no non-terminal routed jobs, and no task_device_bindings requiring the old device.",
+    "rebind_online_rule": "Explicit rebind requires old device ONLINE and clean/no-active-work confirmation, unless project has never executed a task.",
+    "offline_rebind": "Forbidden in V2-BD. Offline-device migration requires a separate prospectively locked migration protocol.",
+    "revoked_rebind": "Forbidden in V2-BD for projects with prior task/worktree state.",
+    "direct_project_register_guard": "After the first execution device is paired, legacy project_register is rejected DEVICE_CONTEXT_REQUIRED; use project_register_on_device."
+  },
+  "task_binding": {
+    "table": "task_device_bindings",
+    "inheritance": "task_create copies current project_device_bindings.device_id + binding_generation into task_device_bindings in the same central transaction.",
+    "immutable": true,
+    "caller_override": false,
+    "task_tool_routing": "Every task-scoped read/mutation/job command resolves device from task_device_bindings; caller-supplied device_id is not accepted.",
+    "claim_git_worktree": "task_claim validates device ONLINE before claim phase1 and routes TASK_WORKTREE_ENSURE to that bound device before RUNNING.",
+    "offline_during_claim": "Durable claim/worktree command remains tied to same device. If task lease expires, task becomes RECOVERABLE; command may not perform stale mutation after command/task expiry.",
+    "no_silent_migration": "Task device binding never changes for the lifetime of the task, including OFFLINE/REVOKED conditions."
+  },
+  "routed_operations": {
+    "node_command_types": [
+      "PROJECT_PROBE",
+      "PROJECT_BIND",
+      "TASK_WORKTREE_ENSURE",
+      "TASK_LIST_DIR",
+      "TASK_READ_FILE",
+      "TASK_SEARCH",
+      "FILE_WRITE_CAS",
+      "FILE_EDIT_CAS",
+      "JOB_SUBMIT",
+      "JOB_GET",
+      "JOB_LOGS",
+      "JOB_RESULT",
+      "JOB_CANCEL",
+      "TASK_WORKTREE_STATUS",
+      "TASK_WORKTREE_CLEANUP"
+    ],
+    "reads": "Task-scoped routed reads are retryable and never mutate node state except bounded command-journal/cache metadata.",
+    "mutations": "Gateway validates current task lease/epoch before creating command and binds operation_id+request_hash+task binding+route_generation.",
+    "filesystem_containment": "Node resolves all project/task paths under local MCP_NODE_ROOT and local project binding; symlink/path escape rejected.",
+    "execution_env": "Node injects REMOTEMCP_DEVICE_ID and REMOTEMCP_PROJECT_ID into task-bound job environment for diagnostics/qualification; these variables are not routing authority."
+  },
+  "routed_jobs": {
+    "proxy_id": "rjob_<random>",
+    "central_table": "routed_jobs",
+    "node_local_table": "node_routed_jobs",
+    "submit": "task_job_submit returns central proxy_job_id after node durably creates local V2-A job and reports node_job_id.",
+    "generic_v2a_job_tools": "Gateway-local V2-A job_* stay local. Remote task jobs are observed/cancelled through task_jobs/task_job_cancel and routed-job proxy metadata.",
+    "offline_behavior": "If device becomes OFFLINE, proxy preserves last_known_state and reports device_state=OFFLINE. It is not marked FAILED/LOST and is not relaunched elsewhere.",
+    "node_restart": "Node local V2-A supervisor reconciles its process. On reconnect it reports same proxy_job_id/node_job_id and current terminal/running state.",
+    "revoke_behavior": "Existing remote job state becomes unreachable/unknown from gateway; metadata preserved. No kill or migration is assumed."
+  },
+  "public_tools": {
+    "device_pair_begin": "async def device_pair_begin(operation_id: str, device_name: str) -> dict",
+    "device_list": "def device_list() -> dict",
+    "device_status": "def device_status(device_id: str) -> dict",
+    "device_revoke": "async def device_revoke(operation_id: str, device_id: str, reason: str = '') -> dict",
+    "project_register_on_device": "async def project_register_on_device(operation_id: str, device_id: str, path: str, max_active_tasks: int = 4) -> dict",
+    "project_bind_device": "async def project_bind_device(operation_id: str, project_id: str, device_id: str) -> dict",
+    "task_list_dir": "async def task_list_dir(task_id: str, path: str = '.') -> dict",
+    "task_read_file": "async def task_read_file(task_id: str, path: str, offset: int = 0, limit: int = 120000) -> dict",
+    "task_search": "async def task_search(task_id: str, pattern: str, path: str = '.') -> dict"
+  },
+  "compatibility": {
+    "existing_v2b_tools": "agent/session/task lease semantics remain central. task_create/task_claim/file_write_cas/file_edit_cas/task_job_submit/task_jobs/task_job_cancel become device-routed internally when task binding points to an execution node.",
+    "gateway_local_mode": "Before any device is paired, current V2-B local behavior remains available.",
+    "post_pair_legacy_project_register": "Rejected DEVICE_CONTEXT_REQUIRED.",
+    "legacy_list_read_search": "Remain gateway-local compatibility tools and are never used for remote managed task paths.",
+    "legacy_run_command_direct_job_submit": "Remain subject to existing managed-mode V2-B guards."
+  },
+  "node_runtime": {
+    "root_env": "MCP_NODE_ROOT",
+    "runtime_env": "MCP_NODE_RUNTIME_DIR",
+    "root_rule": "Every bound project path must canonicalize under MCP_NODE_ROOT. Qualification roots must be newly created isolated directories and must not equal a research workspace.",
+    "files": [
+      "<MCP_NODE_RUNTIME_DIR>/device-ed25519.pem",
+      "<MCP_NODE_RUNTIME_DIR>/device.json",
+      "<MCP_NODE_RUNTIME_DIR>/node.db",
+      "<MCP_NODE_RUNTIME_DIR>/jobs/"
+    ],
+    "local_schema": "specs/v2bd_node_schema_v1.sql",
+    "no_oauth_server": true,
+    "no_public_inbound_listener": true,
+    "outbound_only": true
+  },
+  "observability": {
+    "immediate": "device_list/device_status expose state, last_seen, route_generation, bound project count, active command count and routed-job counts.",
+    "ops_successor": "Existing /ops observability successor must add Device above Project: Device -> Project -> Task -> Agent/Session -> Job.",
+    "sensitive_redaction": [
+      "pairing codes",
+      "private keys",
+      "request signatures",
+      "OAuth secrets",
+      "lease tokens"
+    ]
+  },
+  "errors": [
+    "DEVICE_NOT_FOUND",
+    "DEVICE_OFFLINE",
+    "DEVICE_REVOKED",
+    "DEVICE_CONTEXT_REQUIRED",
+    "DEVICE_PAIRING_INVALID",
+    "DEVICE_PAIRING_EXPIRED",
+    "DEVICE_SIGNATURE_INVALID",
+    "DEVICE_SIGNATURE_STALE",
+    "DEVICE_REPLAY",
+    "DEVICE_ROUTE_GENERATION_MISMATCH",
+    "DEVICE_COMMAND_PENDING",
+    "DEVICE_COMMAND_EXPIRED",
+    "COMMAND_CONFLICT",
+    "PROJECT_DEVICE_BINDING_CONFLICT",
+    "PROJECT_DEVICE_MIGRATION_FORBIDDEN"
+  ],
+  "real_two_execution_device_qualification": {
+    "required": true,
+    "machines": [
+      "physical-machine-1",
+      "physical-machine-2"
+    ],
+    "isolation_rule": "Use newly created pilot roots/runtime directories on both physical machines. Do not bind ArcLLM/CQG/SIX or any existing research repo during V2-BD qualification.",
+    "preconditions": [
+      "both ChatGPT login-device sessions already proven under same owner account",
+      "production gateway healthy",
+      "both machines have outbound HTTPS access to remote.threadon.xyz",
+      "clock skew within signature window",
+      "no managed research project registered"
+    ],
+    "gates": [
+      "pair machine 1 and machine 2 as two distinct execution devices with distinct dev_* IDs and Ed25519 fingerprints",
+      "both devices ONLINE concurrently for at least 2 offline TTL windows",
+      "register one isolated pilot Git project on each device",
+      "project A binding == device A; project B binding == device B",
+      "create task on each project and verify immutable inherited task-device binding",
+      "routed task_read_file/list/search return only content from the correct physical machine",
+      "CAS write on task A changes only machine-A pilot tree; CAS write on task B changes only machine-B pilot tree",
+      "task_job_submit on each device returns REMOTEMCP_DEVICE_ID matching the bound device",
+      "cross-route negative: no command for project/task A is executed by device B and vice versa",
+      "stop node agent on machine 2; within 60s it becomes OFFLINE while machine 1 remains ONLINE",
+      "new command for machine 2 returns DEVICE_OFFLINE and is not reassigned to machine 1",
+      "machine-1 task continues working while machine 2 is offline",
+      "restart same machine-2 node identity; OFFLINE->ONLINE without new device_id and without duplicate command execution",
+      "run a durable job on machine 2, restart node agent, reconnect and observe same proxy_job_id/node_job_id to terminal state",
+      "replay the same signed device nonce and verify DEVICE_REPLAY",
+      "send stale timestamp and verify DEVICE_SIGNATURE_STALE",
+      "redeliver same command_id/request_hash and prove node replays stored result without duplicate side effect",
+      "send same command_id with different request_hash and verify COMMAND_CONFLICT",
+      "send a validly signed request with stale route_generation and verify DEVICE_ROUTE_GENERATION_MISMATCH",
+      "at qualification end create a disposable extra pairing identity, revoke it, and verify REVOKED is terminal without revoking either primary test device"
+    ],
+    "pass_rule": "Every gate passes once with frozen code/config; no selective rerun to rescue a failed routing assertion. Infrastructure-only retry is allowed only after documenting an external transport interruption before any affected command outcome was observed.",
+    "production_cutover_rule": "V2-BD implementation may be developed against production gateway only after implementation lock and isolated pilot preflight. Real research projects remain unbound until V2-BD qualification PASS."
+  },
+  "prelock_forbidden": [
+    "create devices rows in production DB",
+    "generate real pairing code",
+    "pair either physical machine as execution node",
+    "open inbound port on machine 2",
+    "change Cloudflare tunnel routing",
+    "bind any real/research project to a device",
+    "modify existing task device placement",
+    "implement node transport/endpoints",
+    "implement migration 003",
+    "implement /ops UI",
+    "run two-execution-device qualification"
+  ],
+  "next_gate": "REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+}

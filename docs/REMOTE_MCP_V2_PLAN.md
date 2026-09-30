@@ -1,7 +1,7 @@
 # RemoteMCP v2 — Durable Multi-Agent Runtime Implementation Plan
 
 Status: ACTIVE
-Current gate: REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK
+Current gate: REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK
 V2-0 status: PASS (2026-09-30)
 V2-A status: PASS (2026-09-30)
 V2-B status: PASS (2026-09-30)
