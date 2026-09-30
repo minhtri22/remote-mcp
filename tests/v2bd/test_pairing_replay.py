@@ -28,6 +28,9 @@ def test_generated_pair_command_contains_pairing_id(make_gateway):
     b=make_gateway(); p=b.routing.pairing.begin("p","machine x")
     assert "--pairing-id "+p["pairing_id"] in p["node_pair_command"]
     assert "--code-file <PAIRING_CODE_FILE>" in p["node_pair_command"]
+    assert p["join_script_filename"]=="RemoteMCP-Join.ps1"
+    assert "--pairing-id" not in p["join_script_powershell"]
+    assert p["pairing_code_file_content"] in p["join_script_powershell"]
 
 def test_pair_begin_crash_after_row_commit_replays_same_code(make_gateway,monkeypatch):
     b=make_gateway()

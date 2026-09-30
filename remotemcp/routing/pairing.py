@@ -10,6 +10,7 @@ from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import OperationState, now_ms
 from remotemcp.durable.process import atomic_write_bytes
 from .crypto import b64u,canonical_pair,compare_pair_code,public_key_fingerprint,verify_ed25519
+from .join_script import render_windows_join_script
 
 
 class PairingService:
@@ -53,12 +54,19 @@ class PairingService:
         }
         if include_code:
             code=self._code(row["pairing_id"],row["requested_name"],row["code_nonce"])
+            bundle=f"{row['pairing_id']}|{code}"
             out["pairing_code"]=code
-            out["pairing_code_file_content"]=f"{row['pairing_id']}|{code}"
+            out["pairing_code_file_content"]=bundle
             out["node_pair_command"]=(
                 f"python -m remotemcp.node pair --url {self.config.public_origin} "
                 f"--pairing-id {row['pairing_id']} --code-file <PAIRING_CODE_FILE> "
                 "--name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>"
+            )
+            out["join_script_filename"]="RemoteMCP-Join.ps1"
+            out["join_script_powershell"]=render_windows_join_script(
+                public_origin=self.config.public_origin,
+                device_name=row["requested_name"],
+                pairing_bundle=bundle,
             )
         else:
             out["paired_device_id"]=row["paired_device_id"]

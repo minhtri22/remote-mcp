@@ -269,7 +269,8 @@ Delivered:
 - routed durable-job proxy backed by the V2-A node-local durable runtime;
 - exact 12-tool V2-BD public surface, bringing the source-qualified MCP surface to 44 tools;
 - Windows headless child-process execution so RemoteMCP workers/jobs do not open console windows or steal focus;
-- target-device identity observability: device status and device-bound project/task/read/CAS/job results expose routing.device_id, device name, hostname and device state.
+- target-device identity observability: device status and device-bound project/task/read/CAS/job results expose routing.device_id, device name, hostname and device state;
+- additive one-file Windows join UX: `device_pair_begin` can emit an instance-bound `RemoteMCP-Join.ps1` that bootstraps dependencies/source, consumes the single-use pairing bundle without manual `pairing_id`, starts the outbound node headlessly and installs per-user auto-start.
 
 Routing rule:
 
@@ -301,19 +302,21 @@ Qualification evidence:
 - real-Windows headless-process qualification: **PASS** (console_handle=0, zero visible child windows, foreground unchanged);
 - public tunnel smoke and post-implementation static validator: **PASS**.
 
-A physical-machine-2 check against the still-deployed V2-B production surface returned HOSTNAME=DESKTOP-4PSD0G2 through legacy run_command. That is retained as negative evidence that the production 32-tool gateway-local surface must not be confused with V2-BD execution routing.
+A physical-machine-2 check through legacy `run_command` returns the gateway host because legacy compatibility tools are intentionally gateway-local. It is not execution-routing evidence; routed evidence must use the V2-BD device/project/task surfaces.
 
 Current boundary:
 
 - **V2-BD as a whole is not yet PASS**;
-- the public production runtime is still the earlier V2-B release;
-- no real V2-BD execution node has yet been paired for the physical pilot;
+- production `127.0.0.1:8099` currently runs the V2-BD implementation release `395c4c3` and source-side `FastMCP.list_tools()` exposes all **44 tools**;
+- the real pilot has paired two distinct execution identities and sustained both ONLINE for more than two 60-second offline-TTL windows: `DESKTOP-4PSD0G2` and `DESKTOP-VKIC2RU`;
+- the consuming ChatGPT conversation that was opened before the V2-BD plugin refresh still holds a stale 32-tool schema snapshot, so no pilot project is bound until a fresh consumer surface exposes the 12 V2-BD tools;
 - no research project has been bound to a V2-BD execution device.
 
 Detailed evidence:
 
 - docs/V2_BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION.md
 - docs/V2_BD_TARGET_DEVICE_IDENTITY_OBSERVABILITY_AMENDMENT.md
+- docs/V2_BD_ONE_FILE_JOIN_UX.md
 - specs/v2bd_implementation_qualification_manifest.json
 
 Next authorized gate:

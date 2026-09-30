@@ -5,7 +5,9 @@ Current gate: REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTIO
 V2-0 status: PASS (2026-09-30)
 V2-A status: PASS (2026-09-30)
 V2-B status: PASS (2026-09-30)
-V2-BD implementation status: PASS / real two-machine pilot pending (2026-10-01)
+V2-BD implementation status: PASS / real two-machine pilot in progress (2026-10-01)
+V2-BD operator UX: one-file Windows join implemented and regression-qualified; no routing semantics changed
+Consumer surface: source/OAuth exposes 44 tools; stale 32-tool ChatGPT connector snapshot must be replaced/refreshed before project binding
 Repository: minhtri22/remote-mcp
 Local source: D:\WORK\RESEARCH\RemoteMCP-src
 
