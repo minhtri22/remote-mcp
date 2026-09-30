@@ -1,0 +1,19 @@
+{
+  "lock_id": "REMOTE_MCP_V2A_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "status": "PASS",
+  "frozen_at": "2026-09-30",
+  "binds_prelock_commit": "6e4aa565aa6cc022b88f33f4d3ee8f076f6ecec7",
+  "artifact_git_blobs": {
+    "docs/V2_A_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK.md": "0af9f97824e40868ec3d4b7c22e9b6ecadbc906f",
+    "scripts/validate_v2a_implementation_lock.py": "458cc0a214a24d457fcc7c999421771a406fa1aa",
+    "specs/v2a_implementation_lock.json": "598aed43279ba6299d8f05721350c83e97683714"
+  },
+  "qa": {
+    "static_validator": "PASS",
+    "v2_0_regression": "17 passed",
+    "diff_check": "PASS",
+    "runtime_source_modified": false,
+    "runtime_package_present_before_authorization": false
+  },
+  "authorized_next_gate": "REMOTE_MCP_V2A_DURABILITY_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
+}

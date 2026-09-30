@@ -1,0 +1,394 @@
+{
+  "lock_id": "REMOTE_MCP_V2A_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "lock_version": 1,
+  "status": "FROZEN",
+  "frozen_at": "2026-09-30",
+  "binds": {
+    "git_head": "6e4aa565aa6cc022b88f33f4d3ee8f076f6ecec7",
+    "prelock_blob": "99bdc4cd73772a3aff3d0ac302a8ee161c820d2c",
+    "schema_blob": "bd96e51d9e02e1932822a2c7a2be7a8860d47b1c",
+    "prelock_doc_blob": "6669857b45e57ffa820c1b23aaba4fccc029e2af"
+  },
+  "module_layout": {
+    "package_root": "remotemcp",
+    "files": [
+      "remotemcp/__init__.py",
+      "remotemcp/durable/__init__.py",
+      "remotemcp/durable/config.py",
+      "remotemcp/durable/errors.py",
+      "remotemcp/durable/db.py",
+      "remotemcp/durable/models.py",
+      "remotemcp/durable/operations.py",
+      "remotemcp/durable/events.py",
+      "remotemcp/durable/jobs.py",
+      "remotemcp/durable/process.py",
+      "remotemcp/durable/reconcile.py",
+      "remotemcp/durable/service.py",
+      "remotemcp/durable/worker.py",
+      "remotemcp/durable/migrations/001_v2a.sql"
+    ],
+    "responsibilities": {
+      "config.py": "Resolve MCP_RUNTIME_DIR, durable executable allowlist, limits, safe child environment profile. No database side effects.",
+      "errors.py": "Typed V2-A error codes and retry metadata only.",
+      "db.py": "SQLite connection factory, pragmas, migration bootstrap, short transaction helper.",
+      "models.py": "Enums/dataclasses/value objects for operations, jobs, events, process fingerprints and tool responses.",
+      "operations.py": "Operation reservation, request hashing, idempotent replay/conflict logic and operation state transitions.",
+      "events.py": "Append-only events, single terminal-event insertion, cursor/ACK storage.",
+      "jobs.py": "Durable job repository and state transitions. No MCP decorators.",
+      "process.py": "Process spawn/fingerprint/ownership verification/cancel primitives; no DB transaction policy.",
+      "reconcile.py": "Startup reconciliation using repositories + filesystem/process evidence.",
+      "service.py": "Application service composing operations/jobs/events/process; exact public durable semantics.",
+      "worker.py": "Detached worker entrypoint and launch handshake; payload spawn and terminal marker.",
+      "001_v2a.sql": "Byte-for-byte copy of specs/v2a_schema_v1.sql."
+    },
+    "server_py_role": "Composition root only: construct DurableService during startup and expose MCP job_* tools plus legacy run_command compatibility.",
+    "forbidden_dependencies": [
+      "server.py imported from remotemcp.durable.*",
+      "oauth_provider.py imported from remotemcp.durable.*",
+      "FastMCP decorators inside durable package",
+      "shell=True",
+      "os.system",
+      "subprocess shell command strings"
+    ]
+  },
+  "bootstrap": {
+    "runtime_dir_env": "MCP_RUNTIME_DIR",
+    "runtime_dir_default": "~/.remotemcp",
+    "database_path": "<runtime_dir>/runtime.db",
+    "migration_resource": "remotemcp/durable/migrations/001_v2a.sql",
+    "schema_source": "specs/v2a_schema_v1.sql",
+    "migration_rule": "001_v2a.sql MUST be byte-for-byte identical to specs/v2a_schema_v1.sql.",
+    "bootstrap_order": [
+      "resolve and create runtime directory",
+      "open SQLite connection",
+      "set busy_timeout=5000",
+      "set foreign_keys=ON",
+      "set journal_mode=WAL",
+      "set synchronous=NORMAL",
+      "BEGIN IMMEDIATE migration transaction",
+      "verify schema_migrations if present",
+      "apply migration 001 only when version 1 absent",
+      "insert version+sha256 into schema_migrations",
+      "commit",
+      "create jobs directory",
+      "run startup reconciliation before accepting durable mutations"
+    ],
+    "concurrency": "Migration/bootstrap is serialized by SQLite BEGIN IMMEDIATE; second server either observes version 1 after lock release or fails boundedly with DB_BUSY.",
+    "checksum_algorithm": "sha256 over exact migration bytes",
+    "on_checksum_mismatch": "STARTUP_FATAL_SCHEMA_MISMATCH",
+    "no_destructive_migration": true
+  },
+  "worker_protocol": {
+    "invocation": [
+      "<same-python-executable-as-server>",
+      "-m",
+      "remotemcp.durable.worker",
+      "--runtime-dir",
+      "<absolute-runtime-dir>",
+      "--job-id",
+      "<server-generated-job-id>",
+      "--launch-nonce",
+      "<server-generated-launch-nonce>"
+    ],
+    "spawn_mode": {
+      "shell": false,
+      "stdin": "DEVNULL",
+      "stdout": "worker diagnostic channel redirected to job stderr.log until payload begins",
+      "stderr": "job stderr.log",
+      "windows": "CREATE_NEW_PROCESS_GROUP plus detached lifetime from MCP request; no CREATE_BREAKAWAY_FROM_JOB requirement in v1"
+    },
+    "handshake_timeout_seconds": 30,
+    "phases": [
+      "worker validates runtime-dir/job-id/launch-nonce and canonical job directory",
+      "worker obtains its PID + creation FILETIME and writes worker.json atomically with phase=WAITING_FOR_COMMIT",
+      "worker MUST NOT spawn payload yet",
+      "supervisor verifies worker fingerprint and launch_nonce",
+      "supervisor persists jobs.worker_fingerprint_json and state=RUNNING in one DB transaction",
+      "supervisor atomically writes launch.commit containing job_id, launch_nonce, committed_at_ms",
+      "worker observes and validates launch.commit",
+      "worker loads durable command_json from database/result-independent immutable job record",
+      "worker spawns payload with shell=false and safe environment profile",
+      "worker atomically updates worker.json with payload fingerprint and phase=PAYLOAD_RUNNING",
+      "worker streams payload stdout/stderr directly to append-only files",
+      "worker writes terminal.json atomically after payload termination",
+      "worker exits"
+    ],
+    "immutable_worker_inputs": [
+      "runtime_dir",
+      "job_id",
+      "launch_nonce"
+    ],
+    "payload_source": "database jobs.command_json; CLI does not carry user argv or environment values",
+    "launch_commit_fields": [
+      "protocol_version",
+      "job_id",
+      "launch_nonce",
+      "committed_at_ms"
+    ],
+    "worker_json_fields": [
+      "protocol_version",
+      "job_id",
+      "launch_nonce",
+      "phase",
+      "worker_fingerprint",
+      "payload_fingerprint",
+      "updated_at_ms"
+    ],
+    "terminal_json_fields": [
+      "protocol_version",
+      "job_id",
+      "launch_nonce",
+      "terminal_state",
+      "exit_code",
+      "finished_at_ms",
+      "payload_fingerprint",
+      "result_sha256"
+    ],
+    "terminal_states_worker_may_emit": [
+      "SUCCEEDED",
+      "FAILED",
+      "CANCELLED"
+    ],
+    "lost_emission": "Worker never emits LOST; LOST is a reconciler classification.",
+    "cancellation": "Server marks CANCELLING then signals only the persisted payload fingerprint after ownership verification. Worker observes payload exit and emits CANCELLED if cancellation was requested and ownership matched.",
+    "crash_rule": "No payload may exist before durable launch commitment; any unverifiable process is never signalled."
+  },
+  "command_contract": {
+    "job_submit_argv": "list[str]",
+    "no_shell": true,
+    "executable_policy_env": "MCP_DURABLE_ALLOWED_CMDS",
+    "default_executable_allowlist": [
+      "ls",
+      "cat",
+      "grep",
+      "rg",
+      "git",
+      "python",
+      "pip",
+      "node",
+      "npm",
+      "pytest"
+    ],
+    "normalization": "argv elements are Unicode strings; argv[0] basename/canonical executable is validated against owner-configured allowlist before operation EXECUTING.",
+    "owner_extension": "MCP_DURABLE_ALLOWED_CMDS is a comma-separated startup config; adding ollama/llama executables is owner policy, not caller policy.",
+    "environment_profile": "safe",
+    "environment_behavior": "minimal allowlisted inherited keys from V2-A prelock; HOME forced to workspace root; no caller-supplied arbitrary environment in V2-A.",
+    "cwd_rule": "cwd is a relative workspace path resolved through the same ROOT containment rule as baseline safe()."
+  },
+  "tool_signatures": {
+    "response_encoding": "All job_* tools return JSON-serializable dicts, not preformatted text.",
+    "job_submit": {
+      "python": "async def job_submit(operation_id: str, argv: list[str], cwd: str = '.', agent_id: str = '', project_id: str = '', task_id: str = '') -> dict",
+      "mutation": true,
+      "response_required_keys": [
+        "job_id",
+        "operation_id",
+        "state",
+        "replayed",
+        "created_at_ms"
+      ],
+      "semantics": "Reserve operation; validate immutable request hash; create QUEUED job exactly once; supervisor launch is asynchronous."
+    },
+    "job_get": {
+      "python": "def job_get(job_id: str) -> dict",
+      "mutation": false,
+      "response_required_keys": [
+        "job_id",
+        "operation_id",
+        "state",
+        "created_at_ms",
+        "started_at_ms",
+        "finished_at_ms",
+        "exit_code",
+        "last_output_at_ms",
+        "last_heartbeat_at_ms",
+        "terminal_event_id"
+      ]
+    },
+    "job_wait": {
+      "python": "async def job_wait(job_id: str, subscriber_id: str, mode: str = 'terminal', after_event_id: int = 0, timeout_seconds: int = 55) -> dict",
+      "mutation": "ACK cursor advancement only when ack_event_id is explicitly supplied through job_result; job_wait itself does not ACK.",
+      "modes": [
+        "terminal",
+        "heartbeat",
+        "progress"
+      ],
+      "timeout_bounds_seconds": [
+        0,
+        55
+      ],
+      "response_required_keys": [
+        "job_id",
+        "state",
+        "changed",
+        "event_id",
+        "terminal",
+        "elapsed_ms",
+        "last_output_at_ms"
+      ],
+      "semantics": "Bounded server-side wait; does not ACK; no unsolicited notification and no unbounded connection."
+    },
+    "job_logs": {
+      "python": "def job_logs(job_id: str, stream: str = 'stdout', cursor: int = 0, limit_bytes: int = 65536) -> dict",
+      "mutation": false,
+      "streams": [
+        "stdout",
+        "stderr"
+      ],
+      "limit_bounds_bytes": [
+        1,
+        262144
+      ],
+      "cursor_semantics": "Byte offset in raw append-only log.",
+      "response_required_keys": [
+        "job_id",
+        "stream",
+        "cursor",
+        "next_cursor",
+        "data",
+        "eof"
+      ]
+    },
+    "job_result": {
+      "python": "def job_result(job_id: str, subscriber_id: str = '', ack_event_id: int = 0) -> dict",
+      "mutation": "Only monotonic event-cursor ACK when subscriber_id and ack_event_id are provided.",
+      "response_required_keys": [
+        "job_id",
+        "state",
+        "terminal",
+        "exit_code",
+        "result",
+        "terminal_event_id",
+        "acked_event_id"
+      ],
+      "pre_terminal_behavior": "Return terminal=false and current state; never block."
+    },
+    "job_cancel": {
+      "python": "async def job_cancel(operation_id: str, job_id: str, agent_id: str = '', project_id: str = '', task_id: str = '') -> dict",
+      "mutation": true,
+      "response_required_keys": [
+        "job_id",
+        "operation_id",
+        "state",
+        "replayed",
+        "ownership_verified"
+      ],
+      "semantics": "Idempotent cancellation operation. Never signal a process before fingerprint ownership verification."
+    }
+  },
+  "service_execution": {
+    "background_model": "One in-process supervisor task per RemoteMCP server instance polls/awakens durable QUEUED/STARTING/RUNNING/CANCELLING state; jobs themselves execute in detached worker processes.",
+    "supervisor_startup": "Start only after DB bootstrap + reconciliation completes.",
+    "supervisor_shutdown": "Stop supervisor task; DO NOT kill running durable workers/payloads merely because MCP server exits.",
+    "polling_default_ms": 500,
+    "event_wakeup": "asyncio.Event may reduce polling latency but DB remains source of truth.",
+    "multi_server_v2a": "Not supported as an active-active guarantee. SQLite protects data; only one intended RemoteMCP server instance should supervise a runtime_dir in V2-A.",
+    "max_parallel_jobs_env": "MCP_MAX_PARALLEL_JOBS",
+    "max_parallel_jobs_default": 2,
+    "queue_order": "created_at_ms ASC, then job_id ASC"
+  },
+  "implementation_test_matrix": {
+    "unit_files": [
+      "tests/v2a/test_db.py",
+      "tests/v2a/test_operations.py",
+      "tests/v2a/test_events.py",
+      "tests/v2a/test_jobs_repository.py",
+      "tests/v2a/test_process.py",
+      "tests/v2a/test_reconcile.py",
+      "tests/v2a/test_service.py",
+      "tests/v2a/test_worker_protocol.py",
+      "tests/v2a/test_server_tools.py",
+      "tests/v2a/test_legacy_run_command.py"
+    ],
+    "required_cases": [
+      "migration v1 fresh database",
+      "migration v1 repeat bootstrap is no-op",
+      "migration checksum mismatch is startup-fatal",
+      "same operation_id + same hash replays result",
+      "same operation_id + different hash conflicts",
+      "FAILED_RETRYABLE retries only same operation id",
+      "IN_DOUBT never executes",
+      "job_submit duplicate creates one job and one launch_nonce",
+      "worker cannot spawn payload before launch.commit",
+      "worker handshake mismatch becomes LOST/no signal",
+      "PID reuse simulation fails ownership verification",
+      "RUNNING reconciliation preserves valid worker",
+      "RUNNING with terminal marker terminalizes exactly once",
+      "RUNNING without valid identity becomes LOST",
+      "LOST never auto-relaunches",
+      "job_cancel is idempotent and ownership-gated",
+      "terminal event unique constraint under concurrent insert attempt",
+      "unacked terminal event redelivers",
+      "acked terminal event does not redeliver for same subscriber",
+      "job_logs cursor is byte-exact and bounded",
+      "job_wait never exceeds 55-second declared bound",
+      "server shutdown leaves durable worker running",
+      "safe environment includes required Windows vars but excludes arbitrary secrets",
+      "legacy run_command output/allowlist/timeout compatibility",
+      "V2-0 17-test regression remains PASS",
+      "OAuth integration remains PASS",
+      "public OAuth smoke remains PASS"
+    ],
+    "failure_injection": [
+      "crash after operation RESERVED",
+      "crash after operation EXECUTING before job insert",
+      "crash after job insert before worker spawn",
+      "crash after worker.json before launch.commit",
+      "crash after launch.commit before payload fingerprint update",
+      "crash after payload exit before terminal DB transition",
+      "server restart while payload RUNNING",
+      "DB_BUSY during reservation",
+      "invalid executable before child creation",
+      "log file unavailable",
+      "cancel race with natural success"
+    ],
+    "qualification_scripts": [
+      "scripts/qualify_v2a_long_job.py",
+      "scripts/qualify_v2a_restart_recovery.py",
+      "scripts/qualify_v2a_duplicate_submit.py"
+    ],
+    "long_job_gate_seconds": 610
+  },
+  "execution_boundaries": {
+    "implementation_authorized_after_lock_pass": [
+      "create exact remotemcp/durable module layout",
+      "copy frozen schema into 001_v2a.sql byte-for-byte",
+      "edit server.py only for composition/wiring of DurableService and exact job_* tools",
+      "repair legacy run_command child environment according to frozen minimal allowlist",
+      "add V2-A tests and qualification scripts",
+      "add standard-library-only durability implementation unless an explicit dependency change is separately justified"
+    ],
+    "forbidden": [
+      "change OAuth behavior or token semantics",
+      "change ROOT containment semantics",
+      "change legacy file/search tool signatures",
+      "change legacy run_command signature, allowlist, output format or 60-second timeout",
+      "add V2-B agent lease/task registry semantics",
+      "add Git worktree isolation",
+      "add V2-C Context Broker",
+      "add native MCP Tasks extension",
+      "change frozen schema v1",
+      "change prelock state machines",
+      "add arbitrary shell execution",
+      "inherit complete server environment into child processes",
+      "auto-relaunch LOST jobs",
+      "claim exactly-once network notification"
+    ],
+    "schema_change_rule": "Any required schema/state-machine change invalidates this execution lock and requires a new prospective prelock before implementation continues.",
+    "runtime_source_before_lock_pass": "server.py, oauth_provider.py and new remotemcp runtime package MUST remain unchanged/nonexistent until this lock validates."
+  },
+  "implementation_acceptance_before_v2a_close": {
+    "required": [
+      "all implementation matrix tests PASS",
+      "V2-0 regression 17/17 PASS",
+      "full OAuth integration PASS",
+      "public tunnel smoke PASS",
+      "610-second durable job completes without originating MCP request being held",
+      "server restart during durable job recovers without duplicate execution",
+      "duplicate submit same operation_id creates one payload",
+      "terminal event ACK behavior PASS",
+      "README updated with V2-A verdict before V2-B opens"
+    ]
+  },
+  "next_gate_on_pass": "REMOTE_MCP_V2A_DURABILITY_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
+}
