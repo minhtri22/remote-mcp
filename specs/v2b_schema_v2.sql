@@ -1,18 +1,24 @@
 -- V2-B schema extension PRELOCK ONLY. Not executed by this gate.
+CREATE TABLE owner_accounts (
+  owner_account_id TEXT PRIMARY KEY,
+  created_at_ms INTEGER NOT NULL
+);
+
 CREATE TABLE agents (
   agent_id TEXT PRIMARY KEY,
-  principal_key TEXT NOT NULL,
+  owner_account_id TEXT NOT NULL REFERENCES owner_accounts(owner_account_id),
   client_instance_id TEXT NOT NULL,
   display_name TEXT NOT NULL,
   capabilities_json TEXT NOT NULL DEFAULT '[]',
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
-  UNIQUE(principal_key, client_instance_id)
+  UNIQUE(owner_account_id, client_instance_id)
 );
 
 CREATE TABLE agent_sessions (
   session_id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL REFERENCES agents(agent_id),
+  auth_client_id TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('ACTIVE','STALE','CLOSED')),
   heartbeat_seq INTEGER NOT NULL DEFAULT 0 CHECK (heartbeat_seq >= 0),
   created_at_ms INTEGER NOT NULL,
