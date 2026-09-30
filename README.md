@@ -59,3 +59,10 @@ This allows llama/Ollama/evaluation jobs to continue through browser disconnects
 Do not commit passwords, OAuth state files, tokens, job environment secrets, or generated worktrees/logs.
 
 This project is intended for a bounded local workspace exposed through an authenticated tunnel.
+
+## Project operating protocol
+
+For this repository:
+
+- Every work/report turn ends with an explicit **Bước tiếp theo** naming the next valid step.
+- After every major phase (V2-0, V2-A, V2-B, V2-C, V2-D), this README must be updated with the phase verdict, delivered capability, current limitations, and next authorized phase before work proceeds.
