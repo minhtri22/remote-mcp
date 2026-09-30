@@ -1,0 +1,583 @@
+{
+  "lock_id": "REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "lock_version": 1,
+  "status": "FROZEN",
+  "frozen_at": "2026-09-30",
+  "binds": {
+    "git_head": "858c9155c329726f7b8e67683387212f6ea16c17",
+    "prelock_blob": "8bc1e126245ca2d3f06803111acc3fa8dbfe547c",
+    "central_schema_blob": "3e60c8b68d04b25828cb183e807e540685095459",
+    "node_schema_blob": "46600ec6d2ba1982393e14432c83b29741c4db5c",
+    "prelock_doc_blob": "b7d9494b6a152ca15745db1942badb6adae61bde",
+    "prelock_validator_blob": "4b86dd62610649a991431f1411b97e275e86b68c"
+  },
+  "production_freeze": {
+    "expected_port": 8099,
+    "expected_pid_at_lock": 11372,
+    "restart_repoint_or_deploy_allowed": false,
+    "cloudflare_change_allowed": false,
+    "real_pairing_allowed": false,
+    "managed_research_project_binding_allowed": false
+  },
+  "gateway_module_layout": {
+    "files": [
+      "remotemcp/routing/__init__.py",
+      "remotemcp/routing/config.py",
+      "remotemcp/routing/models.py",
+      "remotemcp/routing/crypto.py",
+      "remotemcp/routing/devices.py",
+      "remotemcp/routing/pairing.py",
+      "remotemcp/routing/auth.py",
+      "remotemcp/routing/commands.py",
+      "remotemcp/routing/bindings.py",
+      "remotemcp/routing/routed_jobs.py",
+      "remotemcp/routing/service.py",
+      "remotemcp/routing/http.py",
+      "remotemcp/routing/migrations/003_v2bd.sql"
+    ],
+    "responsibilities": {
+      "config.py": "RoutingConfig: timing/body limits/pairing key path; no side effects.",
+      "models.py": "V2-BD enums/value objects only.",
+      "crypto.py": "Base64url helpers, canonical pair/node signing payload builders, Ed25519 public-key verification.",
+      "devices.py": "devices/device_events repositories and ONLINE/OFFLINE/REVOKED transitions.",
+      "pairing.py": "pairing-secret key, device_pair_begin idempotency/replay, one-time pair consumption.",
+      "auth.py": "Signed node request verifier: route generation/timestamp/nonce/signature and last_seen/ONLINE transition.",
+      "commands.py": "Durable device command queue, operation_step idempotency, long-poll leasing, result commit/replay.",
+      "bindings.py": "project->device and immutable task->device binding; remote task claim/worktree coordination.",
+      "routed_jobs.py": "rjob proxy creation/cache/refresh/log/result/cancel mapping.",
+      "service.py": "Gateway facade: local-vs-routed dispatch for affected V2-B tools plus 12 V2-BD tools.",
+      "http.py": "register_device_routes(mcp, service) using FastMCP.custom_route; exact /device/v1 endpoints.",
+      "003_v2bd.sql": "Byte-for-byte copy of specs/v2bd_schema_v3.sql."
+    },
+    "forbidden": [
+      "shell=True",
+      "os.system",
+      "private device keys on gateway",
+      "caller-selected device_id for task-scoped operations",
+      "automatic cross-device migration",
+      "FastMCP server instance dedicated to node endpoints"
+    ]
+  },
+  "node_module_layout": {
+    "files": [
+      "remotemcp/node/__init__.py",
+      "remotemcp/node/__main__.py",
+      "remotemcp/node/cli.py",
+      "remotemcp/node/config.py",
+      "remotemcp/node/identity.py",
+      "remotemcp/node/runtime_lock.py",
+      "remotemcp/node/db.py",
+      "remotemcp/node/models.py",
+      "remotemcp/node/signing.py",
+      "remotemcp/node/client.py",
+      "remotemcp/node/command_journal.py",
+      "remotemcp/node/executor.py",
+      "remotemcp/node/projects.py",
+      "remotemcp/node/worktrees.py",
+      "remotemcp/node/cas.py",
+      "remotemcp/node/jobs.py",
+      "remotemcp/node/service.py",
+      "remotemcp/node/migrations/001_node.sql"
+    ],
+    "responsibilities": {
+      "__main__.py": "Entrypoint for python -m remotemcp.node.",
+      "cli.py": "pair/run/status/doctor CLI only.",
+      "config.py": "NodeConfig from CLI/env; canonical root/runtime/origin validation.",
+      "identity.py": "Ed25519 private key + device.json lifecycle and consistency checks.",
+      "runtime_lock.py": "Exclusive local node.lock; second process fails NODE_ALREADY_RUNNING.",
+      "db.py": "node.db WAL/bootstrap/checksum and short transactions.",
+      "models.py": "Node enums/value objects.",
+      "signing.py": "RMCPNODE1 request signing; RMCPPAIR1 pairing signing.",
+      "client.py": "Outbound HTTPS pair/heartbeat/poll/result client; no inbound listener.",
+      "command_journal.py": "node_commands receive/execute/result idempotency.",
+      "executor.py": "Dispatch only frozen command_type allowlist to node adapters.",
+      "projects.py": "Local project path canonicalization and node_projects binding.",
+      "worktrees.py": "Adapter around existing deterministic V2-B WorktreeManager.",
+      "cas.py": "node_cas_mutations intent/recovery and bounded file writes.",
+      "jobs.py": "Adapter around local V2-A DurableService subruntime and node_routed_jobs.",
+      "service.py": "Node orchestration/reconciliation loops.",
+      "001_node.sql": "Byte-for-byte copy of specs/v2bd_node_schema_v1.sql."
+    },
+    "forbidden": [
+      "OAuth server",
+      "public inbound listener",
+      "ChatGPT/MCP client endpoint",
+      "project/task routing choice",
+      "automatic private-key regeneration after paired identity exists",
+      "shell=True"
+    ]
+  },
+  "central_migration_003": {
+    "source": "specs/v2bd_schema_v3.sql",
+    "target": "remotemcp/routing/migrations/003_v2bd.sql",
+    "byte_identity_required": true,
+    "bootstrap": "Extend shared Database.migrations to ordered 001->002->003. RoutingService constructor calls db.bootstrap(target_version=3) after MultiAgentService has ensured v2.",
+    "transaction": "BEGIN IMMEDIATE",
+    "checksum_mismatch": "STARTUP_FATAL_SCHEMA_MISMATCH",
+    "destructive_changes": false,
+    "production_apply_boundary": "Migration 003 is not applied to production until V2-BD implementation qualification and a later deployment gate."
+  },
+  "node_database_bootstrap": {
+    "source": "specs/v2bd_node_schema_v1.sql",
+    "target": "remotemcp/node/migrations/001_node.sql",
+    "byte_identity_required": true,
+    "pragmas": [
+      "journal_mode=WAL",
+      "foreign_keys=ON",
+      "busy_timeout=5000",
+      "synchronous=NORMAL"
+    ],
+    "bootstrap": "Empty node.db executes schema v1 inside BEGIN IMMEDIATE, sets PRAGMA user_version=1, and inserts node_meta key 'schema' containing {version:1,sha256:<schema sha256>}.",
+    "repeat": "Verify user_version=1 and exact stored schema sha256; mismatch => NODE_SCHEMA_MISMATCH.",
+    "destructive_upgrade": false
+  },
+  "identity_storage": {
+    "private_key_file": "<MCP_NODE_RUNTIME_DIR>/device-ed25519.pem",
+    "private_key_serialization": "PKCS8 PEM, Ed25519, NoEncryption",
+    "private_key_create": "Generate only if no paired device identity exists. Atomic exclusive create; flush/fsync where supported; chmod 0600/best-effort owner-only Windows ACL.",
+    "device_json": "<MCP_NODE_RUNTIME_DIR>/device.json",
+    "device_json_fields": [
+      "schema_version",
+      "device_id",
+      "device_name",
+      "origin",
+      "root",
+      "public_key_b64",
+      "key_fingerprint_sha256",
+      "route_generation",
+      "paired_at_ms"
+    ],
+    "startup_consistency": "Derive public key/fingerprint from private key and compare to device.json and node_meta. Any mismatch => NODE_IDENTITY_MISMATCH; never regenerate.",
+    "unpaired_key": "A generated key may exist before pairing completes and is reused for retry.",
+    "pairing_secret_file": "<MCP_RUNTIME_DIR>/device-pairing.key",
+    "pairing_secret_bytes": 32,
+    "pairing_secret_startup": "Atomic create once; unused/unexpired pairing rows + missing key => STARTUP_FATAL_PAIRING_KEY_MISSING."
+  },
+  "exact_pairing_http": {
+    "path": "/device/v1/pair",
+    "method": "POST",
+    "max_body_bytes": 65536,
+    "request_json": {
+      "pairing_id": "pair_*",
+      "pairing_code": "pc1_* clear one-time code",
+      "device_name": "must equal requested_name",
+      "public_key_b64": "base64url raw 32-byte Ed25519 public key",
+      "timestamp_ms": "integer",
+      "nonce": "base64url >=128-bit",
+      "signature_b64": "Ed25519 signature"
+    },
+    "canonical_pair_string": "RMCPPAIR1\\n<pairing_id>\\n<device_name>\\n<public_key_b64>\\n<timestamp_ms>\\n<nonce>",
+    "verification_order": [
+      "reject oversized/malformed JSON",
+      "load pairing row by pairing_id",
+      "check unused and expires_at_ms > now",
+      "constant-time compare SHA-256(pairing_code) to stored hash",
+      "require device_name == requested_name",
+      "decode 32-byte public key and >=128-bit nonce",
+      "require timestamp within +/-60s",
+      "verify signature over canonical pair string with submitted public key",
+      "BEGIN IMMEDIATE: revalidate unused/unexpired then create device + mark pairing used atomically"
+    ],
+    "response_json": [
+      "device_id",
+      "device_name",
+      "origin",
+      "route_generation",
+      "state",
+      "public_key_b64",
+      "key_fingerprint_sha256",
+      "paired_at_ms",
+      "server_time_ms"
+    ],
+    "no_oauth": true,
+    "authorization": "one-time pairing code + Ed25519 proof-of-possession over HTTPS"
+  },
+  "pairing_begin_tool": {
+    "signature": "async def device_pair_begin(operation_id: str, device_name: str) -> dict",
+    "code_derivation": "pc1_<nonce>_<base64url(HMAC-SHA256(device-pairing.key, pairing_id|owner_account_id|requested_name|nonce))>",
+    "clear_storage": false,
+    "replay": "Same operation re-derives same clear code while pairing unused/unexpired. USED replay returns status/device_id without clear code.",
+    "result_fields": [
+      "pairing_id",
+      "pairing_code",
+      "expires_at_ms",
+      "device_name",
+      "node_pair_command"
+    ],
+    "node_pair_command": "python -m remotemcp.node pair --url https://remote.threadon.xyz --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>"
+  },
+  "signed_request_verifier": {
+    "headers": [
+      "X-RMCP-Device",
+      "X-RMCP-Route-Generation",
+      "X-RMCP-Timestamp",
+      "X-RMCP-Nonce",
+      "X-RMCP-Signature"
+    ],
+    "canonical": "RMCPNODE1\\n<device_id>\\n<route_generation>\\n<HTTP_METHOD>\\n<PATH>\\n<timestamp_ms>\\n<nonce>\\n<body_sha256>",
+    "max_body_bytes": 1048576,
+    "timestamp_window_seconds": 60,
+    "nonce_retention_seconds": 600,
+    "verification_order": [
+      "read raw body with 1 MiB hard cap",
+      "parse required headers and integer route_generation/timestamp",
+      "load device; reject REVOKED",
+      "require exact route_generation",
+      "require abs(server_now-timestamp)<=60s",
+      "decode nonce and require >=128-bit entropy",
+      "verify Ed25519 signature over raw-body SHA-256 canonical string",
+      "BEGIN IMMEDIATE insert (device_id,nonce); duplicate => DEVICE_REPLAY",
+      "update last_seen_at_ms and OFFLINE->ONLINE in same transaction",
+      "then parse endpoint JSON/business payload"
+    ],
+    "nonce_cleanup": "Delete expired nonce rows only after verification transaction; never before duplicate check for current request."
+  },
+  "exact_http_routes": {
+    "heartbeat": {
+      "path": "/device/v1/heartbeat",
+      "method": "POST",
+      "request": [
+        "node_time_ms",
+        "capabilities",
+        "active_node_jobs"
+      ],
+      "response": [
+        "server_time_ms",
+        "device_id",
+        "state",
+        "route_generation",
+        "next_heartbeat_seconds"
+      ]
+    },
+    "poll": {
+      "path": "/device/v1/poll",
+      "method": "POST",
+      "request": [
+        "node_time_ms"
+      ],
+      "response": "HTTP 204 if none; otherwise one command envelope JSON.",
+      "long_wait_seconds": 25
+    },
+    "result": {
+      "path": "/device/v1/commands/{command_id}/result",
+      "method": "POST",
+      "request": [
+        "request_hash",
+        "state",
+        "result",
+        "error_code",
+        "error"
+      ],
+      "allowed_states": [
+        "SUCCEEDED",
+        "FAILED",
+        "IN_DOUBT"
+      ],
+      "response": [
+        "command_id",
+        "accepted",
+        "central_state"
+      ]
+    }
+  },
+  "command_queue": {
+    "command_id": "cmd_<server-random >=128-bit>",
+    "canonical_request_hash": "SHA-256 canonical UTF-8 JSON of device_id,route_generation,command_type,project_id,task_id,payload.",
+    "mutation_idempotency": "UNIQUE(operation_id,operation_step) WHERE operation_id IS NOT NULL.",
+    "create_replay": "Same operation_id+step+same request_hash returns existing command. Different hash => COMMAND_CONFLICT.",
+    "read_commands": "operation_id NULL; safe retry may create a new read command.",
+    "poll_transaction": [
+      "BEGIN IMMEDIATE",
+      "cancel expired QUEUED commands",
+      "requeue expired LEASED commands only when command itself unexpired and device generation unchanged",
+      "select oldest QUEUED command for exact device/generation ordered by created_at_ms,command_id",
+      "set LEASED, delivery_attempt++, lease_expires_at_ms=now+45s",
+      "COMMIT and return envelope"
+    ],
+    "node_receive": [
+      "BEGIN IMMEDIATE",
+      "if command_id absent insert RECEIVED with request_hash/payload",
+      "if present same hash return persisted state/result",
+      "if present different hash => COMMAND_CONFLICT",
+      "COMMIT before external side effect"
+    ],
+    "result_commit": [
+      "verify signed request and command device/generation/request_hash",
+      "terminal same result is idempotent",
+      "terminal conflicting result => COMMAND_CONFLICT",
+      "BEGIN IMMEDIATE update central command terminal state/result/error/event",
+      "finalize owning high-level operation/proxy state where applicable",
+      "COMMIT"
+    ],
+    "gateway_wait_seconds": 55,
+    "pending_error": "DEVICE_COMMAND_PENDING",
+    "no_other_device_redelivery": true
+  },
+  "routed_workflow_steps": {
+    "PROJECT_REGISTER_ON_DEVICE": [
+      "step 0 PROJECT_PROBE",
+      "central project + project_device_binding persist after probe",
+      "step 1 PROJECT_BIND",
+      "operation success only after node binding ACK"
+    ],
+    "TASK_CREATE": "If project is device-bound, create tasks row + task_device_bindings row + TASK_CREATED/TASK_READY events in one BEGIN IMMEDIATE transaction.",
+    "TASK_CLAIM": [
+      "require bound device ONLINE before central claim phase1",
+      "central claim/lease epoch",
+      "step 0 TASK_WORKTREE_ENSURE with expiry <= task lease",
+      "finalize RUNNING only after successful node result"
+    ],
+    "TASK_COMPLETE": [
+      "route TASK_WORKTREE_STATUS for device-bound Git task",
+      "require clean/valid bound worktree and no non-terminal routed job",
+      "then central completion transaction"
+    ],
+    "FILE_WRITE_CAS": "validate central task lease then route FILE_WRITE_CAS; never call gateway-local CasService for device-bound task.",
+    "FILE_EDIT_CAS": "validate central task lease then route FILE_EDIT_CAS; never call gateway-local CasService for device-bound task."
+  },
+  "routed_job_proxy": {
+    "proxy_id": "rjob_<random >=128-bit>",
+    "submit_transaction": [
+      "validate central task lease and immutable task device binding",
+      "reserve high-level operation",
+      "BEGIN IMMEDIATE create routed_jobs proxy row + JOB_SUBMIT device command step 0",
+      "COMMIT",
+      "wait bounded for node result"
+    ],
+    "node_submit_operation_id": "v2bd-node-job:<device_id>:<command_id>",
+    "node_submit_replay": "Use local V2-A DurableService operation replay to recover same node_job_id after node-agent crash.",
+    "node_mapping": "node_routed_jobs persists proxy_job_id -> node_job_id/task/project/state.",
+    "offline": "Keep last_known_state; do not mark LOST/FAILED and never relaunch elsewhere.",
+    "observation": {
+      "task_jobs": "cached central proxy list; works offline",
+      "task_job_get": "refresh via JOB_GET when online; otherwise cached + device_state=OFFLINE",
+      "task_job_logs": "route JOB_LOGS; offline => DEVICE_OFFLINE",
+      "task_job_result": "terminal cached result may replay; otherwise route JOB_RESULT; offline => DEVICE_OFFLINE",
+      "task_job_cancel": "requires current task lease; route JOB_CANCEL to bound device"
+    },
+    "local_job_guard": "Gateway-local job_get/job_wait/job_logs/job_result/job_cancel reject rjob_* with ROUTED_JOB_USE_TASK_TOOLS."
+  },
+  "node_cas": {
+    "journal": "node_cas_mutations",
+    "states": [
+      "PREPARED",
+      "REPLACED",
+      "COMMITTED",
+      "ABORTED"
+    ],
+    "exact_flow": [
+      "validate command unexpired and node task/project binding",
+      "read current target hash and require expected hash",
+      "BEGIN IMMEDIATE persist PREPARED intent",
+      "write same-directory temp, fsync, verify intended hash",
+      "recheck current target hash",
+      "atomic replace",
+      "BEGIN IMMEDIATE set REPLACED",
+      "verify current hash == intended",
+      "BEGIN IMMEDIATE set COMMITTED and node command SUCCEEDED"
+    ],
+    "restart_reconcile": "If current target already equals intended hash, finalize without second write. PREPARED may perform a new replace only while command unexpired; otherwise IN_DOUBT/ABORT as frozen prelock dictates."
+  },
+  "node_durable_jobs": {
+    "durable_runtime_dir": "<MCP_NODE_RUNTIME_DIR>/durable",
+    "service": "Existing V2-A DurableService only; no MultiAgentService/OAuth on node.",
+    "workspace_root": "MCP_NODE_ROOT",
+    "diagnostic_env": [
+      "REMOTEMCP_DEVICE_ID",
+      "REMOTEMCP_PROJECT_ID"
+    ],
+    "node_agent_restart": "DurableService reconciles same local process; node service then re-associates node_routed_jobs and reports gateway."
+  },
+  "exact_cli": {
+    "commands": {
+      "pair": "python -m remotemcp.node pair --url <HTTPS_OR_LOOPBACK_URL> --code-file <FILE> --name <NAME> --root <ROOT> --runtime-dir <RUNTIME>",
+      "run": "python -m remotemcp.node run --runtime-dir <RUNTIME>",
+      "status": "python -m remotemcp.node status --runtime-dir <RUNTIME>",
+      "doctor": "python -m remotemcp.node doctor --url <URL> --root <ROOT> --runtime-dir <RUNTIME>"
+    },
+    "pair_code_file": "Read one UTF-8 line; trim CR/LF only; delete before any network request; deletion failure exit 2 with PAIRING_CODE_FILE_DELETE_FAILED.",
+    "run": "Loads origin/root/device ID exclusively from verified device.json; CLI cannot override paired origin/root.",
+    "status": "Local-only: identity fingerprint/device_id/route_generation/runtime lock state/node DB schema; never print private key.",
+    "doctor": "No mutation/pairing. Check HTTPS reachability, clock skew estimate, root canonicalization, runtime writeability, cryptography Ed25519 availability.",
+    "exit_codes": {
+      "success": 0,
+      "config_or_input": 2,
+      "auth_or_revoked": 3,
+      "transient_network": 4,
+      "runtime_conflict": 5
+    }
+  },
+  "server_integration": {
+    "construction_order": [
+      "DurableService -> schema v1",
+      "MultiAgentService -> schema v2",
+      "RoutingService -> schema v3"
+    ],
+    "lifespan_start": [
+      "durable_service.start",
+      "multiagent_service.start",
+      "routing_service.start"
+    ],
+    "lifespan_stop": [
+      "routing_service.stop",
+      "multiagent_service.stop",
+      "durable_service.stop"
+    ],
+    "http_registration": "After FastMCP construction call register_device_routes(mcp, routing_service). FastMCP.custom_route endpoints intentionally bypass OAuth and perform pairing/signed-node authorization themselves.",
+    "tool_surface": "Add the exact 12 V2-BD tools from specs/v2bd_prelock.json.",
+    "routed_facade": "For affected existing V2-B tools, server wrappers call RoutingService *or_local methods; RoutingService delegates to current MultiAgentService only when no device binding exists.",
+    "affected_existing_tools": [
+      "project_register",
+      "task_create",
+      "task_claim",
+      "task_complete",
+      "file_write_cas",
+      "file_edit_cas",
+      "task_job_submit",
+      "task_jobs",
+      "task_job_cancel"
+    ]
+  },
+  "exact_test_files": [
+    "tests/v2bd/test_migration_003.py",
+    "tests/v2bd/test_pairing_replay.py",
+    "tests/v2bd/test_pair_endpoint.py",
+    "tests/v2bd/test_request_verifier.py",
+    "tests/v2bd/test_device_states.py",
+    "tests/v2bd/test_command_queue.py",
+    "tests/v2bd/test_project_binding.py",
+    "tests/v2bd/test_task_binding.py",
+    "tests/v2bd/test_gateway_routed_cas.py",
+    "tests/v2bd/test_routed_jobs.py",
+    "tests/v2bd/test_server_surface.py",
+    "tests/v2bd/test_node_schema.py",
+    "tests/v2bd/test_node_identity.py",
+    "tests/v2bd/test_node_signing.py",
+    "tests/v2bd/test_node_runtime_lock.py",
+    "tests/v2bd/test_node_command_journal.py",
+    "tests/v2bd/test_node_cas.py",
+    "tests/v2bd/test_node_jobs.py",
+    "tests/v2bd/test_node_cli.py",
+    "tests/v2bd/test_loopback_gateway_node.py",
+    "tests/v2bd/test_failure_injection.py"
+  ],
+  "qualification_scripts": [
+    "scripts/qualify_v2bd_loopback.py",
+    "scripts/qualify_v2bd_pairing_replay.py",
+    "scripts/qualify_v2bd_command_replay.py",
+    "scripts/qualify_v2bd_node_cas_restart.py",
+    "scripts/qualify_v2bd_routed_job_restart.py",
+    "scripts/qualify_v2bd_auth_replay.py",
+    "scripts/qualify_v2bd_two_machine_pilot.py"
+  ],
+  "failure_injection_matrix": [
+    "gateway crash after device_pair_begin pairing row commit before MCP response; same operation re-derives same clear code",
+    "two concurrent /pair submissions using same pairing code; exactly one device row wins",
+    "pair request valid code but invalid Ed25519 signature",
+    "pair timestamp outside +/-60s",
+    "node identity private key missing after device.json exists",
+    "node identity fingerprint mismatch across private key/device.json/node_meta",
+    "two node processes attempt same runtime lock",
+    "signed request duplicate nonce",
+    "signed request stale timestamp",
+    "signed request stale route_generation",
+    "gateway crash after command QUEUED before poll",
+    "gateway crash after command LEASED before HTTP response reaches node",
+    "node crash after command RECEIVED before execution",
+    "node crash after external side effect before node command result commit",
+    "node result HTTP response lost after central terminal commit",
+    "same command_id same request_hash redelivery",
+    "same command_id different request_hash conflict",
+    "PROJECT_PROBE success then gateway crash before project binding",
+    "central project binding persisted then crash before PROJECT_BIND",
+    "task create transaction crash cannot leave task without inherited task_device_binding",
+    "device OFFLINE race between pre-claim ONLINE check and TASK_WORKTREE_ENSURE dispatch",
+    "task lease expires while remote worktree command is queued/leased",
+    "node CAS crash after PREPARED before temp write",
+    "node CAS crash after temp write before replace",
+    "node CAS crash after atomic replace before REPLACED",
+    "node CAS crash after REPLACED before command result",
+    "CAS command expires before replace",
+    "gateway crash after routed_jobs proxy row + JOB_SUBMIT command commit",
+    "node crash after local V2-A job creation before node_routed_jobs mapping",
+    "node-agent restart while durable payload continues",
+    "device OFFLINE while durable payload continues",
+    "same device reconnect reports same proxy_job_id/node_job_id",
+    "stale claimant attempts remote job cancel",
+    "device revoke with QUEUED commands",
+    "device revoke with LEASED command -> IN_DOUBT",
+    "project rebind attempt with non-terminal task",
+    "project rebind attempt while old device OFFLINE",
+    "caller attempts to override task device",
+    "machine A task command presented to machine B poll/result path",
+    "rjob_* passed to gateway-local V2-A job tools"
+  ],
+  "isolated_two_device_pilot_lock": {
+    "machines": {
+      "machine1": {
+        "login_identity": "physical-machine-1",
+        "expected_host_label": "DESKTOP-4PSD0G2",
+        "root_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\workspace",
+        "runtime_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\runtime",
+        "project_dir": "pilot-machine-1"
+      },
+      "machine2": {
+        "login_identity": "physical-machine-2",
+        "expected_host_label": "DESKTOP-VKIC2RU",
+        "root_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\workspace",
+        "runtime_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\runtime",
+        "project_dir": "pilot-machine-2"
+      }
+    },
+    "directory_precondition": "Pilot root/runtime directories must be absent or empty before final qualification. Existing research roots are forbidden.",
+    "marker_files": {
+      "machine1": "DEVICE_MARKER.txt => PHYSICAL_MACHINE_1_ONLY",
+      "machine2": "DEVICE_MARKER.txt => PHYSICAL_MACHINE_2_ONLY"
+    },
+    "project_content": "Each pilot project is a fresh Git repo with one committed marker file and no remote required.",
+    "pairing_names": [
+      "pilot-exec-machine-1",
+      "pilot-exec-machine-2"
+    ],
+    "no_research_bindings": [
+      "ArcLLM",
+      "CQG",
+      "SIX",
+      "CLDP",
+      "MindForge",
+      "cot-from-zero",
+      "RemoteMCP-src"
+    ],
+    "pre_physical_gate": [
+      "all 21 V2-BD test files PASS",
+      "all 6 local/loopback qualification scripts except final two-machine pilot PASS",
+      "V2-B 24/24 PASS",
+      "V2-A 27/27 PASS",
+      "V2-0 17/17 PASS",
+      "public smoke PASS",
+      "production deployment decision explicit; node pilot may not mutate research projects"
+    ],
+    "physical_gate_source": "Use the frozen real_two_execution_device_qualification gates from specs/v2bd_prelock.json without omission.",
+    "final_cleanup": "Stop node agents, preserve node runtime/evidence until QA adjudication, delete only pilot project worktrees/repos after explicit cleanup approval. Do not revoke the two primary device identities until qualification record is closed."
+  },
+  "implementation_authorized_after_static_pass": [
+    "create exact remotemcp/routing package",
+    "create exact remotemcp/node package",
+    "copy central migration 003 and node schema v1 byte-identically",
+    "modify shared Database migration list to include 003",
+    "wire RoutingService/custom routes/12 tools in server.py",
+    "implement exact tests and local qualification scripts"
+  ],
+  "forbidden_during_implementation_until_qualification_gate": [
+    "deploy/restart/repoint production 8099",
+    "pair physical-machine-1 or physical-machine-2 against production",
+    "create production devices rows",
+    "bind any research project",
+    "change Cloudflare routing",
+    "open inbound device ports",
+    "run final two-machine pilot before local/loopback qualification PASS",
+    "implement automatic device migration/failover",
+    "implement /ops UI"
+  ],
+  "next_gate_on_pass": "REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
+}

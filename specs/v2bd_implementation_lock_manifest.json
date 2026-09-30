@@ -1,0 +1,40 @@
+{
+  "lock_id": "REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "status": "PASS",
+  "frozen_at": "2026-09-30",
+  "binds_final_prelock_commit": "858c9155c329726f7b8e67683387212f6ea16c17",
+  "artifact_git_blobs": {
+    "docs/V2_BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK.md": "e5546b817f32c59e99a63cb2592be41f3e8506dd",
+    "scripts/validate_v2bd_implementation_lock.py": "f8a48601627be44f43529dceb4f5ea1f9d15a2b6",
+    "specs/v2bd_implementation_lock.json": "c90b6a0331c87f01b1a918eb2983ce4bc6d3a9cd"
+  },
+  "qa": {
+    "static_validator": "PASS",
+    "amended_prelock_validator": "PASS",
+    "v2b_regression": "24 passed",
+    "v2a_regression": "27 passed",
+    "v2_0_regression": "17 passed",
+    "v2a_static_validator": "PASS",
+    "local_production_metadata": "HTTP 200",
+    "public_tunnel_smoke": "PASS after one transient RemoteDisconnected retry",
+    "diff_check": "PASS",
+    "production_pid_unchanged": 11372,
+    "production_port": 8099,
+    "production_modified": false,
+    "cloudflare_modified": false,
+    "real_devices_paired": 0,
+    "migration_003_applied_to_production": false
+  },
+  "execution_lock": {
+    "gateway_modules": 13,
+    "node_modules": 18,
+    "test_files": 21,
+    "qualification_scripts": 7,
+    "pilot_machines": [
+      "physical-machine-1",
+      "physical-machine-2"
+    ],
+    "research_project_binding_forbidden": true
+  },
+  "next_gate": "REMOTE_MCP_V2BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
+}

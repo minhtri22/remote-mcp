@@ -2,19 +2,28 @@
   "spec_id": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
   "status": "PASS",
   "frozen_at": "2026-09-30",
-  "binds": {
-    "git_head": "7dbb2093e1f5ef970dd8af4ebd913bf30683f40d",
-    "two_device_session_smoke_blob": "b976f7f0473c8d1d934d75f7d789ffb84a983c6d",
-    "v2b_production_release_manifest_blob": "99d410d2db0c8fa9484cdcc8d2311b1373e8a197",
-    "production_pid": 11372,
-    "production_port": 8099
-  },
+  "original_prelock_commit": "41a8ea08aca127903bcbe45b267f2b6cb548d3fd",
+  "final_amended_prelock_commit": "858c9155c329726f7b8e67683387212f6ea16c17",
+  "amendment_commits": [
+    "204e3d2abe7138271aa8bebd38f407b2753386ec",
+    "44d87b1d9aeb562fdda04f20d797bef670929788",
+    "a1b332bf27a03477a9ddecc6c48ee6972c373e42",
+    "858c9155c329726f7b8e67683387212f6ea16c17"
+  ],
+  "amendments": [
+    "multi-step routed command identity uses (operation_id, operation_step)",
+    "node-local CAS intent journal for post-replace crash recovery",
+    "node-local V2-A durable subruntime + runtime lock",
+    "task-scoped routed-job get/logs/result parity",
+    "pairing secret removed from argv via one-time --code-file",
+    "device_pair_begin clear code replay via HMAC nonce without cleartext persistence"
+  ],
   "artifact_git_blobs": {
-    "docs/V2_BD_MULTI_DEVICE_ROUTING_PRELOCK.md": "20e47aecc706073262429e89dc5e76b1467e650b",
-    "specs/v2bd_prelock.json": "490fd6d256190b76f918f81a45a74305e62d1b73",
-    "specs/v2bd_schema_v3.sql": "ca0767091f30e1506f24704f24019f3006ad8f66",
-    "specs/v2bd_node_schema_v1.sql": "cc8393f1dfa09a4845d2f0ce55d3d4b2560187e8",
-    "scripts/validate_v2bd_prelock.py": "58926549585f0085a6113ea9a39f148d12027213"
+    "docs/V2_BD_MULTI_DEVICE_ROUTING_PRELOCK.md": "b7d9494b6a152ca15745db1942badb6adae61bde",
+    "scripts/validate_v2bd_prelock.py": "4b86dd62610649a991431f1411b97e275e86b68c",
+    "specs/v2bd_prelock.json": "8bc1e126245ca2d3f06803111acc3fa8dbfe547c",
+    "specs/v2bd_schema_v3.sql": "3e60c8b68d04b25828cb183e807e540685095459",
+    "specs/v2bd_node_schema_v1.sql": "46600ec6d2ba1982393e14432c83b29741c4db5c"
   },
   "qa": {
     "prelock_validator": "PASS",
@@ -22,37 +31,10 @@
     "v2a_regression": "27 passed",
     "v2_0_regression": "17 passed",
     "v2a_static_validator": "PASS",
-    "public_tunnel_smoke": "PASS",
-    "diff_check": "PASS",
+    "public_tunnel_smoke": "PASS after one transient RemoteDisconnected retry",
     "production_pid_unchanged": 11372,
-    "test_runtime_hygiene": "Disposable .v2test-runtime* directories were reset after stale migration-002 checksum; production runtime untouched."
+    "runtime_implementation_started": false,
+    "real_pairing_started": false
   },
-  "frozen_design": {
-    "transport": "outbound HTTPS long-poll through existing public origin",
-    "node_auth": "Ed25519 signed requests + nonce/timestamp replay protection",
-    "device_states": [
-      "ONLINE",
-      "OFFLINE",
-      "REVOKED"
-    ],
-    "no_silent_migration": true,
-    "project_to_device_binding": true,
-    "immutable_task_device_binding": true,
-    "real_two_execution_device_qualification": true,
-    "qualification_machines": [
-      "physical-machine-1",
-      "physical-machine-2"
-    ],
-    "qualification_gate_count": 20
-  },
-  "prohibited_now": [
-    "real pairing",
-    "production devices rows",
-    "migration 003 implementation",
-    "node agent implementation",
-    "Cloudflare routing change",
-    "research project binding",
-    "two-execution-device qualification run"
-  ],
   "next_gate": "REMOTE_MCP_V2BD_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
 }
