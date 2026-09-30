@@ -1,0 +1,351 @@
+{
+  "lock_id": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "lock_version": 1,
+  "status": "FROZEN",
+  "frozen_at": "2026-09-30",
+  "binds": {
+    "git_head": "4dbbf0959112db1d4f442ef65e3ce08965ad3edc",
+    "prelock_blob": "633e6d44a8b2c80deb4d001601cd45f303f13676",
+    "schema_v2_blob": "e7f336f2b4493faa81029a4ca2d60237b749b271",
+    "prelock_doc_blob": "928b43ed9dd48891442c3796d47778a4b7e4b9ea"
+  },
+  "production_freeze": {
+    "port_8099_must_remain_untouched": true,
+    "tunnel_must_remain_untouched": true,
+    "deployment_allowed_in_this_gate": false,
+    "release_switch_requires": [
+      "remaining planned redesign phases complete",
+      "explicit release QA gate PASS",
+      "owner explicit approval"
+    ]
+  },
+  "module_layout": {
+    "files": [
+      "remotemcp/multiagent/__init__.py",
+      "remotemcp/multiagent/config.py",
+      "remotemcp/multiagent/principal.py",
+      "remotemcp/multiagent/tokens.py",
+      "remotemcp/multiagent/models.py",
+      "remotemcp/multiagent/agents.py",
+      "remotemcp/multiagent/projects.py",
+      "remotemcp/multiagent/tasks.py",
+      "remotemcp/multiagent/leases.py",
+      "remotemcp/multiagent/worktrees.py",
+      "remotemcp/multiagent/cas.py",
+      "remotemcp/multiagent/guard.py",
+      "remotemcp/multiagent/jobs.py",
+      "remotemcp/multiagent/reconcile.py",
+      "remotemcp/multiagent/service.py",
+      "remotemcp/multiagent/migrations/002_v2b.sql"
+    ],
+    "responsibilities": {
+      "config.py": "V2-B lease TTL/concurrency/worktree/runtime-key configuration only; no DB side effects.",
+      "principal.py": "Read authenticated OAuth AccessToken via MCP auth context and return client_id as principal_key; missing token => AUTH_REQUIRED.",
+      "tokens.py": "Create/load lease-token.key and derive/verify clear lease tokens; never log/persist clear token.",
+      "models.py": "V2-B enums/value objects only.",
+      "agents.py": "Agent/session repository, heartbeat sequence rules and stale/close transitions.",
+      "projects.py": "Project registration/status and canonical root/project kind metadata.",
+      "tasks.py": "Task repository/state transitions/checkpoint metadata and project concurrency counting.",
+      "leases.py": "Task/path lease creation, validation, expiry, takeover and hierarchical conflict checks.",
+      "worktrees.py": "Deterministic Git worktree/branch provisioning, validation, recovery and cleanup decisions; no DB transaction ownership.",
+      "cas.py": "CAS intent preparation, filesystem replace, crash reconciliation and result finalization.",
+      "guard.py": "Legacy write/edit/run_command/direct-job bypass guards based on registered managed-mode state.",
+      "jobs.py": "Task-scoped wrappers around V2-A DurableService and task/job binding checks.",
+      "reconcile.py": "Startup/periodic V2-B reconciliation: stale sessions, expired leases, CLAIMED worktree recovery, CAS intents and cleanup_pending.",
+      "service.py": "Application orchestration only; exact V2-B tool semantics.",
+      "002_v2b.sql": "Byte-for-byte copy of specs/v2b_schema_v2.sql."
+    },
+    "forbidden_dependencies": [
+      "FastMCP decorators inside remotemcp.multiagent",
+      "shell=True",
+      "os.system",
+      "automatic git merge/rebase/reset on user branches",
+      "clear lease token persistence",
+      "direct production endpoint mutation"
+    ],
+    "server_py_role": "Composition root: construct MultiAgentService, expose exact tools, pass principal_key from request context, and call guard for legacy mutators/direct execution."
+  },
+  "migration_002": {
+    "source": "specs/v2b_schema_v2.sql",
+    "target": "remotemcp/multiagent/migrations/002_v2b.sql",
+    "byte_identity_required": true,
+    "database_bootstrap_change": "Generalize V2-A Database.bootstrap to apply ordered migrations 001 then 002 by exact SHA-256; existing v1 DB upgrades in-place without destructive migration.",
+    "ordered_versions": [
+      1,
+      2
+    ],
+    "lock": "BEGIN IMMEDIATE around migration inspection/application",
+    "checksum_mismatch": "STARTUP_FATAL_SCHEMA_MISMATCH",
+    "downgrade": "unsupported",
+    "no_drop_or_rename": true
+  },
+  "principal_and_token": {
+    "principal_source": "mcp.server.auth.middleware.auth_context.get_access_token().client_id",
+    "auth_missing": "AUTH_REQUIRED",
+    "lease_key_path": "<MCP_RUNTIME_DIR>/lease-token.key",
+    "lease_key_bytes": 32,
+    "key_create": "Atomic create-once before MultiAgentService accepts mutations. Existing file must be exactly 32 bytes.",
+    "missing_key_with_active_leases": "STARTUP_FATAL_LEASE_KEY_MISSING",
+    "token_derivation": "lt1_<nonce>_<base64url(HMAC-SHA256(key, task_id|lease_epoch|agent_id|session_id|nonce))>",
+    "token_verify": "Constant-time compare SHA-256(clear token) with task_leases.lease_token_hash after validating task/session/epoch.",
+    "clear_token_storage": false,
+    "claim_replay": "Re-derive same token from active lease nonce only when task, epoch, agent and session still match; else LEASE_STALE."
+  },
+  "transaction_boundaries": {
+    "agent_register": [
+      "derive principal_key before transaction",
+      "reserve V2-A operation",
+      "BEGIN IMMEDIATE",
+      "get-or-create agent by principal_key+client_instance_id",
+      "create new ACTIVE session",
+      "append task/event-free agent audit event only if later schema supports it; V2-B schema does not add agent_events",
+      "COMMIT",
+      "succeed operation"
+    ],
+    "heartbeat": [
+      "BEGIN IMMEDIATE",
+      "validate agent/session principal ownership",
+      "if heartbeat_seq < stored => HEARTBEAT_STALE",
+      "if equal => idempotent no-renew response",
+      "if greater => update session heartbeat_seq/last_heartbeat",
+      "renew only currently unexpired task/path leases owned by exact session",
+      "never resurrect expired lease",
+      "COMMIT"
+    ],
+    "project_register": [
+      "derive principal",
+      "canonicalize path under workspace ROOT before transaction",
+      "detect GIT vs NON_GIT read-only",
+      "reserve operation",
+      "BEGIN IMMEDIATE",
+      "insert unique project or replay exact existing registration",
+      "COMMIT",
+      "succeed operation"
+    ],
+    "task_create": [
+      "for GIT resolve base_ref to exact base_commit before DB mutation",
+      "reserve operation",
+      "BEGIN IMMEDIATE",
+      "insert task CREATED with deterministic branch/worktree metadata",
+      "transition CREATED->READY in same transaction",
+      "append TASK_CREATED/TASK_READY events",
+      "COMMIT",
+      "succeed operation"
+    ],
+    "task_claim_phase1": [
+      "derive principal and validate agent/session ownership",
+      "reserve claim operation",
+      "BEGIN IMMEDIATE",
+      "expire stale leases for target project before capacity count",
+      "validate task READY or RECOVERABLE",
+      "validate project active-task capacity",
+      "increment tasks.lease_epoch",
+      "create fresh nonce and derived token hash",
+      "insert/replace task_leases for new epoch",
+      "set owner agent/session and state CLAIMED",
+      "append TASK_CLAIMED intent event",
+      "COMMIT"
+    ],
+    "task_claim_external": [
+      "for GIT provision/recover deterministic task worktree outside SQLite transaction",
+      "for NON_GIT validate canonical project root only",
+      "no second claimant can win because CLAIMED counts as active and lease row is already committed"
+    ],
+    "task_claim_phase2": [
+      "BEGIN IMMEDIATE",
+      "revalidate same lease epoch/owner/session and task still CLAIMED",
+      "validate external workspace identity",
+      "transition CLAIMED->RUNNING",
+      "append TASK_RUNNING",
+      "COMMIT",
+      "persist operation success WITHOUT clear lease token",
+      "derive clear token from current lease and return it only in response"
+    ],
+    "task_claim_failure": "If deterministic workspace provisioning is conclusively invalid/conflicting, delete that epoch's task/path leases, clear owner, set RECOVERABLE, preserve external evidence, fail operation final with WORKTREE_* error. Ambiguous external state => keep RECOVERABLE + manual evidence, never delete.",
+    "task_block_release": "Single DB transaction validates lease, changes RUNNING->BLOCKED, deletes task/path leases, clears owner/session, preserves worktree/jobs, appends event, succeeds operation.",
+    "task_release": "Single DB transaction validates lease; CLAIMED without provisioned worktree -> READY, otherwise -> RECOVERABLE; delete task/path leases, clear owner/session.",
+    "task_complete": [
+      "preflight outside transaction: validate Git clean branch identity or NON_GIT lease rules, query no non-terminal bound jobs",
+      "BEGIN IMMEDIATE",
+      "revalidate current lease and no non-terminal job rows",
+      "transition RUNNING->COMPLETED",
+      "delete task/path leases, clear owner/session, set finished_at",
+      "append TASK_COMPLETED",
+      "COMMIT",
+      "cleanup is separate best-effort reconciliation and never changes completion verdict"
+    ],
+    "path_lease_acquire": "One BEGIN IMMEDIATE validates current task lease and hierarchical conflicts, then inserts path lease with same expiry as task lease.",
+    "cas": [
+      "reserve V2-A operation and validate current task lease/epoch",
+      "BEGIN IMMEDIATE: validate required non-Git path lease; compute/store PREPARED cas_mutations intent metadata after a read-only prehash",
+      "COMMIT",
+      "create unique temp in target directory, fsync, verify temp hash=intended_after_hash",
+      "re-read current target hash immediately before replace; mismatch => ABORTED/CAS_MISMATCH, zero replace",
+      "atomic replace",
+      "BEGIN IMMEDIATE: set cas_mutations REPLACED, verify task lease epoch has not changed; COMMIT",
+      "re-read after hash",
+      "BEGIN IMMEDIATE: set COMMITTED and persist operation result before_hash/after_hash/path/task; append task event; COMMIT",
+      "temp cleanup best effort"
+    ]
+  },
+  "worktree_algorithm": {
+    "deterministic_path": ".remote-worktrees/<project_id>/<task_id>",
+    "deterministic_branch": "remotemcp/task/<task_id>",
+    "git_commands_shell_false": true,
+    "create_or_recover": {
+      "neither_branch_nor_worktree": "git worktree add -b <branch> <path> <base_commit>",
+      "branch_exists_no_worktree": "Verify branch belongs to task namespace. For first provisioning branch must point at base_commit; for takeover/recovery progressed branch is allowed. git worktree add <path> <branch>.",
+      "expected_worktree_exists": "Use git worktree list --porcelain; require exact path and exact branch. Never reset.",
+      "path_exists_not_registered": "WORKTREE_CONFLICT; preserve directory.",
+      "branch_registered_elsewhere": "WORKTREE_CONFLICT; preserve both locations.",
+      "wrong_branch_or_detached": "WORKTREE_IDENTITY_MISMATCH; preserve worktree."
+    },
+    "crash_recovery": {
+      "CLAIMED_no_worktree": "Resume deterministic provision if lease still valid; if lease expired first mark RECOVERABLE and provision only on next claim.",
+      "CLAIMED_worktree_valid": "Finalize RUNNING for same lease if claim operation evidence is consistent.",
+      "RUNNING_worktree_missing": "RECOVERABLE + WORKTREE_IDENTITY_MISMATCH event; never recreate automatically while jobs may exist.",
+      "terminal_clean_no_jobs": "May remove worktree with git worktree remove only after identity revalidation; branch is preserved.",
+      "terminal_dirty_or_ambiguous": "Set cleanup_pending=1 and preserve."
+    },
+    "forbidden_git_actions": [
+      "merge",
+      "rebase",
+      "reset --hard",
+      "branch -D",
+      "worktree prune --expire=now"
+    ]
+  },
+  "legacy_guard": {
+    "activation": "managed_mode = EXISTS(projects row)",
+    "read_tools": "list_dir/read_file/search remain allowed subject to ROOT containment.",
+    "write_file_edit_file": "Resolve canonical target. If inside any registered project root OR any recorded task worktree => raise LEASE_REQUIRED_USE_CAS before filesystem mutation. Outside managed areas preserve V2-A behavior.",
+    "run_command": "If managed_mode active => raise TASK_CONTEXT_REQUIRED before process spawn.",
+    "direct_job_submit": "If managed_mode active => raise TASK_CONTEXT_REQUIRED before V2-A operation reservation.",
+    "direct_job_cancel": "If target job joins through operations.task_id to a V2-B task => raise TASK_CONTEXT_REQUIRED.",
+    "guard_failure": "Fail closed on DB ambiguity/errors for mutation tools; reads may continue if project registry lookup succeeds or clearly does not cover path."
+  },
+  "task_job_wrappers": {
+    "submit": [
+      "validate current task lease/epoch and request principal owns supplied agent/session indirectly through lease",
+      "resolve task execution root: Git worktree for GIT, project root for NON_GIT",
+      "GIT: require valid worktree identity",
+      "NON_GIT: require current TREE WRITE_EXCLUSIVE path lease on project root '.'",
+      "resolve cwd under task execution root",
+      "call internal DurableService.job_submit directly with same operation_id and context agent_id/project_id/task_id; server direct-job guard is bypassed only inside this trusted wrapper",
+      "operation request hash therefore binds argv/cwd + agent/project/task"
+    ],
+    "list": "Join jobs -> operations by operation_id where operations.task_id=<task_id>; no lease required for read, but caller must be authenticated.",
+    "cancel": [
+      "validate current task lease/epoch",
+      "verify target job joins to same task_id",
+      "call internal DurableService.job_cancel with same operation_id + current context",
+      "stale token never reaches process cancellation"
+    ],
+    "completion_gate": "tasks repository checks joined jobs for non-terminal states before task_complete."
+  },
+  "cas_recovery": {
+    "startup_order": "After DB migration and lease-key validation, before accepting V2-B mutations.",
+    "PREPARED": [
+      "compute current target hash and temp hash if temp exists",
+      "if current==intended_after_hash => set REPLACED then finalize",
+      "if current==expected_before_hash and temp hash==intended_after_hash => retry atomic replace once under reconciler ownership, then finalize",
+      "otherwise mark operation IN_DOUBT and preserve temp/evidence"
+    ],
+    "REPLACED": [
+      "if current==intended_after_hash => finalize COMMITTED/result",
+      "otherwise mark operation IN_DOUBT"
+    ],
+    "COMMITTED": "No filesystem action.",
+    "ABORTED": "No filesystem action; clean temp only when evidence is unambiguous.",
+    "lease_expiry_during_recovery": "Recovery of an already PREPARED same operation may finalize only if replacement had already happened. It must not perform a new replace after task lease epoch is no longer current."
+  },
+  "lease_reconciliation": {
+    "sweep_order": [
+      "mark sessions STALE by heartbeat age",
+      "find expired task leases",
+      "for each lease in one transaction: delete path leases, delete task lease, RUNNING/CLAIMED->RECOVERABLE, clear owner/session, append LEASE_EXPIRED event",
+      "do not touch V2-A jobs",
+      "reconcile CLAIMED worktrees only for still-valid leases"
+    ],
+    "heartbeat_no_resurrection": true,
+    "takeover_epoch_monotonic": true
+  },
+  "exact_test_files": [
+    "tests/v2b/test_migration.py",
+    "tests/v2b/test_principal_tokens.py",
+    "tests/v2b/test_agents_sessions.py",
+    "tests/v2b/test_task_leases.py",
+    "tests/v2b/test_project_concurrency.py",
+    "tests/v2b/test_worktrees.py",
+    "tests/v2b/test_path_leases.py",
+    "tests/v2b/test_cas.py",
+    "tests/v2b/test_legacy_guard.py",
+    "tests/v2b/test_task_jobs.py",
+    "tests/v2b/test_reconcile.py",
+    "tests/v2b/test_server_tools.py"
+  ],
+  "qualification_scripts": [
+    "scripts/qualify_v2b_three_agents_two_projects.py",
+    "scripts/qualify_v2b_competing_claim.py",
+    "scripts/qualify_v2b_takeover_durable_job.py",
+    "scripts/qualify_v2b_cas_race.py",
+    "scripts/qualify_v2b_worktree_recovery.py"
+  ],
+  "failure_injection_matrix": [
+    "crash after claim phase1 before worktree creation",
+    "crash after worktree creation before claim phase2",
+    "claim response lost after RUNNING+operation success: same operation re-derives same current token",
+    "lease expires before claim external provisioning finishes",
+    "late heartbeat after takeover",
+    "two claim transactions race at project concurrency boundary",
+    "worktree path preexists with wrong identity",
+    "worktree branch exists but registered elsewhere",
+    "dirty terminal worktree cleanup",
+    "CAS crash after PREPARED before temp write",
+    "CAS crash after temp write before replace",
+    "CAS crash after replace before REPLACED DB state",
+    "CAS crash after REPLACED before operation result",
+    "CAS lease expires before replace",
+    "CAS lease expires after replace but before DB finalize",
+    "two CAS writers share same expected hash",
+    "legacy write/edit/run_command/direct job_submit bypass attempts",
+    "session stale while V2-A durable payload continues",
+    "takeover observes same V2-A job",
+    "stale claimant cancellation rejected",
+    "current claimant cancellation succeeds",
+    "server restart with expired leases and running durable jobs"
+  ],
+  "qualification_gates": {
+    "regression": [
+      "V2-A tests remain PASS",
+      "V2-0 tests remain PASS",
+      "full OAuth integration PASS",
+      "public tunnel smoke PASS"
+    ],
+    "scale": "At least 3 agents across at least 2 projects; 2 concurrent tasks in the same Git project use distinct worktrees.",
+    "claim_race": "Exactly one winner for same task and no duplicate active lease.",
+    "takeover": "Old token rejected after epoch increment; durable job survives and new claimant sees same job.",
+    "cas_race": "Two writers from same expected hash => exactly one committed result and one CAS_MISMATCH.",
+    "worktree_recovery": "Crash-window fixtures recover deterministically without reset/prune/data loss.",
+    "production": "Port 8099/tunnel process identity remains unchanged throughout V2-B implementation qualification."
+  },
+  "implementation_authorized_after_lock_pass": [
+    "create exact remotemcp/multiagent package",
+    "generalize Database.bootstrap for migration 002",
+    "wire exact V2-B tools in server.py",
+    "wire legacy guards in server.py",
+    "add V2-B tests/qualification scripts",
+    "add periodic V2-B reconciler task without changing V2-A worker semantics"
+  ],
+  "forbidden": [
+    "restart/replace production 8099",
+    "change V2-A job state machine or worker protocol",
+    "auto merge/rebase/reset user Git history",
+    "persist clear lease tokens",
+    "allow legacy run_command/direct job_submit in managed mode",
+    "implement observability UI",
+    "implement V2-C Context Broker",
+    "implement native MCP Tasks"
+  ],
+  "next_gate_on_pass": "REMOTE_MCP_V2B_MULTI_AGENT_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
+}

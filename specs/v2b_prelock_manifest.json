@@ -2,26 +2,21 @@
   "spec_id": "REMOTE_MCP_V2B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK",
   "status": "PASS",
   "frozen_at": "2026-09-30",
-  "binds_v2a_closure_commit": "cdc3c3b41aa52cffc94865548d2e77ac404186b5",
+  "original_prelock_commit": "bf70b83875e61cab2fb55683129e238c9b0246e4",
+  "prospective_amendment_commit": "4dbbf0959112db1d4f442ef65e3ce08965ad3edc",
+  "amendment_reason": "Closed lease-token response-replay and CAS post-replace crash gaps before implementation lock; also closed managed-mode run_command/direct-job bypasses.",
   "artifact_git_blobs": {
-    "docs/V2_B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK.md": "1888eeaccdc1f6dd9d6dd64abc5460282fe0dba5",
-    "scripts/validate_v2b_prelock.py": "6312711d5da1ac1530d6e88e26048b09523e26c5",
-    "specs/v2b_prelock.json": "5d5529a82a0a4b4034cef97e37a2336874ee491c",
-    "specs/v2b_schema_v2.sql": "ebf6e07be9be9104364d3e4a3a24f0331a6aa62e"
+    "docs/V2_B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK.md": "928b43ed9dd48891442c3796d47778a4b7e4b9ea",
+    "scripts/validate_v2b_prelock.py": "fca883796fb547532e687e2b4a0d3dcf419120ce",
+    "specs/v2b_prelock.json": "633e6d44a8b2c80deb4d001601cd45f303f13676",
+    "specs/v2b_schema_v2.sql": "e7f336f2b4493faa81029a4ca2d60237b749b271"
   },
   "qa": {
     "prelock_validator": "PASS",
     "v2a_regression": "27 passed",
     "v2_0_regression": "17 passed",
-    "v2a_static_validator": "PASS",
-    "diff_check": "PASS",
     "runtime_source_modified": false,
     "production_8099_modified": false
-  },
-  "observability_successor": {
-    "recommendation": "YES",
-    "successor_gate": "REMOTE_MCP_OBSERVABILITY_AGENT_GROUPED_VIEW_PRELOCK",
-    "implemented_now": false
   },
   "next_gate": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
 }
