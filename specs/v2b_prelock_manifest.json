@@ -6,17 +6,26 @@
   "prospective_amendment_commit": "4dbbf0959112db1d4f442ef65e3ce08965ad3edc",
   "amendment_reason": "Closed lease-token response-replay and CAS post-replace crash gaps before implementation lock; also closed managed-mode run_command/direct-job bypasses.",
   "artifact_git_blobs": {
-    "docs/V2_B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK.md": "928b43ed9dd48891442c3796d47778a4b7e4b9ea",
-    "scripts/validate_v2b_prelock.py": "fca883796fb547532e687e2b4a0d3dcf419120ce",
-    "specs/v2b_prelock.json": "633e6d44a8b2c80deb4d001601cd45f303f13676",
-    "specs/v2b_schema_v2.sql": "e7f336f2b4493faa81029a4ca2d60237b749b271"
+    "docs/V2_B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK.md": "7d693828ca236e0c231f10d4fffaaeb39daf2cd1",
+    "scripts/validate_v2b_prelock.py": "bc6eadf5449b856a11f579a4b8e0c073a2bf44ec",
+    "specs/v2b_prelock.json": "e67e90ae425659ab2393d689d1b44fd99a626c7e",
+    "specs/v2b_schema_v2.sql": "22a7fd5ca26402067d0e4c081b63b66f1e605f23"
   },
   "qa": {
     "prelock_validator": "PASS",
     "v2a_regression": "27 passed",
     "v2_0_regression": "17 passed",
     "runtime_source_modified": false,
-    "production_8099_modified": false
+    "production_8099_modified": false,
+    "multi_device_prelock_local_validator": "PASS before RemoteDesktop connector outage",
+    "github_mirror_post_sync": "PENDING local resync/revalidation"
   },
-  "next_gate": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+  "next_gate": "REMOTE_MCP_V2B_MULTI_DEVICE_AMENDMENT_REVALIDATION",
+  "multi_device_amendment": {
+    "status": "SPEC_SYNCED_GITHUB",
+    "requirement": "same owner account supports concurrent login from two machines",
+    "owner_account_identity": "independent from OAuth client_id",
+    "execution_device_successor": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
+    "release_blocker": true
+  }
 }
