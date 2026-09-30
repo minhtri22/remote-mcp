@@ -621,3 +621,28 @@ Rules:
 - gateway-local `job_get/job_wait/job_logs/job_result/job_cancel` reject `rjob_*` IDs with `ROUTED_JOB_USE_TASK_TOOLS`.
 
 This keeps local and remote job namespaces explicit and prevents accidental observation of the wrong job database.
+
+### Pairing response replay without cleartext storage
+
+`device_pair_begin(operation_id)` must be safe if the MCP response is lost after the pairing row is committed.
+
+A runtime-local 32-byte key is therefore frozen at:
+
+`<MCP_RUNTIME_DIR>/device-pairing.key`
+
+The pairing row stores a random `code_nonce` plus SHA-256(clear code). The clear code is derived as:
+
+```text
+pc1_<nonce>_<base64url(
+  HMAC-SHA256(
+    pairing_secret,
+    pairing_id|owner_account_id|requested_name|nonce
+  )
+)>
+```
+
+The clear pairing code is never persisted in SQLite, operation result JSON, logs or events.
+
+A replay of the same successful `device_pair_begin` may re-derive the same code only while that exact pairing is unused and unexpired. If the pairing has already been consumed, replay returns its used status/device ID without returning the clear code.
+
+If unused/unexpired pairing rows exist but the pairing secret is missing or unreadable, startup fails closed with `STARTUP_FATAL_PAIRING_KEY_MISSING`.

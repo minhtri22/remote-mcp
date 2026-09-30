@@ -67,7 +67,14 @@
     "result": "Gateway creates dev_* identity, route_generation=1, state ONLINE; node persists device_id/public origin/key fingerprint.",
     "re_pair_revoked": "Forbidden. Pair as a new device identity.",
     "code_file_rule": "UTF-8 file containing exactly one pairing code line. CLI reads it once, trims CR/LF only, then must delete the file before making the network pairing request. If deletion fails, pairing aborts PAIRING_CODE_FILE_DELETE_FAILED.",
-    "code_argv_forbidden": true
+    "code_argv_forbidden": true,
+    "pairing_secret_file": "<MCP_RUNTIME_DIR>/device-pairing.key",
+    "pairing_secret_bytes": 32,
+    "code_nonce": "Server-generated random URL-safe nonce stored in device_pairings.code_nonce.",
+    "code_format": "pc1_<nonce>_<base64url(HMAC-SHA256(pairing_secret, pairing_id|owner_account_id|requested_name|nonce))>",
+    "code_derivation": "Clear pairing code is deterministically re-derived only while that exact unused, unexpired pairing row exists. Clear code is never persisted in SQLite, operation results, logs, or events.",
+    "pair_begin_replay": "Same successful device_pair_begin operation may re-derive and return the same clear pairing code while unused/unexpired. If pairing is already used, replay returns pairing_id/device_id/status=USED without clear code.",
+    "secret_startup_rule": "Create key atomically once. If an unused unexpired pairing exists but device-pairing.key is missing/unreadable, startup fails STARTUP_FATAL_PAIRING_KEY_MISSING."
   },
   "auth_replay_protection": {
     "protocol_version": "RMCPNODE1",
@@ -386,6 +393,7 @@
     "implementation_started": false,
     "routed_job_api_gap": "Added task_job_get/task_job_logs/task_job_result because gateway-local V2-A job observation tools cannot safely observe rjob_* on remote execution nodes.",
     "public_tool_count_after_amendment": 12,
-    "pairing_cli_hardening": "Pairing secret moved from argv to one-time --code-file to avoid process-list/shell-history disclosure."
+    "pairing_cli_hardening": "Pairing secret moved from argv to one-time --code-file to avoid process-list/shell-history disclosure.",
+    "pairing_response_replay": "Added device_pairings.code_nonce + runtime-local device-pairing.key so a lost device_pair_begin response can replay the same clear code without persisting that code."
   }
 }

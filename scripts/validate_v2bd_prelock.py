@@ -36,6 +36,8 @@ def main():
         "device_commands","routed_jobs","device_events"
     ):
         assert name in tables,name
+    pairing_cols={r[1] for r in con.execute("PRAGMA table_info(device_pairings)")}
+    assert "code_nonce" in pairing_cols
     cmd_cols={r[1] for r in con.execute("PRAGMA table_info(device_commands)")}
     assert "operation_step" in cmd_cols
     idx={r[1] for r in con.execute("PRAGMA index_list(device_commands)")}
@@ -59,6 +61,10 @@ def main():
     assert "--code-file" in s["pairing"]["node_cli"]
     assert "--code <" not in s["pairing"]["node_cli"]
     assert s["pairing"]["code_argv_forbidden"] is True
+    assert s["pairing"]["pairing_secret_file"].endswith("/device-pairing.key")
+    assert s["pairing"]["pairing_secret_bytes"]==32
+    assert s["pairing"]["code_format"].startswith("pc1_")
+    assert "never persisted" in s["pairing"]["code_derivation"]
     assert s["auth_replay_protection"]["timestamp_window_seconds"]==60
     assert s["auth_replay_protection"]["nonce_replay_retention_seconds"]==600
 

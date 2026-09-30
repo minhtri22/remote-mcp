@@ -20,6 +20,7 @@ CREATE TABLE device_pairings (
   pairing_id TEXT PRIMARY KEY,
   owner_account_id TEXT NOT NULL REFERENCES owner_accounts(owner_account_id),
   requested_name TEXT NOT NULL,
+  code_nonce TEXT NOT NULL,
   code_hash_sha256 TEXT NOT NULL UNIQUE,
   created_at_ms INTEGER NOT NULL,
   expires_at_ms INTEGER NOT NULL,
