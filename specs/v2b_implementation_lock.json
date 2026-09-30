@@ -5,9 +5,9 @@
   "frozen_at": "2026-09-30",
   "binds": {
     "git_head": "4dbbf0959112db1d4f442ef65e3ce08965ad3edc",
-    "prelock_blob": "633e6d44a8b2c80deb4d001601cd45f303f13676",
-    "schema_v2_blob": "e7f336f2b4493faa81029a4ca2d60237b749b271",
-    "prelock_doc_blob": "928b43ed9dd48891442c3796d47778a4b7e4b9ea"
+    "prelock_blob": "e67e90ae425659ab2393d689d1b44fd99a626c7e",
+    "schema_v2_blob": "22a7fd5ca26402067d0e4c081b63b66f1e605f23",
+    "prelock_doc_blob": "7d693828ca236e0c231f10d4fffaaeb39daf2cd1"
   },
   "production_freeze": {
     "port_8099_must_remain_untouched": true,
@@ -40,7 +40,7 @@
     ],
     "responsibilities": {
       "config.py": "V2-B lease TTL/concurrency/worktree/runtime-key configuration only; no DB side effects.",
-      "principal.py": "Read authenticated OAuth AccessToken via MCP auth context and return client_id as principal_key; missing token => AUTH_REQUIRED.",
+      "principal.py": "Load/create stable owner_account_id for the single-owner control plane; read current OAuth AccessToken.client_id only as auth_client_id for session audit. Never use OAuth client_id as account namespace.",
       "tokens.py": "Create/load lease-token.key and derive/verify clear lease tokens; never log/persist clear token.",
       "models.py": "V2-B enums/value objects only.",
       "agents.py": "Agent/session repository, heartbeat sequence rules and stale/close transitions.",
@@ -63,7 +63,7 @@
       "clear lease token persistence",
       "direct production endpoint mutation"
     ],
-    "server_py_role": "Composition root: construct MultiAgentService, expose exact tools, pass principal_key from request context, and call guard for legacy mutators/direct execution."
+    "server_py_role": "Composition root: construct MultiAgentService, pass owner_account_id + current auth_client_id from request context, expose exact tools, and call guard for legacy mutators/direct execution."
   },
   "migration_002": {
     "source": "specs/v2b_schema_v2.sql",
@@ -80,8 +80,11 @@
     "no_drop_or_rename": true
   },
   "principal_and_token": {
-    "principal_source": "mcp.server.auth.middleware.auth_context.get_access_token().client_id",
-    "auth_missing": "AUTH_REQUIRED",
+    "owner_account_file": "<MCP_RUNTIME_DIR>/owner-account.json",
+    "owner_account_id": "Stable prefix own_. Create once atomically for the current single-owner control plane; persisted independently from OAuth DCR clients.",
+    "oauth_client_role": "mcp.server.auth.middleware.auth_context.get_access_token().client_id is auth_client_id only; missing access token => AUTH_REQUIRED.",
+    "multi_login_device_rule": "Different OAuth client IDs from two login machines map to the same owner_account_id and may maintain concurrent ACTIVE sessions. No last-login-wins behavior.",
+    "owner_account_schema": "Ensure exactly the current owner_account_id exists in owner_accounts before agent/session mutation.",
     "lease_key_path": "<MCP_RUNTIME_DIR>/lease-token.key",
     "lease_key_bytes": 32,
     "key_create": "Atomic create-once before MultiAgentService accepts mutations. Existing file must be exactly 32 bytes.",
@@ -93,18 +96,19 @@
   },
   "transaction_boundaries": {
     "agent_register": [
-      "derive principal_key before transaction",
+      "load stable owner_account_id and derive current auth_client_id before transaction",
       "reserve V2-A operation",
       "BEGIN IMMEDIATE",
-      "get-or-create agent by principal_key+client_instance_id",
-      "create new ACTIVE session",
-      "append task/event-free agent audit event only if later schema supports it; V2-B schema does not add agent_events",
+      "ensure owner_accounts row exists for owner_account_id",
+      "get-or-create agent by owner_account_id+client_instance_id",
+      "create new ACTIVE session storing current auth_client_id",
+      "do not close or stale other ACTIVE sessions of the same owner account",
       "COMMIT",
       "succeed operation"
     ],
     "heartbeat": [
       "BEGIN IMMEDIATE",
-      "validate agent/session principal ownership",
+      "validate agent/session belongs to current owner_account_id; auth_client_id may differ across other concurrent sessions",
       "if heartbeat_seq < stored => HEARTBEAT_STALE",
       "if equal => idempotent no-renew response",
       "if greater => update session heartbeat_seq/last_heartbeat",
@@ -313,7 +317,9 @@
     "takeover observes same V2-A job",
     "stale claimant cancellation rejected",
     "current claimant cancellation succeeds",
-    "server restart with expired leases and running durable jobs"
+    "server restart with expired leases and running durable jobs",
+    "two login devices with different OAuth client IDs concurrently heartbeat without last-login-wins",
+    "closing one login-device session leaves the other ACTIVE and its lease valid"
   ],
   "qualification_gates": {
     "regression": [
@@ -327,7 +333,9 @@
     "takeover": "Old token rejected after epoch increment; durable job survives and new claimant sees same job.",
     "cas_race": "Two writers from same expected hash => exactly one committed result and one CAS_MISMATCH.",
     "worktree_recovery": "Crash-window fixtures recover deterministically without reset/prune/data loss.",
-    "production": "Port 8099/tunnel process identity remains unchanged throughout V2-B implementation qualification."
+    "production": "Port 8099/tunnel process identity remains unchanged throughout V2-B implementation qualification.",
+    "multi_login_devices": "Same owner account with two distinct auth_client_id sessions concurrently uses V2-B control plane; both remain independently routable by session_id.",
+    "release_sequence": "After V2-B formal close, REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK is mandatory before release/production switch."
   },
   "implementation_authorized_after_lock_pass": [
     "create exact remotemcp/multiagent package",
@@ -345,7 +353,30 @@
     "allow legacy run_command/direct job_submit in managed mode",
     "implement observability UI",
     "implement V2-C Context Broker",
-    "implement native MCP Tasks"
+    "implement native MCP Tasks",
+    "implement V2-BD execution-device routing before its prospective prelock"
   ],
-  "next_gate_on_pass": "REMOTE_MCP_V2B_MULTI_AGENT_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION"
+  "next_gate_on_pass": "REMOTE_MCP_V2B_MULTI_AGENT_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION",
+  "multi_login_devices": {
+    "in_scope_now": true,
+    "minimum_qualification": "Two simulated login machines with different auth_client_id values under the same owner_account_id must concurrently register, heartbeat, claim different tasks and remain ACTIVE without invalidating each other.",
+    "namespace_rule": "Projects/tasks/agents are under owner_account_id, never partitioned by OAuth client_id.",
+    "session_routing": "Every mutating task request is routed by explicit session_id + lease token/epoch, never by most-recent OAuth client.",
+    "revocation_isolation": "Closing a V2-B session affects only that session's leases. OAuth revocation behavior remains client-scoped as in V2-A and must not be expanded to all owner clients."
+  },
+  "multi_execution_device_successor": {
+    "required_before_release": true,
+    "gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
+    "purpose": "Route one owner account to multiple RemoteMCP execution machines, each with its own workspace/processes.",
+    "planned_model": [
+      "stable device_id per RemoteMCP installation",
+      "project binds exactly one device_id",
+      "task inherits project.device_id",
+      "single public control-plane endpoint routes by project/task device_id",
+      "no silent task migration between devices",
+      "offline device preserves task/job/worktree metadata"
+    ],
+    "transport_auth": "Exact node transport, pairing and authentication are frozen prospectively in V2-BD; V2-B must not invent them.",
+    "release_blocker": true
+  }
 }
