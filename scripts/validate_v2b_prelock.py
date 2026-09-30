@@ -51,8 +51,16 @@ def main():
     con.executescript(V1.read_text(encoding="utf-8"))
     con.executescript(V2.read_text(encoding="utf-8"))
     tables={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    for name in ("agents","agent_sessions","projects","tasks","task_leases","path_leases","task_events","task_checkpoints"):
+    for name in (
+        "agents","agent_sessions","projects","tasks","task_leases",
+        "path_leases","task_events","task_checkpoints","cas_mutations"
+    ):
         assert name in tables,name
+
+    task_lease_cols={
+        row[1] for row in con.execute("PRAGMA table_info(task_leases)")
+    }
+    assert "lease_token_nonce" in task_lease_cols
 
     tools=s["exact_tools"]
     assert len(tools)==len(set(tools.values()))
@@ -69,8 +77,18 @@ def main():
 
     assert s["cas_mutation"]["wildcard_expected_hash"] is False
     assert "MISSING" in s["cas_mutation"]["expected_hash_values"]
+    assert s["cas_mutation"]["intent_journal"]["table"]=="cas_mutations"
+    assert s["cas_mutation"]["intent_journal"]["prepare_before_filesystem_side_effect"] is True
+
+    token=s["heartbeat_and_lease"]["lease_token_derivation"]
+    assert token["persisted_cleartext"] is False
+    assert token["key_file"].endswith("/lease-token.key")
+    assert token["token_format"].startswith("lt1_")
     assert s["v2a_job_interaction"]["on_task_lease_expiry"].startswith("Task becomes RECOVERABLE")
     assert s["v2a_job_interaction"]["on_agent_heartbeat_loss"]=="Do not cancel/kill job."
+    assert "Once at least one V2-B project is registered" in s["v2a_job_interaction"]["direct_v2a_job_submit_policy"]
+    assert "legacy run_command is disabled" in s["v2a_job_interaction"]["legacy_run_command_policy"]
+    assert "TREE WRITE_EXCLUSIVE" in s["v2a_job_interaction"]["non_git_task_job_policy"]
 
     assert s["deployment_policy"]["production_mutation_forbidden_during_v2b_prelock"] is True
     assert "explicitly authorizes deployment" in s["deployment_policy"]["switch_rule"]
@@ -89,7 +107,10 @@ def main():
     print("PASS heartbeat/lease/takeover invariants")
     print("PASS prospective schema v2 parses after V2-A schema")
     print("PASS exact V2-B tool mutation/idempotency rules")
+    print("PASS lease-token replay without cleartext persistence")
+    print("PASS CAS intent-journal crash recovery contract")
     print("PASS CAS/workspace isolation contract")
+    print("PASS managed-mode execution bypass guards")
     print("PASS durable-job independence from lease lifetime")
     print("PASS production deployment freeze")
     print("PASS observability successor recorded but not implemented")

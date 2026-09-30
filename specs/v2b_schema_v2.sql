@@ -60,6 +60,7 @@ CREATE TABLE task_leases (
   agent_id TEXT NOT NULL REFERENCES agents(agent_id),
   session_id TEXT NOT NULL REFERENCES agent_sessions(session_id),
   lease_epoch INTEGER NOT NULL CHECK (lease_epoch >= 1),
+  lease_token_nonce TEXT NOT NULL,
   lease_token_hash TEXT NOT NULL,
   acquired_at_ms INTEGER NOT NULL,
   renewed_at_ms INTEGER NOT NULL,
@@ -108,3 +109,16 @@ CREATE TABLE task_checkpoints (
   created_at_ms INTEGER NOT NULL
 );
 CREATE INDEX idx_task_checkpoints_task ON task_checkpoints(task_id,checkpoint_id);
+
+CREATE TABLE cas_mutations (
+  operation_id TEXT PRIMARY KEY REFERENCES operations(operation_id),
+  task_id TEXT NOT NULL REFERENCES tasks(task_id),
+  path_rel TEXT NOT NULL,
+  expected_before_hash TEXT NOT NULL,
+  intended_after_hash TEXT NOT NULL,
+  temp_rel TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('PREPARED','REPLACED','COMMITTED','ABORTED')),
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX idx_cas_mutations_task ON cas_mutations(task_id,state);

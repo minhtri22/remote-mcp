@@ -278,3 +278,57 @@ This is intentionally **not implemented in V2-B prelock**. After V2-B, the syste
 After static validation PASS:
 
 `REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK`
+
+## Prospective prelock amendment before implementation lock
+
+Implementation-feasibility review found two gaps that had to be closed **before any V2-B runtime code**.
+
+### Lease-token replay without cleartext persistence
+
+A claim response can be lost after the lease is committed. Therefore `task_claim` must be replayable without storing the clear lease token.
+
+Frozen solution:
+
+- runtime-local 32-byte HMAC key: `<MCP_RUNTIME_DIR>/lease-token.key`;
+- `task_leases` stores a random `lease_token_nonce` and only SHA-256(clear token);
+- clear token is deterministically re-derived as `lt1_<nonce>_<HMAC>` from task ID, lease epoch, agent ID, session ID and nonce;
+- the clear token is never persisted or logged;
+- replay returns the same token only while that exact current lease still exists; otherwise `LEASE_STALE`.
+
+If active leases exist but the runtime key is missing/unreadable, startup fails closed rather than manufacturing replacement tokens.
+
+### CAS intent journal
+
+A crash after atomic replacement but before operation-result persistence cannot be safely handled from the operation request hash alone.
+
+Migration v2 therefore adds `cas_mutations` with:
+
+```text
+PREPARED -> REPLACED -> COMMITTED
+     \----------------> ABORTED
+```
+
+The intent row is persisted before filesystem replacement and records:
+
+- operation ID;
+- task ID;
+- path;
+- expected before hash;
+- intended after hash;
+- temp path.
+
+Reconciliation inspects both the intent and the current file hash. It never blindly performs a second write when the intended after-hash is already present.
+
+### Managed execution bypass guard
+
+Once any V2-B project is registered, managed mode is active:
+
+- legacy `run_command` is rejected with `TASK_CONTEXT_REQUIRED`;
+- direct V2-A `job_submit` is rejected with `TASK_CONTEXT_REQUIRED`;
+- task execution uses `task_job_submit`;
+- direct `job_cancel` is rejected for jobs bound to managed tasks;
+- legacy `write_file/edit_file` are rejected for registered project roots **and task worktrees**.
+
+This closes argv/path-based bypasses that a file-only guard could not prevent.
+
+For NON_GIT projects, `task_job_submit` additionally requires a project-root `TREE WRITE_EXCLUSIVE` lease because V2-B does not provide an OS-level filesystem sandbox for arbitrary allowed executables.

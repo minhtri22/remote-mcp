@@ -16,7 +16,7 @@
     "reason": "Other active research projects depend on the currently running remote."
   },
   "identity": {
-    "principal_key": "Derived from authenticated OAuth client/server context; never caller-supplied.",
+    "principal_key": "Exact implementation source: mcp.server.auth.middleware.auth_context.get_access_token().client_id. Missing access token => AUTH_REQUIRED. Never caller-supplied.",
     "agent_id": "Server-generated stable logical agent id, prefix agt_.",
     "client_instance_id": "Caller-generated stable opaque identifier unique within principal_key; required for reconnect identity.",
     "agent_uniqueness": [
@@ -112,7 +112,7 @@
       60,
       600
     ],
-    "lease_token_storage": "sha256 hash only",
+    "lease_token_storage": "Clear token is never persisted. task_leases stores lease_token_nonce + sha256(token). Token is reproducibly derived with a runtime-local HMAC key for safe claim-response replay.",
     "lease_epoch": "Monotonic integer per task; every claim/takeover increments it.",
     "heartbeat_protocol": {
       "key": [
@@ -137,6 +137,16 @@
       ],
       "force_takeover_by_normal_agent": false,
       "behavior": "New claim increments lease_epoch and returns a new token. Previous token never becomes valid again."
+    },
+    "lease_token_derivation": {
+      "key_file": "<MCP_RUNTIME_DIR>/lease-token.key",
+      "key_bytes": 32,
+      "create_rule": "Create once atomically before V2-B service accepts mutations; fail closed if active leases exist but the key is missing or unreadable.",
+      "token_nonce": "Server-generated random URL-safe nonce stored in task_leases.lease_token_nonce.",
+      "token_format": "lt1_<nonce>_<base64url(HMAC-SHA256(key, task_id|lease_epoch|agent_id|session_id|nonce))>",
+      "persisted_cleartext": false,
+      "persisted_verifier": "sha256(clear token)",
+      "replay_rule": "A replay of the same successful task_claim may re-derive the same clear token only while that exact lease epoch/owner/session is still current; otherwise LEASE_STALE."
     }
   },
   "project_concurrency": {
@@ -196,7 +206,7 @@
     "expiry": "Path lease expires with its owning session/task lease and is never transferred; takeover must acquire fresh path lease(s)."
   },
   "cas_mutation": {
-    "managed_project_policy": "For paths inside registered V2-B projects, managed multi-agent mutations must use CAS tools. Legacy write_file/edit_file are rejected with LEASE_REQUIRED_USE_CAS when an active V2-B project registration covers the path.",
+    "managed_project_policy": "Direct managed file mutations must use file_write_cas/file_edit_cas. Legacy write_file/edit_file are rejected with LEASE_REQUIRED_USE_CAS when the resolved path is inside a registered project root or a registered task worktree.",
     "unmanaged_compatibility": "Legacy write_file/edit_file retain V2-A behavior for paths not covered by a registered V2-B project.",
     "hash_algorithm": "sha256 over exact file bytes",
     "expected_hash_values": [
@@ -218,7 +228,33 @@
     ],
     "edit_contract": "UTF-8 text edit, expected_sha256 mandatory, old must occur exactly expected_occurrences times (default 1), then the same atomic CAS write contract applies.",
     "symlink_policy": "Resolve and reject escapes before hash/write. Do not follow a symlink outside the task/project root.",
-    "binary_write_v2b": "file_write_cas accepts UTF-8 string content only in V2-B; binary artifact mutation is deferred."
+    "binary_write_v2b": "file_write_cas accepts UTF-8 string content only in V2-B; binary artifact mutation is deferred.",
+    "intent_journal": {
+      "table": "cas_mutations",
+      "states": [
+        "PREPARED",
+        "REPLACED",
+        "COMMITTED",
+        "ABORTED"
+      ],
+      "prepare_before_filesystem_side_effect": true,
+      "fields": [
+        "operation_id",
+        "task_id",
+        "path_rel",
+        "expected_before_hash",
+        "intended_after_hash",
+        "temp_rel",
+        "state"
+      ],
+      "crash_reconcile": {
+        "PREPARED": "If current hash is expected_before_hash and temp exists with intended_after_hash, replacement may resume. If current hash is intended_after_hash, advance to REPLACED. Any other current hash => operation IN_DOUBT and preserve temp/evidence.",
+        "REPLACED": "If current hash is intended_after_hash, persist operation result and COMMITTED. Otherwise => IN_DOUBT.",
+        "COMMITTED": "Replay persisted operation result; no filesystem write.",
+        "ABORTED": "No automatic retry unless operation state is FAILED_RETRYABLE and current hash still matches expected_before_hash."
+      },
+      "result_contract": "Persist before_hash, after_hash, path_rel and task_id in operation result."
+    }
   },
   "v2a_job_interaction": {
     "rule": "Durable V2-A jobs are independent of agent/session/task lease lifetime once successfully launched.",
@@ -228,8 +264,11 @@
     "stale_agent": "May read public status if authorized by principal policy but cannot mutate/cancel through task-scoped tools after takeover.",
     "task_completion": "Rejected while any job bound to task_id is non-terminal.",
     "blocked_task_with_job": "Allowed; BLOCKED releases lease while durable job continues.",
-    "direct_v2a_job_submit_policy": "For cwd inside a registered managed project, direct job_submit is rejected with TASK_CONTEXT_REQUIRED. Use task_job_submit so project/task/worktree binding is enforced.",
-    "direct_v2a_job_cancel_policy": "For a job bound to a managed task, direct job_cancel is rejected with TASK_CONTEXT_REQUIRED. Use task_job_cancel with the current lease."
+    "direct_v2a_job_submit_policy": "Once at least one V2-B project is registered, direct job_submit is disabled with TASK_CONTEXT_REQUIRED. All new durable execution uses task_job_submit so task/worktree binding cannot be bypassed by argv path arguments.",
+    "direct_v2a_job_cancel_policy": "For any job bound to a V2-B task, direct job_cancel is rejected with TASK_CONTEXT_REQUIRED. Use task_job_cancel with the current task lease.",
+    "legacy_run_command_policy": "Once at least one V2-B project is registered, legacy run_command is disabled with TASK_CONTEXT_REQUIRED because argv may mutate managed projects outside file guards. task_job_submit is the managed execution path.",
+    "non_git_task_job_policy": "task_job_submit for NON_GIT projects requires the current task/session to hold a TREE WRITE_EXCLUSIVE path lease on project root '.'. This serializes process-level mutation for non-Git projects.",
+    "process_isolation_limit": "V2-B does not OS-sandbox arbitrary allowed executables. Isolation guarantees assume task-bound commands operate within their assigned worktree/project scope; absolute-path behavior outside that scope remains owner-trusted and is covered by release QA/documented limitations."
   },
   "exact_tools": {
     "agent_register": "async def agent_register(operation_id: str, agent_name: str, client_instance_id: str, capabilities: list[str] = []) -> dict",
@@ -318,7 +357,9 @@
       "concurrent CAS writers: exactly one succeeds from same expected hash",
       "edit occurrence mismatch performs zero write",
       "symlink/path escape rejected",
-      "legacy write/edit rejected inside managed registered project"
+      "legacy write/edit rejected inside managed registered project",
+      "crash after replace before operation result reconciles through cas_mutations without second write",
+      "claim response replay re-derives same lease token without persisted clear token"
     ],
     "durable_job": [
       "task job survives session heartbeat loss",
@@ -327,7 +368,10 @@
       "stale lease cannot cancel job",
       "current lease can cancel job through task_job_cancel",
       "task completion rejected while bound job non-terminal",
-      "direct V2-A job_submit/cancel rejected for managed task/project paths"
+      "direct V2-A job_submit/cancel rejected for managed task/project paths",
+      "legacy run_command rejected once managed mode is active",
+      "direct V2-A job_submit rejected once any V2-B project is registered",
+      "NON_GIT task_job_submit requires project-root TREE write lease"
     ],
     "crash_recovery": [
       "server crash after task CLAIMED before worktree creation",
@@ -385,5 +429,16 @@
     "implement V2-C Context Broker",
     "implement native MCP Tasks extension"
   ],
-  "next_gate": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+  "next_gate": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
+  "prelock_amendment": {
+    "reason": "Implementation feasibility review found two correctness gaps before runtime implementation: clear lease-token replay after response loss, and CAS crash recovery after atomic replace before operation result persistence. The prospective schema/spec were amended before implementation lock.",
+    "added_schema": [
+      "task_leases.lease_token_nonce",
+      "cas_mutations"
+    ],
+    "added_execution_guards": [
+      "managed-mode legacy run_command disable",
+      "managed-mode direct job_submit disable"
+    ]
+  }
 }
