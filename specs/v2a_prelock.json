@@ -1,0 +1,330 @@
+{
+  "spec_id": "REMOTE_MCP_V2A_DURABLE_JOB_AND_OPERATION_PRELOCK",
+  "spec_version": 1,
+  "status": "FROZEN",
+  "frozen_at": "2026-09-30",
+  "baseline": {
+    "git_head": "f1ed1172a9590c69baef1864eb536c277607029f",
+    "server_blob": "833b8f1f7075bd2abf9ddc4de94c0bb40ee9b788",
+    "oauth_provider_blob": "491cf36a535be64bb70e672aed410d50618f1494",
+    "v2_0_freeze_blob": "59ef042b50e62b66d4b00e69e5fb9e22e4c2812f"
+  },
+  "storage": {
+    "runtime_env": "MCP_RUNTIME_DIR",
+    "default_runtime_dir": "~/.remotemcp",
+    "database": "runtime.db",
+    "sqlite": {
+      "schema_version": 1,
+      "journal_mode": "WAL",
+      "foreign_keys": true,
+      "busy_timeout_ms": 5000,
+      "synchronous": "NORMAL"
+    },
+    "tables": [
+      "schema_migrations",
+      "operations",
+      "jobs",
+      "events",
+      "event_cursors"
+    ]
+  },
+  "operation": {
+    "states": [
+      "RESERVED",
+      "EXECUTING",
+      "SUCCEEDED",
+      "FAILED_RETRYABLE",
+      "FAILED_FINAL",
+      "IN_DOUBT"
+    ],
+    "transitions": {
+      "RESERVED": [
+        "EXECUTING",
+        "FAILED_RETRYABLE",
+        "FAILED_FINAL"
+      ],
+      "EXECUTING": [
+        "SUCCEEDED",
+        "FAILED_RETRYABLE",
+        "FAILED_FINAL",
+        "IN_DOUBT"
+      ],
+      "FAILED_RETRYABLE": [
+        "EXECUTING"
+      ],
+      "SUCCEEDED": [],
+      "FAILED_FINAL": [],
+      "IN_DOUBT": []
+    },
+    "same_id_same_hash": {
+      "RESERVED": "IN_PROGRESS",
+      "EXECUTING": "IN_PROGRESS",
+      "SUCCEEDED": "REPLAY_RESULT",
+      "FAILED_RETRYABLE": "RETRY_SAME_OPERATION_ID",
+      "FAILED_FINAL": "REPLAY_FAILURE",
+      "IN_DOUBT": "RECONCILE_ONLY"
+    },
+    "same_id_different_hash": "OPERATION_CONFLICT",
+    "request_hash": {
+      "algorithm": "sha256",
+      "canonicalization": "UTF-8 JSON, sorted keys, separators=(',',':'), no insignificant whitespace",
+      "includes": [
+        "kind",
+        "normalized_arguments",
+        "principal_key",
+        "agent_id",
+        "project_id",
+        "task_id"
+      ],
+      "excludes": [
+        "attempt",
+        "transport_request_id",
+        "timestamps"
+      ]
+    }
+  },
+  "job": {
+    "states": [
+      "QUEUED",
+      "STARTING",
+      "RUNNING",
+      "CANCELLING",
+      "SUCCEEDED",
+      "FAILED",
+      "CANCELLED",
+      "LOST"
+    ],
+    "terminal_states": [
+      "SUCCEEDED",
+      "FAILED",
+      "CANCELLED",
+      "LOST"
+    ],
+    "transitions": {
+      "QUEUED": [
+        "STARTING",
+        "CANCELLED"
+      ],
+      "STARTING": [
+        "RUNNING",
+        "CANCELLING",
+        "FAILED",
+        "LOST"
+      ],
+      "RUNNING": [
+        "CANCELLING",
+        "SUCCEEDED",
+        "FAILED",
+        "LOST"
+      ],
+      "CANCELLING": [
+        "CANCELLED",
+        "SUCCEEDED",
+        "FAILED",
+        "LOST"
+      ],
+      "SUCCEEDED": [],
+      "FAILED": [],
+      "CANCELLED": [],
+      "LOST": []
+    },
+    "relaunch_after_lost": false,
+    "one_launch_nonce_per_job": true
+  },
+  "process_identity": {
+    "worker_wrapper_required": true,
+    "launch_handshake_required": true,
+    "fingerprint_fields": [
+      "pid",
+      "start_token",
+      "executable_canonical",
+      "command_sha256"
+    ],
+    "windows_start_token": "decimal Win32 process creation FILETIME",
+    "ownership_rule": "A process is owned only when PID and start_token match; executable and command hash must also match when observable.",
+    "on_unverifiable_identity": "NEVER_SIGNAL_PROCESS; classify job LOST after reconciliation.",
+    "worker_before_payload": "Worker must publish an atomic handshake for job_id+launch_nonce and wait for durable launch commit before starting payload."
+  },
+  "filesystem": {
+    "root": "<MCP_RUNTIME_DIR>/jobs/<job_id>",
+    "files": {
+      "stdout": "stdout.log",
+      "stderr": "stderr.log",
+      "worker_handshake": "worker.json",
+      "launch_commit": "launch.commit",
+      "terminal_marker": "terminal.json",
+      "result": "result.json"
+    },
+    "log_storage": "raw bytes append-only",
+    "log_read_decode": "UTF-8 errors=replace",
+    "metadata_encoding": "UTF-8 JSON",
+    "metadata_write": "temp file + fsync where supported + atomic replace",
+    "user_path_components_allowed": false
+  },
+  "terminal_events": {
+    "source": "events table",
+    "exactly_one_terminal_event_per_job": true,
+    "delivery_guarantee": "at-least-once until ACK; never redeliver to same subscriber after ACK",
+    "cursor_key": [
+      "subscriber_id",
+      "job_id"
+    ],
+    "ack_monotonic": true,
+    "response_loss_rule": "Unacked event may be returned again; execution/result is never repeated.",
+    "wait_modes": [
+      "terminal",
+      "heartbeat",
+      "progress"
+    ],
+    "fallback_max_wait_seconds": 55,
+    "no_unsolicited_client_message": true
+  },
+  "retry": {
+    "external_transport_note": "Client/gateway owns transport retry; server makes retries safe via idempotency and error metadata.",
+    "error_classes": [
+      {
+        "code": "INVALID_ARGUMENT",
+        "policy": "NEVER"
+      },
+      {
+        "code": "FORBIDDEN",
+        "policy": "NEVER"
+      },
+      {
+        "code": "NOT_FOUND",
+        "policy": "NEVER"
+      },
+      {
+        "code": "PATH_ESCAPE",
+        "policy": "NEVER"
+      },
+      {
+        "code": "COMMAND_NOT_ALLOWED",
+        "policy": "NEVER"
+      },
+      {
+        "code": "CAS_MISMATCH",
+        "policy": "NEVER"
+      },
+      {
+        "code": "OPERATION_CONFLICT",
+        "policy": "NEVER"
+      },
+      {
+        "code": "AUTH_REQUIRED",
+        "policy": "REAUTH_ONCE_THEN_RETRY"
+      },
+      {
+        "code": "RATE_LIMITED",
+        "policy": "READ_OR_SAME_OPERATION_ID"
+      },
+      {
+        "code": "TRANSPORT_TIMEOUT",
+        "policy": "READ_OR_SAME_OPERATION_ID"
+      },
+      {
+        "code": "UPSTREAM_502",
+        "policy": "READ_OR_SAME_OPERATION_ID"
+      },
+      {
+        "code": "UPSTREAM_503",
+        "policy": "READ_OR_SAME_OPERATION_ID"
+      },
+      {
+        "code": "UPSTREAM_504",
+        "policy": "READ_OR_SAME_OPERATION_ID"
+      },
+      {
+        "code": "DB_BUSY",
+        "policy": "READ_OR_SAME_OPERATION_ID"
+      },
+      {
+        "code": "SPAWN_RESOURCE_EXHAUSTED_BEFORE_CHILD",
+        "policy": "SAME_OPERATION_ID"
+      },
+      {
+        "code": "SPAWN_INVALID_EXECUTABLE",
+        "policy": "NEVER"
+      },
+      {
+        "code": "OPERATION_IN_DOUBT",
+        "policy": "RECONCILE_ONLY"
+      },
+      {
+        "code": "PROCESS_OWNERSHIP_MISMATCH",
+        "policy": "RECONCILE_ONLY"
+      }
+    ],
+    "backoff": {
+      "max_attempts": 5,
+      "base_ms": 250,
+      "max_ms": 8000,
+      "jitter": "full"
+    }
+  },
+  "startup_reconciliation": {
+    "operations": {
+      "RESERVED": "If no durable side-effect marker exists, move to FAILED_RETRYABLE; otherwise reconcile by operation kind.",
+      "EXECUTING": "Never re-execute blindly. Reconcile durable evidence; if outcome cannot be proven, move to IN_DOUBT.",
+      "FAILED_RETRYABLE": "Remain retryable with same operation_id/request_hash.",
+      "SUCCEEDED": "No action.",
+      "FAILED_FINAL": "No action.",
+      "IN_DOUBT": "No automatic execution."
+    },
+    "jobs": {
+      "QUEUED": "Remain QUEUED and eligible for supervisor start.",
+      "STARTING": "Validate job_id+launch_nonce handshake. Valid worker => commit launch/continue. No valid identity after grace => LOST. Never spawn a second worker for same launch_nonce.",
+      "RUNNING": "Valid worker fingerprint => keep RUNNING. Valid atomic terminal marker => terminalize. Otherwise => LOST.",
+      "CANCELLING": "Valid worker => continue cancellation. Valid terminal marker => terminalize by marker. Otherwise => LOST.",
+      "terminal": "No state transition; verify terminal event exists, insert it transactionally only if absent."
+    },
+    "starting_grace_seconds": 30
+  },
+  "legacy_run_command": {
+    "public_signature": "run_command(command: str) -> str",
+    "must_preserve": [
+      "tool name",
+      "string command input",
+      "shlex.split parsing",
+      "same 10-command allowlist",
+      "cwd=ROOT",
+      "stderr merged into stdout",
+      "MAX_OUT=20000 clipping",
+      "60-second compatibility timeout",
+      "success prefix '[exit <code>]\\n'",
+      "non-allowlisted rejection wording begins with 'Từ chối:'",
+      "timeout wording 'Timeout sau 60s'"
+    ],
+    "authorized_change": {
+      "child_environment": {
+        "rule": "minimal safe allowlist; never inherit full server environment",
+        "windows_keys": [
+          "PATH",
+          "HOME",
+          "SystemRoot",
+          "WINDIR",
+          "USERPROFILE",
+          "TEMP",
+          "TMP",
+          "COMSPEC",
+          "PATHEXT",
+          "SYSTEMDRIVE"
+        ],
+        "forced_values": {
+          "HOME": "ROOT"
+        }
+      }
+    },
+    "durable_jobs_are_separate_tools": true
+  },
+  "implementation_forbidden_in_prelock": [
+    "runtime SQLite repository code",
+    "job worker/supervisor",
+    "job_* MCP tools",
+    "file_edit_cas runtime",
+    "startup reconciler",
+    "retry loop runtime",
+    "native MCP Tasks integration"
+  ],
+  "next_gate": "REMOTE_MCP_V2A_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+}

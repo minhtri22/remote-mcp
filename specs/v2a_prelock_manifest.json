@@ -1,0 +1,19 @@
+{
+  "spec_id": "REMOTE_MCP_V2A_DURABLE_JOB_AND_OPERATION_PRELOCK",
+  "status": "PASS",
+  "frozen_at": "2026-09-30",
+  "baseline_commit": "f1ed1172a9590c69baef1864eb536c277607029f",
+  "artifact_git_blobs": {
+    "docs/V2_A_DURABLE_JOB_AND_OPERATION_PRELOCK.md": "6669857b45e57ffa820c1b23aaba4fccc029e2af",
+    "scripts/validate_v2a_prelock.py": "ca336f630246f2d29c42441b202f85939cf5d35f",
+    "specs/v2a_prelock.json": "99bdc4cd73772a3aff3d0ac302a8ee161c820d2c",
+    "specs/v2a_schema_v1.sql": "bd96e51d9e02e1932822a2c7a2be7a8860d47b1c"
+  },
+  "qa": {
+    "prelock_validator": "PASS",
+    "baseline_regression": "17 passed",
+    "diff_check": "PASS",
+    "runtime_files_modified": false
+  },
+  "next_gate": "REMOTE_MCP_V2A_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+}
