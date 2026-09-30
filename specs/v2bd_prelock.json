@@ -62,10 +62,12 @@
     "ttl_seconds": 600,
     "one_time": true,
     "completion_endpoint": "POST /device/v1/pair",
-    "node_cli": "python -m remotemcp.node pair --url https://remote.threadon.xyz --code <PAIRING_CODE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT>",
+    "node_cli": "python -m remotemcp.node pair --url https://remote.threadon.xyz --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>",
     "proof_of_possession": "Initial pair request includes Ed25519 public key and a signature over canonical pairing payload; gateway verifies signature with submitted public key plus one-time pairing code.",
     "result": "Gateway creates dev_* identity, route_generation=1, state ONLINE; node persists device_id/public origin/key fingerprint.",
-    "re_pair_revoked": "Forbidden. Pair as a new device identity."
+    "re_pair_revoked": "Forbidden. Pair as a new device identity.",
+    "code_file_rule": "UTF-8 file containing exactly one pairing code line. CLI reads it once, trims CR/LF only, then must delete the file before making the network pairing request. If deletion fails, pairing aborts PAIRING_CODE_FILE_DELETE_FAILED.",
+    "code_argv_forbidden": true
   },
   "auth_replay_protection": {
     "protocol_version": "RMCPNODE1",
@@ -383,6 +385,7 @@
     "node_runtime_change": "Freeze a dedicated <MCP_NODE_RUNTIME_DIR>/durable subruntime that reuses V2-A DurableService for local process durability while node.db owns routing/idempotency state.",
     "implementation_started": false,
     "routed_job_api_gap": "Added task_job_get/task_job_logs/task_job_result because gateway-local V2-A job observation tools cannot safely observe rjob_* on remote execution nodes.",
-    "public_tool_count_after_amendment": 12
+    "public_tool_count_after_amendment": 12,
+    "pairing_cli_hardening": "Pairing secret moved from argv to one-time --code-file to avoid process-list/shell-history disclosure."
   }
 }

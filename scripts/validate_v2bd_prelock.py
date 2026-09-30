@@ -56,6 +56,9 @@ def main():
     assert "outbound HTTPS long-poll" in s["architecture"]["topology"]
     assert s["device_identity"]["key_type"]=="Ed25519"
     assert s["pairing"]["ttl_seconds"]==600
+    assert "--code-file" in s["pairing"]["node_cli"]
+    assert "--code <" not in s["pairing"]["node_cli"]
+    assert s["pairing"]["code_argv_forbidden"] is True
     assert s["auth_replay_protection"]["timestamp_window_seconds"]==60
     assert s["auth_replay_protection"]["nonce_replay_retention_seconds"]==600
 

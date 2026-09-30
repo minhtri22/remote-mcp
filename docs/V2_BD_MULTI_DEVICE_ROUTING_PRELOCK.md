@@ -144,10 +144,13 @@ Node command:
 ```text
 python -m remotemcp.node pair
   --url https://remote.threadon.xyz
-  --code <PAIRING_CODE>
+  --code-file <PAIRING_CODE_FILE>
   --name <DEVICE_NAME>
   --root <MCP_NODE_ROOT>
+  --runtime-dir <MCP_NODE_RUNTIME_DIR>
 ```
+
+The pairing-code file contains exactly one UTF-8 line. The CLI reads it once and must delete it **before** making the network pairing request; deletion failure aborts pairing. Pairing codes are forbidden on argv to avoid process-list/shell-history disclosure.
 
 The node generates its key locally and signs the canonical pair payload to prove private-key possession.
 
@@ -422,6 +425,9 @@ New public tools:
 - `task_list_dir`
 - `task_read_file`
 - `task_search`
+- `task_job_get`
+- `task_job_logs`
+- `task_job_result`
 
 Existing V2-B task mutation/job tools become internally device-routed when the task has a device binding.
 
