@@ -1,0 +1,46 @@
+{
+  "release_id": "V2_B_PRODUCTION_RELEASE_2026_09_30",
+  "status": "PASS",
+  "deployed_at": "2026-09-30",
+  "source_commit": "673d09fc74c8a248ca52cfab7bf47dd68226f9b8",
+  "previous": {
+    "cwd": "D:\\2.RemoteMCP",
+    "pid": 28464,
+    "port": 8099
+  },
+  "current": {
+    "cwd": "D:\\2.RemoteMCP-releases\\673d09f",
+    "pid": 11372,
+    "port": 8099,
+    "public_url": "https://remote.threadon.xyz"
+  },
+  "state": {
+    "oauth": "D:\\2.RemoteMCP-state\\oauth-state.json",
+    "runtime": "D:\\2.RemoteMCP-state\\runtime",
+    "backup": "D:\\2.RemoteMCP-backups\\pre-v2b-28464"
+  },
+  "preflight": {
+    "isolated_port": 8101,
+    "tcp": true,
+    "oauth_metadata": true,
+    "unauthenticated_mcp_401": true,
+    "schema_versions": [
+      1,
+      2
+    ]
+  },
+  "post_cutover": {
+    "local_listener": true,
+    "oauth_metadata": true,
+    "protected_resource_metadata": true,
+    "public_mcp_401": true,
+    "schema_versions": [
+      1,
+      2
+    ],
+    "existing_connector_reconnected": true,
+    "registered_projects": 0,
+    "rollback_used": false
+  },
+  "next_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
+}

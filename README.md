@@ -216,9 +216,37 @@ Known limitations / next-phase boundaries:
 - V2-B supports multiple login devices controlling the same execution node.
 - It does **not** yet route work to multiple RemoteMCP execution machines.
 - Context Broker, native MCP Tasks and the read-only `/ops` observability view remain deferred.
-- the live production RemoteMCP on port 8099 has **not** been replaced by this source.
+- V2-B source qualification was completed before deployment; production was then cut over separately under an operational release gate.
 
 Detailed evidence: `docs/V2_B_IMPLEMENTATION_AND_QUALIFICATION.md`.
+
+### V2-B production release: PASS
+
+Deployed: 2026-09-30.
+
+Operational cutover:
+
+- previous production: `D:\\2.RemoteMCP`, PID **28464**, port **8099**;
+- release snapshot: `D:\\2.RemoteMCP-releases\\673d09f`;
+- release source commit: `673d09fc74c8a248ca52cfab7bf47dd68226f9b8`;
+- current production PID: **11372** on `127.0.0.1:8099`;
+- persistent OAuth state: `D:\\2.RemoteMCP-state\\oauth-state.json`;
+- persistent V2 runtime: `D:\\2.RemoteMCP-state\\runtime`;
+- rollback source/state snapshot retained under `D:\\2.RemoteMCP-backups\\pre-v2b-28464`.
+
+Release gates:
+
+- isolated production-like boot on port 8101: **PASS**;
+- OAuth metadata: **PASS**;
+- unauthenticated `/mcp` Bearer challenge: **401 PASS**;
+- runtime schema migrations: **[1, 2] PASS**;
+- existing OAuth connector session survived the cutover: **PASS**;
+- public `https://remote.threadon.xyz` smoke after cutover: **PASS**;
+- production runtime currently has **0 registered V2-B projects**, so managed mode has not yet disabled compatibility execution tools.
+
+The tunnel was not repointed; it continues forwarding to local port 8099. No V2-B project should be registered until the consuming client refreshes the 32-tool schema and is ready to use task-scoped execution, because registering the first managed project intentionally disables legacy `run_command` and direct `job_submit`.
+
+Release evidence: `docs/V2_B_PRODUCTION_RELEASE_2026-09-30.md`.
 
 Next authorized phase:
 
