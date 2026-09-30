@@ -24,7 +24,7 @@ ok("DCR ok", r.status_code in (200,201), r.text[:80]); cid = r.json()["client_id
 
 ver = secrets.token_urlsafe(48)
 chal = base64.urlsafe_b64encode(hashlib.sha256(ver.encode()).digest()).rstrip(b"=").decode()
-q = dict(response_type="code", client_id=cid, redirect_uri="http://localhost:9999/cb", code_challenge=chal, code_challenge_method="S256", state="xyz", scope="mcp")
+q = dict(response_type="code", client_id=cid, redirect_uri="http://localhost:9999/cb", code_challenge=chal, code_challenge_method="S256", state="xyz", scope="mcp", resource=B+"/mcp")
 r = c.get("/authorize", params=q)
 loc = r.headers.get("location",""); ok("authorize -> /login", r.status_code in (302,307) and "/login?req=" in loc, loc[:70])
 req = parse_qs(urlparse(loc).query)["req"][0]
