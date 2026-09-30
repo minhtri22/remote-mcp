@@ -52,10 +52,15 @@ def main():
     con.executescript(V2.read_text(encoding="utf-8"))
     tables={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for name in (
-        "agents","agent_sessions","projects","tasks","task_leases",
+        "owner_accounts","agents","agent_sessions","projects","tasks","task_leases",
         "path_leases","task_events","task_checkpoints","cas_mutations"
     ):
         assert name in tables,name
+
+    agent_cols={row[1] for row in con.execute("PRAGMA table_info(agents)")}
+    session_cols={row[1] for row in con.execute("PRAGMA table_info(agent_sessions)")}
+    assert "owner_account_id" in agent_cols
+    assert "auth_client_id" in session_cols
 
     task_lease_cols={
         row[1] for row in con.execute("PRAGMA table_info(task_leases)")
@@ -79,6 +84,14 @@ def main():
     assert "MISSING" in s["cas_mutation"]["expected_hash_values"]
     assert s["cas_mutation"]["intent_journal"]["table"]=="cas_mutations"
     assert s["cas_mutation"]["intent_journal"]["prepare_before_filesystem_side_effect"] is True
+
+    ident=s["identity"]
+    assert ident["no_last_login_wins"] is True
+    assert "OAuth DCR client_id" in ident["account_not_client_rule"]
+    md=s["multi_device"]
+    assert md["login_devices"]["status"]=="IN_SCOPE_V2B"
+    assert md["execution_devices"]["release_blocker"] is True
+    assert md["execution_devices"]["successor_gate"]=="REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
 
     token=s["heartbeat_and_lease"]["lease_token_derivation"]
     assert token["persisted_cleartext"] is False
@@ -104,6 +117,9 @@ def main():
     assert not (ROOT/"remotemcp"/"multiagent").exists()
 
     print("PASS V2-B prelock identity/task state machines")
+    print("PASS owner-account identity independent from OAuth client_id")
+    print("PASS two-login-device concurrent-session contract")
+    print("PASS mandatory V2-BD execution-device routing successor")
     print("PASS heartbeat/lease/takeover invariants")
     print("PASS prospective schema v2 parses after V2-A schema")
     print("PASS exact V2-B tool mutation/idempotency rules")
