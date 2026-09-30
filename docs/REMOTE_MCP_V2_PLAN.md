@@ -1,6 +1,8 @@
 # RemoteMCP v2 — Durable Multi-Agent Runtime Implementation Plan
 
-Status: PLAN
+Status: ACTIVE
+Current gate: REMOTE_MCP_V2A_DURABLE_JOB_AND_OPERATION_PRELOCK
+V2-0 status: PASS (2026-09-30)
 Repository: minhtri22/remote-mcp
 Local source: D:\WORK\RESEARCH\RemoteMCP-src
 
