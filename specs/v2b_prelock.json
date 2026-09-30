@@ -1,0 +1,389 @@
+{
+  "spec_id": "REMOTE_MCP_V2B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK",
+  "spec_version": 1,
+  "status": "FROZEN",
+  "frozen_at": "2026-09-30",
+  "binds": {
+    "git_head": "cdc3c3b41aa52cffc94865548d2e77ac404186b5",
+    "v2a_qualification_manifest_blob": "182a9b496e8c3c7e1aef485110a05bd1c107a5cb",
+    "readme_blob": "bcbc8097340a62566838be2fa28e384db4f392bb",
+    "server_blob": "8cec91ecd9c9aeffb9a95802309db29e04ab8366"
+  },
+  "deployment_policy": {
+    "production_endpoint": "http://127.0.0.1:8099 behind https://remote.threadon.xyz",
+    "production_mutation_forbidden_during_v2b_prelock": true,
+    "switch_rule": "Do not replace/restart the active production RemoteMCP for this redesign until the remaining planned phases are complete, an explicit release-QA gate passes, and the owner explicitly authorizes deployment.",
+    "reason": "Other active research projects depend on the currently running remote."
+  },
+  "identity": {
+    "principal_key": "Derived from authenticated OAuth client/server context; never caller-supplied.",
+    "agent_id": "Server-generated stable logical agent id, prefix agt_.",
+    "client_instance_id": "Caller-generated stable opaque identifier unique within principal_key; required for reconnect identity.",
+    "agent_uniqueness": [
+      "principal_key",
+      "client_instance_id"
+    ],
+    "session_id": "Server-generated per registration/resume session id, prefix ses_.",
+    "session_states": [
+      "ACTIVE",
+      "STALE",
+      "CLOSED"
+    ],
+    "session_rule": "One logical agent may have multiple sessions, but one task lease is owned by exactly one session at a time.",
+    "agent_register_idempotency": "Same principal_key + client_instance_id resolves the same agent_id; every successful registration creates a new session_id."
+  },
+  "task": {
+    "states": [
+      "CREATED",
+      "READY",
+      "CLAIMED",
+      "RUNNING",
+      "BLOCKED",
+      "RECOVERABLE",
+      "COMPLETED",
+      "FAILED",
+      "CANCELLED"
+    ],
+    "terminal_states": [
+      "COMPLETED",
+      "FAILED",
+      "CANCELLED"
+    ],
+    "transitions": {
+      "CREATED": [
+        "READY",
+        "CANCELLED"
+      ],
+      "READY": [
+        "CLAIMED",
+        "CANCELLED"
+      ],
+      "CLAIMED": [
+        "RUNNING",
+        "READY",
+        "RECOVERABLE",
+        "CANCELLED"
+      ],
+      "RUNNING": [
+        "BLOCKED",
+        "RECOVERABLE",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "BLOCKED": [
+        "READY",
+        "CANCELLED",
+        "FAILED"
+      ],
+      "RECOVERABLE": [
+        "CLAIMED",
+        "CANCELLED",
+        "FAILED"
+      ],
+      "COMPLETED": [],
+      "FAILED": [],
+      "CANCELLED": []
+    },
+    "claim_protocol": [
+      "validate project concurrency capacity",
+      "reserve claim operation idempotently",
+      "transition READY/RECOVERABLE -> CLAIMED",
+      "provision or recover task workspace",
+      "create lease_epoch = previous + 1 and new random lease_token",
+      "persist lease token hash only",
+      "bind owner_agent_id + owner_session_id",
+      "transition CLAIMED -> RUNNING",
+      "return lease_token exactly once in claim result"
+    ],
+    "complete_preconditions": [
+      "valid current lease token and epoch",
+      "task state RUNNING",
+      "no non-terminal V2-A jobs bound to task_id",
+      "Git worktree has no uncommitted changes unless completion contract explicitly records an allowed dirty result; v1 prelock chooses clean/committed only"
+    ],
+    "blocked_rule": "BLOCKED has no active task lease. Blocking releases the task lease but preserves workspace and durable jobs.",
+    "recoverable_rule": "RECOVERABLE preserves workspace, checkpoints and durable jobs and may be claimed by another session."
+  },
+  "heartbeat_and_lease": {
+    "heartbeat_interval_seconds": 30,
+    "task_lease_ttl_seconds": 120,
+    "allowed_task_lease_ttl_range_seconds": [
+      60,
+      600
+    ],
+    "lease_token_storage": "sha256 hash only",
+    "lease_epoch": "Monotonic integer per task; every claim/takeover increments it.",
+    "heartbeat_protocol": {
+      "key": [
+        "agent_id",
+        "session_id"
+      ],
+      "heartbeat_seq": "Strictly monotonic integer per session; duplicate seq is idempotent, lower seq rejected.",
+      "renews": "All unexpired task/path leases owned by the exact session, up to their configured TTL.",
+      "operation_id_exception": "Heartbeat uses monotonic heartbeat_seq instead of the V2-A operations table to avoid unbounded operation-row growth."
+    },
+    "expiry": {
+      "session": "ACTIVE -> STALE when now - last_heartbeat_at > task_lease_ttl_seconds.",
+      "task_claimed_or_running": "CLAIMED/RUNNING -> RECOVERABLE when the owning task lease expires.",
+      "blocked": "No task lease to expire.",
+      "old_agent_after_takeover": "Any mutation carrying an old lease_token or lease_epoch is rejected with LEASE_STALE."
+    },
+    "takeover": {
+      "allowed_when": [
+        "lease expired",
+        "task state RECOVERABLE",
+        "previous lease explicitly released"
+      ],
+      "force_takeover_by_normal_agent": false,
+      "behavior": "New claim increments lease_epoch and returns a new token. Previous token never becomes valid again."
+    }
+  },
+  "project_concurrency": {
+    "default_max_active_tasks": 4,
+    "allowed_range": [
+      1,
+      32
+    ],
+    "active_states_counted": [
+      "CLAIMED",
+      "RUNNING"
+    ],
+    "blocked_counts_against_limit": false,
+    "recoverable_counts_against_limit": false,
+    "git_project_rule": "Parallel tasks are allowed only in distinct task worktrees.",
+    "non_git_rule": "Parallel mutation requires non-overlapping explicit path leases.",
+    "convergence_rule": "No automatic merge to main/default branch in V2-B. Convergence is an explicit later operation outside the task-worktree mutation path."
+  },
+  "git_worktree": {
+    "root_relative_to_workspace": ".remote-worktrees/<project_id>/<task_id>",
+    "branch_name": "remotemcp/task/<task_id>",
+    "base_binding": "Task creation freezes base_ref and resolves exact base_commit before any claim.",
+    "create_rule": "First claim creates branch/worktree from frozen base_commit; later takeover reuses the same task branch/worktree when identity checks pass.",
+    "validation": [
+      "project root is a Git worktree/repository",
+      "task worktree path is under workspace ROOT",
+      "branch is exactly the task branch recorded in DB",
+      "HEAD belongs to the recorded task branch",
+      "worktree is not owned by another non-terminal task"
+    ],
+    "cleanup": {
+      "auto_delete_dirty": false,
+      "auto_delete_with_running_jobs": false,
+      "eligible_when": [
+        "task terminal",
+        "no non-terminal jobs bound to task",
+        "worktree clean",
+        "branch metadata matches task"
+      ],
+      "dirty_terminal_behavior": "Preserve worktree and mark cleanup_pending/manual_review.",
+      "recovery": "Never git worktree prune blindly. Reconcile DB task/worktree records against git worktree list and preserve ambiguous entries."
+    },
+    "main_tree_protection": "V2-B task mutations never target the project's main working tree; they target the task worktree."
+  },
+  "non_git_leases": {
+    "reads_require_lease": false,
+    "mutation_requires": "WRITE_EXCLUSIVE path lease plus current task lease.",
+    "scopes": [
+      "FILE",
+      "TREE"
+    ],
+    "modes": [
+      "WRITE_EXCLUSIVE"
+    ],
+    "hierarchical_conflict": "TREE lease conflicts with any overlapping descendant/ancestor write lease. FILE lease conflicts with same file and any ancestor TREE write lease.",
+    "path_normalization": "Resolve canonical path under registered project root and workspace ROOT before conflict check.",
+    "expiry": "Path lease expires with its owning session/task lease and is never transferred; takeover must acquire fresh path lease(s)."
+  },
+  "cas_mutation": {
+    "managed_project_policy": "For paths inside registered V2-B projects, managed multi-agent mutations must use CAS tools. Legacy write_file/edit_file are rejected with LEASE_REQUIRED_USE_CAS when an active V2-B project registration covers the path.",
+    "unmanaged_compatibility": "Legacy write_file/edit_file retain V2-A behavior for paths not covered by a registered V2-B project.",
+    "hash_algorithm": "sha256 over exact file bytes",
+    "expected_hash_values": [
+      "64 lowercase hex sha256",
+      "MISSING"
+    ],
+    "wildcard_expected_hash": false,
+    "write_contract": [
+      "validate current task lease token+epoch",
+      "resolve task worktree/project path",
+      "for non-Git, validate overlapping path lease",
+      "read current bytes/hash or MISSING",
+      "reject mismatch with CAS_MISMATCH and do not write",
+      "write unique temp file in same directory",
+      "flush/fsync where supported",
+      "atomic replace",
+      "re-read result hash",
+      "persist operation result with before_hash and after_hash"
+    ],
+    "edit_contract": "UTF-8 text edit, expected_sha256 mandatory, old must occur exactly expected_occurrences times (default 1), then the same atomic CAS write contract applies.",
+    "symlink_policy": "Resolve and reject escapes before hash/write. Do not follow a symlink outside the task/project root.",
+    "binary_write_v2b": "file_write_cas accepts UTF-8 string content only in V2-B; binary artifact mutation is deferred."
+  },
+  "v2a_job_interaction": {
+    "rule": "Durable V2-A jobs are independent of agent/session/task lease lifetime once successfully launched.",
+    "on_agent_heartbeat_loss": "Do not cancel/kill job.",
+    "on_task_lease_expiry": "Task becomes RECOVERABLE; job continues; workspace is preserved.",
+    "new_claimant": "May inspect jobs bound to task and may request cancellation only with the current task lease through task_job_cancel.",
+    "stale_agent": "May read public status if authorized by principal policy but cannot mutate/cancel through task-scoped tools after takeover.",
+    "task_completion": "Rejected while any job bound to task_id is non-terminal.",
+    "blocked_task_with_job": "Allowed; BLOCKED releases lease while durable job continues.",
+    "direct_v2a_job_submit_policy": "For cwd inside a registered managed project, direct job_submit is rejected with TASK_CONTEXT_REQUIRED. Use task_job_submit so project/task/worktree binding is enforced.",
+    "direct_v2a_job_cancel_policy": "For a job bound to a managed task, direct job_cancel is rejected with TASK_CONTEXT_REQUIRED. Use task_job_cancel with the current lease."
+  },
+  "exact_tools": {
+    "agent_register": "async def agent_register(operation_id: str, agent_name: str, client_instance_id: str, capabilities: list[str] = []) -> dict",
+    "agent_heartbeat": "def agent_heartbeat(agent_id: str, session_id: str, heartbeat_seq: int) -> dict",
+    "session_close": "async def session_close(operation_id: str, agent_id: str, session_id: str) -> dict",
+    "project_register": "async def project_register(operation_id: str, path: str, max_active_tasks: int = 4) -> dict",
+    "project_status": "def project_status(project_id: str) -> dict",
+    "task_create": "async def task_create(operation_id: str, project_id: str, title: str, base_ref: str = 'HEAD') -> dict",
+    "task_claim": "async def task_claim(operation_id: str, task_id: str, agent_id: str, session_id: str) -> dict",
+    "task_status": "def task_status(task_id: str) -> dict",
+    "task_checkpoint": "async def task_checkpoint(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, summary: str, metadata: dict = {}) -> dict",
+    "task_block": "async def task_block(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, reason: str) -> dict",
+    "task_set_ready": "async def task_set_ready(operation_id: str, task_id: str, reason: str = '') -> dict",
+    "task_release": "async def task_release(operation_id: str, task_id: str, lease_token: str, lease_epoch: int) -> dict",
+    "task_complete": "async def task_complete(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, outcome_summary: str) -> dict",
+    "path_lease_acquire": "async def path_lease_acquire(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, path: str, scope: str = 'FILE') -> dict",
+    "path_lease_release": "async def path_lease_release(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, path_lease_id: str) -> dict",
+    "file_write_cas": "async def file_write_cas(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, path: str, expected_sha256: str, content: str) -> dict",
+    "file_edit_cas": "async def file_edit_cas(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, path: str, expected_sha256: str, old: str, new: str, expected_occurrences: int = 1) -> dict",
+    "task_job_submit": "async def task_job_submit(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, argv: list[str], cwd: str = '.') -> dict",
+    "task_jobs": "def task_jobs(task_id: str) -> dict",
+    "task_job_cancel": "async def task_job_cancel(operation_id: str, task_id: str, lease_token: str, lease_epoch: int, job_id: str) -> dict"
+  },
+  "tool_rules": {
+    "mutation_operation_id_required": true,
+    "heartbeat_exception": "agent_heartbeat is the only mutating V2-B tool without operation_id; heartbeat_seq supplies monotonic idempotency.",
+    "response_encoding": "JSON-serializable dicts.",
+    "lease_token_return": "Only task_claim returns the clear lease_token. Status/checkpoint/events never echo it.",
+    "secrets": "Clear lease tokens are never persisted or logged."
+  },
+  "errors": [
+    "AGENT_NOT_FOUND",
+    "SESSION_NOT_FOUND",
+    "SESSION_STALE",
+    "PROJECT_NOT_FOUND",
+    "TASK_NOT_FOUND",
+    "TASK_STATE_CONFLICT",
+    "PROJECT_CONCURRENCY_LIMIT",
+    "LEASE_REQUIRED",
+    "LEASE_STALE",
+    "LEASE_CONFLICT",
+    "WORKTREE_CONFLICT",
+    "WORKTREE_DIRTY",
+    "WORKTREE_IDENTITY_MISMATCH",
+    "CAS_MISMATCH",
+    "EDIT_MATCH_COUNT",
+    "TASK_CONTEXT_REQUIRED",
+    "ACTIVE_JOB_CONFLICT"
+  ],
+  "test_matrix": {
+    "identity": [
+      "same principal+client_instance resolves same agent and new session",
+      "different principals cannot reuse agent/session identity",
+      "heartbeat duplicate seq idempotent; lower seq rejected",
+      "closed/stale session cannot renew leases"
+    ],
+    "lease_races": [
+      "two agents claim same READY task concurrently: exactly one lease wins",
+      "lease expiry transitions RUNNING to RECOVERABLE exactly once",
+      "takeover increments lease_epoch and invalidates old token",
+      "late heartbeat from old session cannot resurrect expired lease",
+      "release vs expiry race produces one recoverable state"
+    ],
+    "project_concurrency": [
+      "max_active_tasks enforced transactionally",
+      "BLOCKED and RECOVERABLE do not consume active slot",
+      "parallel tasks in same Git project receive distinct worktrees"
+    ],
+    "git_worktree": [
+      "first claim creates frozen-base branch/worktree",
+      "takeover reuses same worktree and branch",
+      "wrong branch/HEAD is rejected",
+      "dirty terminal worktree is preserved, never auto-deleted",
+      "running job blocks cleanup",
+      "ambiguous git worktree reconciliation preserves data"
+    ],
+    "non_git": [
+      "overlapping TREE/FILE write lease conflict detection",
+      "non-overlapping path leases can run concurrently",
+      "expired path lease cannot mutate"
+    ],
+    "cas": [
+      "matching hash writes atomically and returns before/after hashes",
+      "MISSING creates only when path absent",
+      "mismatch performs zero write",
+      "concurrent CAS writers: exactly one succeeds from same expected hash",
+      "edit occurrence mismatch performs zero write",
+      "symlink/path escape rejected",
+      "legacy write/edit rejected inside managed registered project"
+    ],
+    "durable_job": [
+      "task job survives session heartbeat loss",
+      "task lease expiry does not cancel payload",
+      "takeover can observe same job",
+      "stale lease cannot cancel job",
+      "current lease can cancel job through task_job_cancel",
+      "task completion rejected while bound job non-terminal",
+      "direct V2-A job_submit/cancel rejected for managed task/project paths"
+    ],
+    "crash_recovery": [
+      "server crash after task CLAIMED before worktree creation",
+      "server crash after worktree creation before RUNNING",
+      "server crash after lease persisted before response",
+      "server crash during CAS after temp write before replace",
+      "server crash after replace before operation result persistence",
+      "server restart with expired leases marks tasks RECOVERABLE without killing jobs"
+    ],
+    "scale_smoke": "At least 3 agents across at least 2 projects, including 2 concurrent tasks in one Git project, must qualify."
+  },
+  "observability_successor": {
+    "recommendation": "YES",
+    "successor_gate": "REMOTE_MCP_OBSERVABILITY_AGENT_GROUPED_VIEW_PRELOCK",
+    "timing": "After V2-B identity/task semantics are implemented and qualified; may be done before or alongside V2-C, but not inside this prelock.",
+    "design": {
+      "ui": "Read-only owner-authenticated endpoint/view, suggested /ops with JSON API under /ops/api.",
+      "grouping": [
+        "project",
+        "task",
+        "agent",
+        "session",
+        "job"
+      ],
+      "filters": [
+        "state",
+        "time range",
+        "project",
+        "agent",
+        "task",
+        "job",
+        "event type"
+      ],
+      "data_sources": [
+        "SQLite control-plane tables",
+        "append-only task/job events",
+        "bounded stdout/stderr cursors"
+      ],
+      "live_behavior": "Bounded polling/SSE may be added later; UI must not require holding agent MCP context.",
+      "security": [
+        "owner auth",
+        "read-only by default",
+        "secret/lease-token redaction",
+        "no command execution from dashboard in first version"
+      ],
+      "rationale": "Once multiple agents exist, operational visibility becomes necessary for diagnosing contention, stuck leases, long jobs and project load without consuming agent context."
+    }
+  },
+  "prelock_forbidden": [
+    "modify production process on port 8099",
+    "implement V2-B runtime modules/tables",
+    "create/delete real Git worktrees",
+    "change V2-A durable job semantics",
+    "implement observability UI/endpoint",
+    "implement V2-C Context Broker",
+    "implement native MCP Tasks extension"
+  ],
+  "next_gate": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+}
