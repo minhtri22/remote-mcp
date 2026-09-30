@@ -4,7 +4,12 @@ import os
 
 from remotemcp.durable.config import DEFAULT_DURABLE_ALLOWED_CMDS, safe_child_env
 from remotemcp.durable.models import ProcessFingerprint
-from remotemcp.durable.process import command_sha256, fingerprint_process, verify_fingerprint
+from remotemcp.durable.process import (
+    background_process_creationflags,
+    command_sha256,
+    fingerprint_process,
+    verify_fingerprint,
+)
 
 
 def test_current_process_fingerprint_and_pid_reuse_rejection():
@@ -46,3 +51,10 @@ def test_atomic_metadata_replace_retries_transient_permission_error(tmp_path, mo
     procmod.atomic_write_json(target,{"ok":True})
     assert calls["n"]==3
     assert target.read_text(encoding="utf-8")=='{"ok":true}'
+
+
+def test_windows_background_process_flags_include_no_window():
+    flags=background_process_creationflags("nt")
+    assert flags & 0x00000200  # CREATE_NEW_PROCESS_GROUP
+    assert flags & 0x08000000  # CREATE_NO_WINDOW
+    assert background_process_creationflags("posix")==0
