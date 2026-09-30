@@ -66,3 +66,35 @@ For this repository:
 
 - Every work/report turn ends with an explicit **Bước tiếp theo** naming the next valid step.
 - After every major phase (V2-0, V2-A, V2-B, V2-C, V2-D), this README must be updated with the phase verdict, delivered capability, current limitations, and next authorized phase before work proceeds.
+
+## Phase status
+
+### V2-0 — Baseline freeze and regression harness: PASS
+
+Closed: 2026-09-30.
+
+Delivered:
+
+- frozen six-tool MCP baseline and runtime constants;
+- filesystem containment and file-operation regression coverage;
+- OAuth/provider unit coverage;
+- isolated full OAuth integration runner covering DCR, PKCE, OAuth resource binding, token exchange, MCP initialization, refresh rotation, revoke, traversal rejection, command allowlist rejection, and owner-password lockout;
+- public tunnel smoke for OAuth metadata and unauthenticated Bearer challenge;
+- explicit baseline documentation in `docs/V2_0_BASELINE_FREEZE.md`.
+
+Final QA:
+
+- `17 passed` regression/unit tests;
+- full OAuth integration: PASS;
+- public `https://remote.threadon.xyz` smoke: PASS;
+- `git diff --check`: PASS.
+
+Known baseline limitations:
+
+- `run_command` replaces the child environment with only `PATH` + `HOME`. On Windows this can break Python `asyncio`/networking and Git network operations because required system variables such as `SystemRoot/WINDIR` are absent.
+- `run_command` is request-bound, has a 60-second timeout, and kills the child on timeout; this is unsuitable for long-running llama/Ollama/research jobs.
+- there is no durable operation identity, job recovery, multi-agent lease model, worktree isolation, journal, or context broker yet.
+
+Next authorized phase:
+
+`V2-A — Durability`, beginning with `REMOTE_MCP_V2A_DURABLE_JOB_AND_OPERATION_PRELOCK`.
