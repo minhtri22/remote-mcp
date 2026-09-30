@@ -24,7 +24,7 @@ async def main():
         nongit=ws/"nongit"; nongit.mkdir()
         auth={"client":"client-a"}
         d=DurableService(DurableConfig(ws,rt,DEFAULT_DURABLE_ALLOWED_CMDS,max_parallel_jobs=3,poll_ms=20))
-        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=10,poll_ms=20),d,auth_client_resolver=lambda:auth["client"])
+        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=120,poll_ms=20),d,auth_client_resolver=lambda:auth["client"])
         agents=[]
         for i,c in enumerate(("client-a","client-b","client-c")):
             auth["client"]=c

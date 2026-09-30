@@ -201,6 +201,7 @@ Qualification evidence:
 - worktree crash recovery with no duplicate worktree: **PASS**;
 - durable job survives takeover; stale token rejected; current claimant cancellation succeeds: **PASS**;
 - production port 8099 remained on PID **28464** throughout final QA.
+- qualification harness uses the frozen **120-second task lease TTL**; takeover/expiry cases use controlled expiry injection rather than an out-of-contract short TTL.
 
 Security/recovery notes:
 

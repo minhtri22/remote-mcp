@@ -100,6 +100,11 @@ V2-A regression:           27 passed
 V2-0 regression:           17 passed
 ```
 
+Harness timing contract:
+
+- task lease TTL in tests/qualification: **120 seconds**, matching the frozen V2-B default and allowed range;
+- expiry/takeover scenarios use explicit controlled expiry injection, not an artificially short runtime TTL.
+
 ### OAuth / public endpoint regression
 
 PASS:

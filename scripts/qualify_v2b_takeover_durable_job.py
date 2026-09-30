@@ -27,7 +27,7 @@ async def main():
         base=Path(td);ws=base/"ws";rt=base/"rt";ws.mkdir()
         auth={"client":"a"}
         d=DurableService(DurableConfig(ws,rt,DEFAULT_DURABLE_ALLOWED_CMDS,max_parallel_jobs=2,poll_ms=20))
-        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=10,poll_ms=20),d,auth_client_resolver=lambda:auth["client"])
+        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=120,poll_ms=20),d,auth_client_resolver=lambda:auth["client"])
         a=await m.agent_register("ra","a","ia",[]); auth["client"]="b"; b=await m.agent_register("rb","b","ib",[])
         p=await m.project_register("p",".",4); t=await m.task_create("t",p["project_id"],"job")
         c1=await m.task_claim("c1",t["task_id"],a["agent_id"],a["session_id"])

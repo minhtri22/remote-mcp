@@ -45,7 +45,7 @@ def make_bundle(tmp_path):
             MultiAgentConfig(
                 workspace_root=workspace,
                 runtime_dir=runtime,
-                task_lease_ttl_seconds=2,
+                task_lease_ttl_seconds=120,
                 poll_ms=poll_ms,
             ),
             durable,

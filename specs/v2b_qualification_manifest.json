@@ -58,5 +58,11 @@
     "deployed_new_source": false,
     "modified": false
   },
-  "next_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
+  "next_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
+  "qualification_harness": {
+    "task_lease_ttl_seconds": 120,
+    "expiry_method": "controlled expiry injection for takeover/recovery cases",
+    "contract_match": true,
+    "final_revalidation": "PASS"
+  }
 }

@@ -19,7 +19,7 @@ async def main():
         run(["git","init",str(repo)]);run(["git","-C",str(repo),"config","user.email","q@example.com"]);run(["git","-C",str(repo),"config","user.name","Q"])
         (repo/"README.md").write_text("base\n",encoding="utf-8");run(["git","-C",str(repo),"add","README.md"]);run(["git","-C",str(repo),"commit","-m","base"])
         d=DurableService(DurableConfig(ws,rt,DEFAULT_DURABLE_ALLOWED_CMDS))
-        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=20),d,auth_client_resolver=lambda:"client")
+        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=120),d,auth_client_resolver=lambda:"client")
         a=await m.agent_register("ra","a","ia",[])
         p=await m.project_register("p","repo",4)
 

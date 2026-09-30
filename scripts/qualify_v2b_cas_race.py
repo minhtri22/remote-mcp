@@ -18,7 +18,7 @@ async def main():
     with tempfile.TemporaryDirectory(prefix="rmcp-v2b-casrace-") as td:
         base=Path(td);ws=base/"ws";rt=base/"rt";ws.mkdir()
         d=DurableService(DurableConfig(ws,rt,DEFAULT_DURABLE_ALLOWED_CMDS))
-        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=20),d,auth_client_resolver=lambda:"client")
+        m=MultiAgentService(MultiAgentConfig(ws,rt,task_lease_ttl_seconds=120),d,auth_client_resolver=lambda:"client")
         a=await m.agent_register("ra","a","ia",[])
         p=await m.project_register("p",".",4);t=await m.task_create("t",p["project_id"],"cas")
         c=await m.task_claim("c",t["task_id"],a["agent_id"],a["session_id"])
