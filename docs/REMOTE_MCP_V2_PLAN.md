@@ -676,3 +676,53 @@ Freeze before implementation:
 - exact compatibility behavior of existing run_command.
 
 Only after that prelock passes review should implementation begin.
+
+## 16. Project operating protocol
+
+These rules are mandatory for all subsequent RemoteMCP work.
+
+### 16.1 End-of-turn next step
+
+Every assistant turn that advances this project MUST end with an explicit:
+
+`Bước tiếp theo:`
+
+It must name exactly the next valid implementation/research step, or state that the current phase is blocked and what prerequisite must be satisfied before proceeding.
+
+Do not leave the user to infer the next step from the body of the report.
+
+### 16.2 README update gate after major phases
+
+After every major phase completes, update `README.md` before opening the next phase.
+
+A major phase includes at minimum:
+
+- V2-0
+- V2-A
+- V2-B
+- V2-C
+- V2-D
+
+The README update must record:
+
+- phase status: PASS / FAIL / BLOCKED;
+- what capability was added or validated;
+- current architecture/runtime surface;
+- important operational changes;
+- known limitations;
+- exact next phase or next authorized step.
+
+The next major phase MUST NOT be considered opened until this README update is committed/synchronized.
+
+### 16.3 Phase closure order
+
+Required closure sequence:
+
+```text
+phase implementation
+    -> tests / QA
+    -> phase verdict
+    -> README update
+    -> commit / sync
+    -> only then open next phase
+```
