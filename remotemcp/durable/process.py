@@ -22,6 +22,16 @@ def command_sha256(argv: list[str]) -> str:
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
+def background_process_creationflags(platform: str | None = None) -> int:
+    """Return creation flags that keep child console processes headless on Windows."""
+    if (platform or os.name) != "nt":
+        return 0
+    return (
+        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    )
+
+
 def atomic_write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # A fixed .tmp name is unsafe on Windows when a concurrent reader briefly
@@ -265,12 +275,7 @@ def spawn_worker(
 
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
     log = open(stderr_path, "ab", buffering=0)
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = (
-            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
-            | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-        )
+    creationflags = background_process_creationflags()
     try:
         proc = subprocess.Popen(
             argv,
