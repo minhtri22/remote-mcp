@@ -38,12 +38,19 @@ def main():
     con.executescript(V1.read_text(encoding="utf-8"))
     con.executescript(V2.read_text(encoding="utf-8"))
     tables={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "owner_accounts" in tables
     assert "cas_mutations" in tables
     cols={r[1] for r in con.execute("PRAGMA table_info(task_leases)")}
+    agent_cols={r[1] for r in con.execute("PRAGMA table_info(agents)")}
+    session_cols={r[1] for r in con.execute("PRAGMA table_info(agent_sessions)")}
     assert "lease_token_nonce" in cols
+    assert "owner_account_id" in agent_cols
+    assert "auth_client_id" in session_cols
 
     token=lock["principal_and_token"]
-    assert "get_access_token().client_id" in token["principal_source"]
+    assert token["owner_account_id"].startswith("Stable prefix own_")
+    assert "get_access_token().client_id" in token["oauth_client_role"]
+    assert "same owner_account_id" in token["multi_login_device_rule"]
     assert token["clear_token_storage"] is False
     assert token["lease_key_bytes"]==32
     assert token["token_derivation"].startswith("lt1_")
@@ -65,6 +72,12 @@ def main():
 
     assert lock["production_freeze"]["port_8099_must_remain_untouched"] is True
     assert lock["production_freeze"]["deployment_allowed_in_this_gate"] is False
+    md=lock["multi_login_devices"]
+    assert md["in_scope_now"] is True
+    assert "login machines" in md["minimum_qualification"].lower()
+    route=lock["multi_execution_device_successor"]
+    assert route["required_before_release"] is True
+    assert route["gate"]=="REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
 
     tests=lock["exact_test_files"]
     assert len(tests)==12
@@ -76,7 +89,8 @@ def main():
         "CAS crash after replace",
         "two CAS writers",
         "session stale while V2-A durable payload continues",
-        "server restart with expired leases"
+        "server restart with expired leases",
+        "two login devices with different OAuth client IDs"
     ):
         assert phrase in matrix
 
@@ -92,6 +106,9 @@ def main():
 
     print("PASS exact V2-B module layout")
     print("PASS migration 002/schema bindings")
+    print("PASS owner-account/auth-client identity split")
+    print("PASS two-login-device concurrent-session contract")
+    print("PASS mandatory V2-BD multi-execution-device successor")
     print("PASS principal/HMAC lease-token contract")
     print("PASS claim/worktree transaction boundaries")
     print("PASS CAS intent/recovery boundaries")
