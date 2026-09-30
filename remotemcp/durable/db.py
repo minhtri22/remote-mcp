@@ -14,7 +14,19 @@ class Database:
         self.runtime_dir = runtime_dir.resolve()
         self.path = self.runtime_dir / "runtime.db"
         self.jobs_dir = self.runtime_dir / "jobs"
-        self.migration_path = Path(__file__).resolve().parent / "migrations" / "001_v2a.sql"
+        durable_dir = Path(__file__).resolve().parent
+        package_root = durable_dir.parent
+        # V2-A compatibility: migration_path remains the mutable v1 path used
+        # by the frozen checksum-drift regression harness.
+        self.migration_path = durable_dir / "migrations" / "001_v2a.sql"
+        self.migration_v2_path = package_root / "multiagent" / "migrations" / "002_v2b.sql"
+
+    @property
+    def migrations(self):
+        return [
+            (1, self.migration_path),
+            (2, self.migration_v2_path),
+        ]
 
     def connect(self) -> sqlite3.Connection:
         con = sqlite3.connect(
@@ -28,65 +40,106 @@ class Database:
         con.execute("PRAGMA foreign_keys=ON")
         return con
 
-    def bootstrap(self) -> None:
+    @staticmethod
+    def _statements(sql_text: str) -> list[str]:
+        statements = []
+        for part in sql_text.split(";"):
+            stmt = part.strip()
+            if not stmt:
+                continue
+            if stmt.upper().startswith("PRAGMA "):
+                continue
+            statements.append(stmt)
+        return statements
+
+    def bootstrap(self, target_version: int = 1) -> None:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
 
-        sql_bytes = self.migration_path.read_bytes()
-        checksum = hashlib.sha256(sql_bytes).hexdigest()
+        for version, path in self.migrations:
+            if version > int(target_version):
+                break
+            if not path.exists():
+                if version == 2:
+                    continue
+                raise DurableError(
+                    "STARTUP_FATAL_SCHEMA_MISMATCH",
+                    f"migration file missing: {path}",
+                )
 
-        con = self.connect()
-        try:
-            con.execute("PRAGMA journal_mode=WAL")
-            con.execute("PRAGMA synchronous=NORMAL")
-            con.execute("BEGIN IMMEDIATE")
+            sql_bytes = path.read_bytes()
+            checksum = hashlib.sha256(sql_bytes).hexdigest()
 
-            table_exists = con.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
-            ).fetchone()
+            con = self.connect()
+            try:
+                con.execute("PRAGMA journal_mode=WAL")
+                con.execute("PRAGMA synchronous=NORMAL")
+                con.execute("BEGIN IMMEDIATE")
 
-            if table_exists:
-                row = con.execute(
-                    "SELECT checksum_sha256 FROM schema_migrations WHERE version=1"
+                ledger_exists = con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
                 ).fetchone()
-                if row is None:
+
+                if not ledger_exists:
+                    if version != 1:
+                        raise DurableError(
+                            "STARTUP_FATAL_SCHEMA_MISMATCH",
+                            "schema ledger missing before non-initial migration",
+                        )
+                    for stmt in self._statements(sql_bytes.decode("utf-8")):
+                        con.execute(stmt)
+                    con.execute(
+                        "INSERT INTO schema_migrations(version,applied_at_ms,checksum_sha256) "
+                        "VALUES(1,?,?)",
+                        (now_ms(), checksum),
+                    )
+                    con.execute("COMMIT")
+                    continue
+
+                row = con.execute(
+                    "SELECT checksum_sha256 FROM schema_migrations WHERE version=?",
+                    (version,),
+                ).fetchone()
+                if row is not None:
+                    if row["checksum_sha256"] != checksum:
+                        raise DurableError(
+                            "STARTUP_FATAL_SCHEMA_MISMATCH",
+                            f"migration {version:03d} checksum mismatch",
+                            expected=row["checksum_sha256"],
+                            actual=checksum,
+                        )
+                    con.execute("COMMIT")
+                    continue
+
+                # Apply the next ordered migration in-place.
+                applied = {
+                    int(r["version"])
+                    for r in con.execute("SELECT version FROM schema_migrations").fetchall()
+                }
+                expected_previous = set(range(1, version))
+                if not expected_previous.issubset(applied):
                     raise DurableError(
                         "STARTUP_FATAL_SCHEMA_MISMATCH",
-                        "schema_migrations exists but version 1 is absent",
+                        f"migration ordering violation before version {version}",
+                        applied=sorted(applied),
                     )
-                if row["checksum_sha256"] != checksum:
-                    raise DurableError(
-                        "STARTUP_FATAL_SCHEMA_MISMATCH",
-                        "migration 001 checksum mismatch",
-                        expected=row["checksum_sha256"],
-                        actual=checksum,
-                    )
-            else:
-                sql_text = sql_bytes.decode("utf-8")
-                statements = []
-                for part in sql_text.split(";"):
-                    stmt = part.strip()
-                    if not stmt:
-                        continue
-                    if stmt.upper().startswith("PRAGMA "):
-                        continue
-                    statements.append(stmt)
-                for stmt in statements:
+
+                for stmt in self._statements(sql_bytes.decode("utf-8")):
                     con.execute(stmt)
                 con.execute(
                     "INSERT INTO schema_migrations(version,applied_at_ms,checksum_sha256) "
-                    "VALUES(1,?,?)",
-                    (now_ms(), checksum),
+                    "VALUES(?,?,?)",
+                    (version, now_ms(), checksum),
                 )
-            con.execute("COMMIT")
-        except Exception:
-            try:
-                con.execute("ROLLBACK")
-            except sqlite3.Error:
-                pass
-            raise
-        finally:
-            con.close()
+                con.execute("COMMIT")
+            except Exception:
+                try:
+                    con.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                raise
+            finally:
+                con.close()
 
     @contextmanager
     def transaction(self, immediate: bool = True):

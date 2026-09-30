@@ -1,29 +1,26 @@
 {
   "lock_id": "REMOTE_MCP_V2B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK",
-  "status": "AMENDED_REVALIDATION_PENDING",
+  "status": "PASS_IMPLEMENTED_AND_QUALIFIED",
   "frozen_at": "2026-09-30",
   "binds_amended_prelock_commit": "4dbbf0959112db1d4f442ef65e3ce08965ad3edc",
-  "artifact_git_blobs": {
-    "docs/V2_B_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK.md": "e6ca51db4c0307ae8cdd276b802299089fec0798",
-    "scripts/validate_v2b_implementation_lock.py": "ac026ec16ced86b362f6b6c0131a6056f4bb2acc",
-    "specs/v2b_implementation_lock.json": "b11ef8b16786803c1390c08857a661853cad94de"
-  },
   "qa": {
-    "static_validator": "PENDING rerun after local connector recovery",
+    "static_prelock_validator": "PASS",
+    "post_implementation_validator": "PASS",
+    "v2b_tests": "24 passed",
     "v2a_regression": "27 passed",
     "v2_0_regression": "17 passed",
-    "v2a_static_validator": "PASS",
+    "oauth_integration": "PASS",
     "public_tunnel_smoke": "PASS",
     "diff_check": "PASS",
-    "server_blob_unchanged": "8cec91ecd9c9aeffb9a95802309db29e04ab8366",
-    "runtime_source_modified": false,
+    "production_8099_pid": 28464,
     "production_8099_modified": false
   },
-  "next_gate": "REMOTE_MCP_V2B_MULTI_DEVICE_AMENDMENT_REVALIDATION",
-  "multi_device_amendment": {
-    "multi_login_device_in_v2b": true,
-    "multi_execution_device_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
-    "release_blocker": true,
-    "local_connector_state": "unavailable during final amendment QA"
-  }
+  "implementation_boundaries": {
+    "production_deployed": false,
+    "multi_execution_device_routing": false,
+    "context_broker": false,
+    "native_mcp_tasks": false,
+    "observability_ui": false
+  },
+  "next_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
 }

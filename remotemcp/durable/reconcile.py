@@ -104,7 +104,13 @@ class Reconciler:
         rows = self.operations.db.query_all(
             "SELECT * FROM operations WHERE state IN ('RESERVED','EXECUTING')"
         )
+        v2a_kinds={"JOB_SUBMIT","JOB_CANCEL","EVENT_ACK"}
         for row in rows:
+            # V2-B owns reconciliation for its own durable control-plane
+            # operations (claim/CAS/etc.). Do not collapse their evidence into
+            # generic V2-A IN_DOUBT before the V2-B reconciler can inspect it.
+            if row["kind"] not in v2a_kinds:
+                continue
             if row["state"] == "RESERVED":
                 self.operations.fail(
                     row["operation_id"],

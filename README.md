@@ -33,6 +33,15 @@ V2-A durable tools:
 - `job_result`
 - `job_cancel`
 
+V2-B multi-agent tools:
+
+- `agent_register`, `agent_heartbeat`, `session_close`
+- `project_register`, `project_status`
+- `task_create`, `task_claim`, `task_status`, `task_checkpoint`, `task_block`, `task_set_ready`, `task_release`, `task_complete`
+- `path_lease_acquire`, `path_lease_release`
+- `file_write_cas`, `file_edit_cas`
+- `task_job_submit`, `task_jobs`, `task_job_cancel`
+
 ## v2 direction
 
 See [docs/REMOTE_MCP_V2_PLAN.md](docs/REMOTE_MCP_V2_PLAN.md).
@@ -41,9 +50,10 @@ Milestones:
 
 1. **V2-0 Baseline freeze** — regression/security harness.
 2. **V2-A Durability** — idempotent operations, SQLite WAL journal, durable jobs, retry/recovery.
-3. **V2-B Multi-agent** — identities, tasks, leases, queues, Git worktree isolation.
-4. **V2-C Context Broker** — manifests, hashes, cached summaries, bounded resume packages.
-5. **V2-D MCP Tasks integration** — native `io.modelcontextprotocol/tasks` when supported, with `job_*` fallback.
+3. **V2-B Multi-agent + multi-login-device** — identities, sessions, tasks, leases, CAS and Git worktree isolation.
+4. **V2-BD Multi-device execution routing** — route projects/tasks to the correct RemoteMCP execution machine under one owner account.
+5. **V2-C Context Broker** — manifests, hashes, cached summaries, bounded resume packages.
+6. **V2-D MCP Tasks integration** — native `io.modelcontextprotocol/tasks` when supported, with `job_*` fallback.
 
 ## Long-running jobs
 
@@ -76,7 +86,7 @@ This project is intended for a bounded local workspace exposed through an authen
 For this repository:
 
 - Every work/report turn ends with an explicit **Bước tiếp theo** naming the next valid step.
-- After every major phase (V2-0, V2-A, V2-B, V2-C, V2-D), this README must be updated with the phase verdict, delivered capability, current limitations, and next authorized phase before work proceeds.
+- After every major phase (V2-0, V2-A, V2-B, V2-BD, V2-C, V2-D), this README must be updated with the phase verdict, delivered capability, current limitations, and next authorized phase before work proceeds.
 
 ## Phase status
 
@@ -158,3 +168,57 @@ Detailed evidence: `docs/V2_A_IMPLEMENTATION_AND_QUALIFICATION.md`.
 Next authorized phase:
 
 `V2-B — Multi-agent`, beginning with `REMOTE_MCP_V2B_MULTI_AGENT_TASK_LEASE_WORKTREE_PRELOCK`.
+
+### V2-B — Multi-agent + multi-login-device: PASS
+
+Closed: 2026-09-30.
+
+Delivered:
+
+- stable single-owner `owner_account_id` independent from OAuth `client_id`;
+- concurrent sessions from multiple login machines with no last-login-wins behavior;
+- agent/session/task registries and heartbeat/lease lifecycle;
+- task lease epoch + HMAC-derived replayable token without clear-token persistence;
+- project concurrency limits;
+- Git task worktrees and deterministic recovery;
+- non-Git hierarchical FILE/TREE write leases;
+- crash-reconcilable CAS mutation journal;
+- managed-mode guards that block legacy mutation/execution bypasses;
+- task-bound durable jobs that survive agent/session lease loss;
+- exact 20 V2-B MCP tools layered on the 12 V2-A/compatibility tools.
+
+Qualification evidence:
+
+- V2-B implementation tests: **24 passed**;
+- V2-A regression: **27 passed**;
+- V2-0 regression: **17 passed**;
+- full OAuth integration: **PASS** with 32-tool surface;
+- public tunnel metadata/401 smoke: **PASS**;
+- 3 agents / 2 projects / 3 OAuth-client sessions under one owner: **PASS**;
+- two concurrent tasks in one Git project with distinct worktrees: **PASS**;
+- competing claim exactly-one-winner: **PASS**;
+- two-writer CAS race exactly-one-commit: **PASS**;
+- worktree crash recovery with no duplicate worktree: **PASS**;
+- durable job survives takeover; stale token rejected; current claimant cancellation succeeds: **PASS**;
+- production port 8099 remained on PID **28464** throughout final QA.
+
+Security/recovery notes:
+
+- `owner-account.json` loss with persisted owner state fails closed;
+- legacy `run_command` and direct `job_submit` are disabled once managed mode is active;
+- registered-project writes must use task lease + CAS;
+- Git recovery never performs automatic merge/rebase/reset/prune;
+- task lease expiry moves work to `RECOVERABLE` but does not kill durable jobs.
+
+Known limitations / next-phase boundaries:
+
+- V2-B supports multiple login devices controlling the same execution node.
+- It does **not** yet route work to multiple RemoteMCP execution machines.
+- Context Broker, native MCP Tasks and the read-only `/ops` observability view remain deferred.
+- the live production RemoteMCP on port 8099 has **not** been replaced by this source.
+
+Detailed evidence: `docs/V2_B_IMPLEMENTATION_AND_QUALIFICATION.md`.
+
+Next authorized phase:
+
+`V2-BD — Multi-device execution routing`, beginning with `REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK`.

@@ -29,6 +29,8 @@ from urllib.parse import urlparse
 from oauth_provider import SCOPE, OwnerOAuthProvider
 from remotemcp.durable.config import DurableConfig, safe_child_env
 from remotemcp.durable.service import DurableService
+from remotemcp.multiagent.config import MultiAgentConfig
+from remotemcp.multiagent.service import MultiAgentService
 
 import mcp.server.auth.routes as auth_routes
 
@@ -62,14 +64,18 @@ CMD_TIMEOUT = 60       # giây
 
 DURABLE_CONFIG = DurableConfig.from_env(ROOT)
 durable_service = DurableService(DURABLE_CONFIG)
+MULTIAGENT_CONFIG = MultiAgentConfig.from_durable(DURABLE_CONFIG)
+multiagent_service = MultiAgentService(MULTIAGENT_CONFIG, durable_service)
 
 
 @asynccontextmanager
 async def durable_lifespan(_app):
     await durable_service.start()
+    await multiagent_service.start()
     try:
         yield {}
     finally:
+        await multiagent_service.stop()
         await durable_service.stop()
 
 
@@ -159,6 +165,7 @@ def read_file(path: str, offset: int = 0, limit: int = 500) -> str:
 def write_file(path: str, content: str) -> str:
     """Ghi đè (hoặc tạo) file."""
     p = safe(path)
+    multiagent_service.guard.guard_file_mutation(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return f"Đã ghi {len(content)} ký tự vào {p.relative_to(ROOT)}"
@@ -168,6 +175,7 @@ def write_file(path: str, content: str) -> str:
 def edit_file(path: str, old: str, new: str) -> str:
     """Thay thế đúng 1 đoạn text duy nhất trong file (an toàn hơn ghi đè)."""
     p = safe(path)
+    multiagent_service.guard.guard_file_mutation(p)
     text = p.read_text(encoding="utf-8")
     if text.count(old) != 1:
         return f"Lỗi: 'old' xuất hiện {text.count(old)} lần, cần đúng 1 lần"
@@ -196,6 +204,7 @@ def search(pattern: str, path: str = ".", max_hits: int = 100) -> str:
 @mcp.tool()
 async def run_command(command: str) -> str:
     """Chạy lệnh (không qua shell) trong workspace, có allowlist + timeout."""
+    multiagent_service.guard.guard_run_command()
     argv = shlex.split(command)
     if not argv or argv[0] not in ALLOWED_CMDS:
         return f"Từ chối: '{argv[0] if argv else ''}' không nằm trong allowlist {sorted(ALLOWED_CMDS)}"
@@ -222,6 +231,7 @@ async def job_submit(
     task_id: str = "",
 ) -> dict:
     """Submit a durable, idempotent long-running job."""
+    multiagent_service.guard.guard_job_submit()
     return await durable_service.job_submit(
         operation_id,
         argv,
@@ -292,12 +302,248 @@ async def job_cancel(
     task_id: str = "",
 ) -> dict:
     """Request idempotent, ownership-verified cancellation."""
+    multiagent_service.guard.guard_job_cancel(job_id, durable_service.db)
     return await durable_service.job_cancel(
         operation_id,
         job_id,
         agent_id,
         project_id,
         task_id,
+    )
+
+
+@mcp.tool()
+async def agent_register(
+    operation_id: str,
+    agent_name: str,
+    client_instance_id: str,
+    capabilities: list[str] = [],
+) -> dict:
+    return await multiagent_service.agent_register(
+        operation_id, agent_name, client_instance_id, capabilities
+    )
+
+
+@mcp.tool()
+def agent_heartbeat(
+    agent_id: str,
+    session_id: str,
+    heartbeat_seq: int,
+) -> dict:
+    return multiagent_service.agent_heartbeat(
+        agent_id, session_id, heartbeat_seq
+    )
+
+
+@mcp.tool()
+async def session_close(
+    operation_id: str,
+    agent_id: str,
+    session_id: str,
+) -> dict:
+    return await multiagent_service.session_close(
+        operation_id, agent_id, session_id
+    )
+
+
+@mcp.tool()
+async def project_register(
+    operation_id: str,
+    path: str,
+    max_active_tasks: int = 4,
+) -> dict:
+    return await multiagent_service.project_register(
+        operation_id, path, max_active_tasks
+    )
+
+
+@mcp.tool()
+def project_status(project_id: str) -> dict:
+    return multiagent_service.project_status(project_id)
+
+
+@mcp.tool()
+async def task_create(
+    operation_id: str,
+    project_id: str,
+    title: str,
+    base_ref: str = "HEAD",
+) -> dict:
+    return await multiagent_service.task_create(
+        operation_id, project_id, title, base_ref
+    )
+
+
+@mcp.tool()
+async def task_claim(
+    operation_id: str,
+    task_id: str,
+    agent_id: str,
+    session_id: str,
+) -> dict:
+    return await multiagent_service.task_claim(
+        operation_id, task_id, agent_id, session_id
+    )
+
+
+@mcp.tool()
+def task_status(task_id: str) -> dict:
+    return multiagent_service.task_status(task_id)
+
+
+@mcp.tool()
+async def task_checkpoint(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    summary: str,
+    metadata: dict = {},
+) -> dict:
+    return await multiagent_service.task_checkpoint(
+        operation_id, task_id, lease_token, lease_epoch, summary, metadata
+    )
+
+
+@mcp.tool()
+async def task_block(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    reason: str,
+) -> dict:
+    return await multiagent_service.task_block(
+        operation_id, task_id, lease_token, lease_epoch, reason
+    )
+
+
+@mcp.tool()
+async def task_set_ready(
+    operation_id: str,
+    task_id: str,
+    reason: str = "",
+) -> dict:
+    return await multiagent_service.task_set_ready(
+        operation_id, task_id, reason
+    )
+
+
+@mcp.tool()
+async def task_release(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+) -> dict:
+    return await multiagent_service.task_release(
+        operation_id, task_id, lease_token, lease_epoch
+    )
+
+
+@mcp.tool()
+async def task_complete(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    outcome_summary: str,
+) -> dict:
+    return await multiagent_service.task_complete(
+        operation_id, task_id, lease_token, lease_epoch, outcome_summary
+    )
+
+
+@mcp.tool()
+async def path_lease_acquire(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    path: str,
+    scope: str = "FILE",
+) -> dict:
+    return await multiagent_service.path_lease_acquire(
+        operation_id, task_id, lease_token, lease_epoch, path, scope
+    )
+
+
+@mcp.tool()
+async def path_lease_release(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    path_lease_id: str,
+) -> dict:
+    return await multiagent_service.path_lease_release(
+        operation_id, task_id, lease_token, lease_epoch, path_lease_id
+    )
+
+
+@mcp.tool()
+async def file_write_cas(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    path: str,
+    expected_sha256: str,
+    content: str,
+) -> dict:
+    return await multiagent_service.file_write_cas(
+        operation_id, task_id, lease_token, lease_epoch,
+        path, expected_sha256, content
+    )
+
+
+@mcp.tool()
+async def file_edit_cas(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    path: str,
+    expected_sha256: str,
+    old: str,
+    new: str,
+    expected_occurrences: int = 1,
+) -> dict:
+    return await multiagent_service.file_edit_cas(
+        operation_id, task_id, lease_token, lease_epoch,
+        path, expected_sha256, old, new, expected_occurrences
+    )
+
+
+@mcp.tool()
+async def task_job_submit(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    argv: list[str],
+    cwd: str = ".",
+) -> dict:
+    return await multiagent_service.task_job_submit(
+        operation_id, task_id, lease_token, lease_epoch, argv, cwd
+    )
+
+
+@mcp.tool()
+def task_jobs(task_id: str) -> dict:
+    return multiagent_service.task_jobs(task_id)
+
+
+@mcp.tool()
+async def task_job_cancel(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    job_id: str,
+) -> dict:
+    return await multiagent_service.task_job_cancel(
+        operation_id, task_id, lease_token, lease_epoch, job_id
     )
 
 

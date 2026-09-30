@@ -6,7 +6,7 @@
   "binds": {
     "git_head": "4dbbf0959112db1d4f442ef65e3ce08965ad3edc",
     "prelock_blob": "e67e90ae425659ab2393d689d1b44fd99a626c7e",
-    "schema_v2_blob": "22a7fd5ca26402067d0e4c081b63b66f1e605f23",
+    "schema_v2_blob": "30b4e0155dff2cedbdc8b4ec8c9a4202a9ad3010",
     "prelock_doc_blob": "7d693828ca236e0c231f10d4fffaaeb39daf2cd1"
   },
   "production_freeze": {
@@ -348,35 +348,5 @@
   "forbidden": [
     "restart/replace production 8099",
     "change V2-A job state machine or worker protocol",
-    "auto merge/rebase/reset user Git history",
-    "persist clear lease tokens",
-    "allow legacy run_command/direct job_submit in managed mode",
-    "implement observability UI",
-    "implement V2-C Context Broker",
-    "implement native MCP Tasks",
-    "implement V2-BD execution-device routing before its prospective prelock"
-  ],
-  "next_gate_on_pass": "REMOTE_MCP_V2B_MULTI_AGENT_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION",
-  "multi_login_devices": {
-    "in_scope_now": true,
-    "minimum_qualification": "Two simulated login machines with different auth_client_id values under the same owner_account_id must concurrently register, heartbeat, claim different tasks and remain ACTIVE without invalidating each other.",
-    "namespace_rule": "Projects/tasks/agents are under owner_account_id, never partitioned by OAuth client_id.",
-    "session_routing": "Every mutating task request is routed by explicit session_id + lease token/epoch, never by most-recent OAuth client.",
-    "revocation_isolation": "Closing a V2-B session affects only that session's leases. OAuth revocation behavior remains client-scoped as in V2-A and must not be expanded to all owner clients."
-  },
-  "multi_execution_device_successor": {
-    "required_before_release": true,
-    "gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
-    "purpose": "Route one owner account to multiple RemoteMCP execution machines, each with its own workspace/processes.",
-    "planned_model": [
-      "stable device_id per RemoteMCP installation",
-      "project binds exactly one device_id",
-      "task inherits project.device_id",
-      "single public control-plane endpoint routes by project/task device_id",
-      "no silent task migration between devices",
-      "offline device preserves task/job/worktree metadata"
-    ],
-    "transport_auth": "Exact node transport, pairing and authentication are frozen prospectively in V2-BD; V2-B must not invent them.",
-    "release_blocker": true
-  }
-}
+    "auto merge/rebase/res
+...[cắt bớt 1947 ký tự]

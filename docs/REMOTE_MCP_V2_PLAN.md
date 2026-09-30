@@ -1,9 +1,10 @@
 # RemoteMCP v2 — Durable Multi-Agent Runtime Implementation Plan
 
 Status: ACTIVE
-Current gate: REMOTE_MCP_V2B_MULTI_DEVICE_AMENDMENT_REVALIDATION
+Current gate: REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK
 V2-0 status: PASS (2026-09-30)
 V2-A status: PASS (2026-09-30)
+V2-B status: PASS (2026-09-30)
 Repository: minhtri22/remote-mcp
 Local source: D:\WORK\RESEARCH\RemoteMCP-src
 
@@ -284,6 +285,7 @@ V2-B covers this multi-login-device requirement.
 
 A separate mandatory pre-release phase, **V2-BD — Multi-device execution routing**, will cover multiple RemoteMCP execution machines under the same owner account. Projects will bind to a stable `device_id`; tasks inherit the project device; no non-terminal task silently migrates between devices.
 
+## 6.1 Agent lifecycle
 
 Every call that participates in durable work is associated with:
 
@@ -292,7 +294,6 @@ Every call that participates in durable work is associated with:
 - project_id
 - task_id
 
-### 6.1 Agent lifecycle
 
 Tools/internal API:
 

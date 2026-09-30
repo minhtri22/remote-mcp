@@ -1,0 +1,62 @@
+{
+  "phase": "V2-B",
+  "gate": "REMOTE_MCP_V2B_MULTI_AGENT_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION",
+  "status": "PASS",
+  "closed_at": "2026-09-30",
+  "tests": {
+    "v2b": "24 passed",
+    "v2a_regression": "27 passed",
+    "v2_0_regression": "17 passed",
+    "oauth_integration": "PASS",
+    "public_tunnel_smoke": "PASS",
+    "post_implementation_validator": "PASS",
+    "diff_check": "PASS"
+  },
+  "qualification": {
+    "scale": {
+      "status": "PASS",
+      "agents": 3,
+      "projects": 2,
+      "multi_login_clients": 3,
+      "same_git_project_concurrent_tasks": 2,
+      "distinct_worktrees": true
+    },
+    "competing_claim": {
+      "status": "PASS",
+      "winners": 1,
+      "losers": 1,
+      "loser_error": "TASK_STATE_CONFLICT"
+    },
+    "cas_race": {
+      "status": "PASS",
+      "committed": 1,
+      "cas_mismatch": 1
+    },
+    "worktree_recovery": {
+      "status": "PASS",
+      "claim_before_worktree_recovered": true,
+      "worktree_before_finalize_recovered": true,
+      "duplicate_worktrees": false
+    },
+    "durable_job_takeover": {
+      "status": "PASS",
+      "survived_job": "SUCCEEDED",
+      "old_token_error": "LEASE_STALE",
+      "takeover_epoch": 2,
+      "current_cancel_terminal": "CANCELLED"
+    }
+  },
+  "multi_device": {
+    "multi_login_device": "PASS in V2-B",
+    "multi_execution_device": "DEFERRED_MANDATORY_SUCCESSOR",
+    "successor_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
+  },
+  "production": {
+    "endpoint": "https://remote.threadon.xyz/mcp",
+    "local_listener": "127.0.0.1:8099",
+    "pid": 28464,
+    "deployed_new_source": false,
+    "modified": false
+  },
+  "next_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
+}
