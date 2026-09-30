@@ -16,11 +16,13 @@
     "reason": "Other active research projects depend on the currently running remote."
   },
   "identity": {
-    "principal_key": "Exact implementation source: mcp.server.auth.middleware.auth_context.get_access_token().client_id. Missing access token => AUTH_REQUIRED. Never caller-supplied.",
-    "agent_id": "Server-generated stable logical agent id, prefix agt_.",
-    "client_instance_id": "Caller-generated stable opaque identifier unique within principal_key; required for reconnect identity.",
+    "owner_account_id": "Stable single-owner account identity persisted by the RemoteMCP control plane, prefix own_. It is NOT OAuth client_id.",
+    "auth_client_id": "Derived from the current MCP AccessToken.client_id and stored only on the session for audit/device-client isolation.",
+    "multi_login_device_rule": "All successfully authorized OAuth clients map to the same owner_account_id. Multiple auth_client_id values may hold ACTIVE sessions concurrently.",
+    "client_instance_id": "Caller-generated stable opaque logical-agent installation id under owner_account_id; two physical login devices may use distinct values or intentionally reuse one logical agent id while receiving separate sessions.",
+    "agent_id": "Server-generated stable logical agent id, prefix agt_. Unique by owner_account_id + client_instance_id.",
     "agent_uniqueness": [
-      "principal_key",
+      "owner_account_id",
       "client_instance_id"
     ],
     "session_id": "Server-generated per registration/resume session id, prefix ses_.",
@@ -29,8 +31,10 @@
       "STALE",
       "CLOSED"
     ],
-    "session_rule": "One logical agent may have multiple sessions, but one task lease is owned by exactly one session at a time.",
-    "agent_register_idempotency": "Same principal_key + client_instance_id resolves the same agent_id; every successful registration creates a new session_id."
+    "session_rule": "One logical agent may have multiple concurrent sessions from different login devices/OAuth clients; one task lease is owned by exactly one session at a time.",
+    "agent_register_idempotency": "Same owner_account_id + client_instance_id resolves the same agent_id; every successful registration creates a new session_id bound to the current auth_client_id.",
+    "no_last_login_wins": true,
+    "account_not_client_rule": "OAuth DCR client_id is transport/client identity only and MUST NOT partition the owner's task/project namespace."
   },
   "task": {
     "states": [
@@ -323,7 +327,10 @@
       "same principal+client_instance resolves same agent and new session",
       "different principals cannot reuse agent/session identity",
       "heartbeat duplicate seq idempotent; lower seq rejected",
-      "closed/stale session cannot renew leases"
+      "closed/stale session cannot renew leases",
+      "same owner account with two different auth_client_id values keeps both sessions ACTIVE concurrently",
+      "OAuth client_id does not partition agent/project namespace",
+      "closing/revoking one session/client does not close another ACTIVE session of the same owner account"
     ],
     "lease_races": [
       "two agents claim same READY task concurrently: exactly one lease wins",
@@ -440,5 +447,31 @@
       "managed-mode legacy run_command disable",
       "managed-mode direct job_submit disable"
     ]
+  },
+  "multi_device": {
+    "login_devices": {
+      "status": "IN_SCOPE_V2B",
+      "requirement": "One owner account can be logged in from at least two machines simultaneously and both can register/heartbeat/use independent sessions without invalidating each other.",
+      "routing": "For V2-B, both login devices may control the same currently deployed execution node. Session routing is by session_id, never by last login."
+    },
+    "execution_devices": {
+      "status": "MANDATORY_SUCCESSOR_BEFORE_RELEASE",
+      "successor_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK",
+      "requirement": "Support multiple RemoteMCP execution machines under one owner account, each with its own workspace/processes, and route project/task operations to the correct device.",
+      "planned_identity": "device_id prefix dev_, stable per RemoteMCP installation; project binds to exactly one device_id; task inherits project.device_id.",
+      "planned_route": "Single public control-plane endpoint routes by project/task device_id. Exact node transport/authentication is prospectively frozen in V2-BD, not guessed inside V2-B.",
+      "no_cross_device_task_migration": "A non-terminal task never silently migrates between execution devices.",
+      "offline_behavior": "Device-offline must preserve task/worktree/job metadata; no automatic reassignment.",
+      "release_blocker": true
+    }
+  },
+  "prelock_amendment_multi_device": {
+    "reason": "User requirement added before V2-B implementation: the same account must work concurrently from two login machines, and future multi-execution-device routing must be a release blocker.",
+    "schema_changes": [
+      "owner_accounts table",
+      "agents.owner_account_id",
+      "agent_sessions.auth_client_id"
+    ],
+    "execution_successor": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
   }
 }
