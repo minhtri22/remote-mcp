@@ -42,6 +42,29 @@ V2-B multi-agent tools:
 - `file_write_cas`, `file_edit_cas`
 - `task_job_submit`, `task_jobs`, `task_job_cancel`
 
+V2-BD routed multi-device tools:
+
+- `device_pair_begin`, `device_list`, `device_status`, `device_revoke`
+- `project_register_on_device`, `project_bind_device`
+- `task_list_dir`, `task_read_file`, `task_search`
+- `task_job_get`, `task_job_logs`, `task_job_result`
+
+## Quick start and guides
+
+- [User guide — one machine, multiple machines, multiple projects](docs/USER_GUIDE.md)
+- [ChatGPT private-plugin package setup](docs/CHATGPT_PLUGIN_SETUP.md)
+
+Current practical readiness:
+
+- one-machine managed work: established;
+- two real execution machines with explicit project/task routing: established;
+- routed read, CAS mutation and durable jobs on the expected physical host: established;
+- node reconnect after gateway restart: established;
+- full 44-tool ChatGPT surface: established;
+- physical offline/no-failover and remaining restart/replay recovery gates: still pending.
+
+RemoteMCP can therefore be used for **supervised projects today**, but unattended multi-device production readiness is not yet formally closed.
+
 ## v2 direction
 
 See [docs/REMOTE_MCP_V2_PLAN.md](docs/REMOTE_MCP_V2_PLAN.md).
@@ -292,7 +315,7 @@ Legacy run_command/read_file/write_file remain gateway-local compatibility tools
 
 Qualification evidence:
 
-- V2-BD implementation tests: **30/30 PASS**;
+- current V2-BD regression suite: **35/35 PASS** (the original routing implementation qualification closed at 30/30);
 - V2-B regression: **24/24 PASS**;
 - V2-A regression: **28/28 PASS**;
 - V2-0 regression: **17/17 PASS**;
@@ -309,16 +332,29 @@ A physical-machine-2 check through legacy `run_command` returns the gateway host
 Current boundary:
 
 - **V2-BD as a whole is not yet PASS**;
-- production `127.0.0.1:8099` currently runs the V2-BD implementation release `395c4c3` and source-side `FastMCP.list_tools()` exposes all **44 tools**;
-- the real pilot has paired two distinct execution identities and sustained both ONLINE for more than two 60-second offline-TTL windows: `DESKTOP-4PSD0G2` and `DESKTOP-VKIC2RU`;
-- the consuming ChatGPT conversation that was opened before the V2-BD plugin refresh still holds a stale 32-tool schema snapshot, so no pilot project is bound until a fresh consumer surface exposes the 12 V2-BD tools;
-- no research project has been bound to a V2-BD execution device.
+- production currently runs release `721a691` with the full **44-tool** MCP surface;
+- the real two-machine pilot has two distinct execution identities: `DESKTOP-4PSD0G2` (`dev_6bba...`) and `DESKTOP-VKIC2RU` (`dev_a5f0...`);
+- both disposable pilot projects were registered on the intended device and tasks inherited immutable device placement;
+- routed marker reads returned `PHYSICAL_MACHINE_1_ONLY` and `PHYSICAL_MACHINE_2_ONLY` from the correct hosts;
+- routed CAS probes remained isolated to their intended machine;
+- routed durable jobs succeeded on both physical hosts and reported the expected `REMOTEMCP_DEVICE_ID`;
+- the node reconnect fix survived a real gateway restart on machine 1 without replacing its device identity;
+- the ChatGPT consumer surface has been verified to expose the V2-BD device tools;
+- remaining physical qualification is the explicit offline/no-failover, same-identity reconnect, durable-job restart/replay, stale-generation/signature and CAS recovery chain;
+- no real research project is part of the pilot evidence; only disposable pilot projects are bound.
+
+Operational readiness:
+
+- **supervised project use: available**;
+- **unattended multi-device production readiness: pending remaining physical failure/recovery gates**.
 
 Detailed evidence:
 
 - docs/V2_BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION.md
 - docs/V2_BD_TARGET_DEVICE_IDENTITY_OBSERVABILITY_AMENDMENT.md
 - docs/V2_BD_ONE_FILE_JOIN_UX.md
+- docs/USER_GUIDE.md
+- docs/CHATGPT_PLUGIN_SETUP.md
 - specs/v2bd_implementation_qualification_manifest.json
 
 Next authorized gate:
