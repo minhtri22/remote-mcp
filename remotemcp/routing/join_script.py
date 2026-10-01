@@ -45,6 +45,7 @@ $SourceUrl = {_ps_single(url)}
 
 $Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
 $Runtime = Join-Path $Base "runtime"
+$RuntimePointer = Join-Path $Base "active-runtime.txt"
 $Workspace = Join-Path $env:USERPROFILE "RemoteMCP-Workspace"
 $Source = Join-Path $Base "source"
 $Venv = Join-Path $Base "node-venv"
@@ -145,6 +146,8 @@ if (-not (Test-Path $DeviceJson)) {{
 }} else {{
     Write-Host "Existing RemoteMCP node identity found; keeping the existing device identity."
 }}
+
+[System.IO.File]::WriteAllText($RuntimePointer,$Runtime,[System.Text.UTF8Encoding]::new($false))
 
 & $NodePython -m remotemcp.node doctor --runtime-dir $Runtime
 if ($LASTEXITCODE -ne 0) {{ throw "RemoteMCP node doctor failed." }}
