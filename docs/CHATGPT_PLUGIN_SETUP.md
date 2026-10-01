@@ -57,7 +57,26 @@ The skill tells ChatGPT the important routing rule:
 - task-scoped tools perform routed work;
 - legacy `run_command`, `read_file`, and `write_file` are gateway-local compatibility tools and are not proof of multi-device routing.
 
-## 3. Verify the connector
+## 3. Operator slash commands
+
+The generated package now includes plugin command files under `commands/`.
+
+Supported staged commands:
+
+```text
+/status
+/restart <device>
+```
+
+`/status` is read-only and uses the RemoteMCP device tools.
+
+`/restart <device>` resolves the requested execution device, checks `active_routed_jobs`, and uses the staged `device_restart` tool. It will not guess a target when several devices exist and will not override active-job protection without explicit user confirmation.
+
+If a client does not expose a native slash-command picker, sending the same text as an ordinary prompt should follow the same command semantics through the packaged skill instructions.
+
+A full gateway timeout is different: if the MCP endpoint itself does not answer, no in-band plugin command can execute. Use the out-of-band recovery/watchdog documented in [GATEWAY_RECOVERY.md](GATEWAY_RECOVERY.md).
+
+## 4. Verify the connector
 
 For multi-device installs, ask ChatGPT:
 
@@ -84,7 +103,7 @@ task_job_result
 
 For a one-computer setup with no paired execution nodes, `device_list` may legitimately be empty.
 
-## 4. When the tool schema changes
+## 5. When the tool schema changes
 
 ChatGPT conversations can retain the connector schema that was loaded when the conversation started.
 
@@ -96,7 +115,7 @@ After a RemoteMCP release changes the public tool surface:
 
 Do not change the RemoteMCP gateway URL unless the deployment URL itself changed.
 
-## 5. Open-source / self-hosted rule
+## 6. Open-source / self-hosted rule
 
 The package builder never hard-codes a RemoteMCP-operated central domain.
 
@@ -111,7 +130,7 @@ RemoteMCP does not require:
 
 The only ChatGPT-facing endpoint is the user's own RemoteMCP MCP URL.
 
-## 6. Package builder options
+## 7. Package builder options
 
 ```text
 python scripts/build_chatgpt_plugin.py --help
