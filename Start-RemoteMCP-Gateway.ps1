@@ -46,14 +46,14 @@ if ($healthy -and -not $Restart) {
 }
 
 if ($listener) {
-    $pid = [int]$listener.OwningProcess
-    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction SilentlyContinue
+    $listenerPid = [int]$listener.OwningProcess
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$listenerPid" -ErrorAction SilentlyContinue
     if (-not $proc -or -not $proc.CommandLine -or $proc.CommandLine -notmatch "server\.py") {
-        throw "Port $port is owned by PID $pid, but it does not look like RemoteMCP server.py. Refusing to kill it."
+        throw "Port $port is owned by PID $listenerPid, but it does not look like RemoteMCP server.py. Refusing to kill it."
     }
-    if (-not $healthy) { Write-Host "RemoteMCP gateway is unresponsive; restarting PID $pid..." }
-    elseif ($Restart) { Write-Host "Restarting healthy RemoteMCP gateway PID $pid by request..." }
-    Stop-Process -Id $pid -Force
+    if (-not $healthy) { Write-Host "RemoteMCP gateway is unresponsive; restarting PID $listenerPid..." }
+    elseif ($Restart) { Write-Host "Restarting healthy RemoteMCP gateway PID $listenerPid by request..." }
+    Stop-Process -Id $listenerPid -Force
     $deadline = (Get-Date).AddSeconds(10)
     do {
         Start-Sleep -Milliseconds 200
