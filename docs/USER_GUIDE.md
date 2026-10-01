@@ -29,6 +29,38 @@ For simple compatibility work, the legacy tools (`read_file`, `write_file`, `run
 
 You do not need to pair the gateway machine as a node for a one-computer setup. Pair it only if you want to use the same explicit `dev_*` routing model that you will later use across several machines.
 
+### Start the node again after a reboot or manual stop
+
+From the RemoteMCP repository root on Windows:
+
+```powershell
+.\Start-RemoteMCP-Node.ps1
+```
+
+The script:
+
+- uses `%LOCALAPPDATA%\RemoteMCP\runtime` by default;
+- creates/reuses `%LOCALAPPDATA%\RemoteMCP\node-venv`;
+- ensures `httpx==0.28.1` and `cryptography==46.0.6` are installed;
+- detects an already-running node and avoids starting a duplicate;
+- starts the outbound node headlessly;
+- prints the persisted local device status;
+- never performs a new pairing.
+
+For an existing identity stored elsewhere:
+
+```powershell
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "C:\path\to\runtime"
+```
+
+To deliberately restart only that RemoteMCP node process:
+
+```powershell
+.\Start-RemoteMCP-Node.ps1 -Restart
+```
+
+Do not use `-Restart` while a workload requires uninterrupted node connectivity.
+
 ## 3. Multiple execution computers
 
 Recommended topology:
