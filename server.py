@@ -594,6 +594,18 @@ async def device_revoke(
 
 
 @mcp.tool()
+async def device_restart(
+    operation_id: str,
+    device_id: str,
+    reason: str = "user-requested",
+    allow_active_jobs: bool = False,
+) -> dict:
+    return await routing_service.device_restart(
+        operation_id, device_id, reason, allow_active_jobs
+    )
+
+
+@mcp.tool()
 async def project_register_on_device(
     operation_id: str,
     device_id: str,
