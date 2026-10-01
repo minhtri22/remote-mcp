@@ -10,6 +10,7 @@ class NodeExecutor:
     def __init__(self,config,journal,projects,worktrees,cas,jobs):
         self.config=config; self.journal=journal; self.projects=projects
         self.worktrees=worktrees; self.cas=cas; self.jobs=jobs
+        self.restart_requested=False
 
     def _task_root(self,task_id:str)->Path:
         return self.worktrees.execution_root(task_id).resolve()
@@ -81,6 +82,9 @@ class NodeExecutor:
             elif t=="JOB_RESULT": result=self.jobs.result(str(p["proxy_job_id"]))
             elif t=="JOB_CANCEL": result=await self.jobs.cancel(str(p["proxy_job_id"]),envelope["command_id"])
             elif t=="TASK_WORKTREE_CLEANUP": result={"task_id":str(p["task_id"]),"deferred":True}
+            elif t=="NODE_RESTART":
+                self.restart_requested=True
+                result={"device_id":self.jobs.device_id,"restart_requested":True}
             else: raise DurableError("INVALID_ARGUMENT","unsupported node command",command_type=t)
             return self.journal.response(self.journal.terminal(envelope["command_id"],"SUCCEEDED",result=result))
         except DurableError as exc:
