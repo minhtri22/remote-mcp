@@ -63,7 +63,7 @@ Current practical readiness:
 - full 44-tool ChatGPT surface: established;
 - physical offline/no-failover and remaining restart/replay recovery gates: still pending.
 
-RemoteMCP can therefore be used for **supervised projects today**, but unattended multi-device production readiness is not yet formally closed.
+The routing capability is ready for **supervised project deployments**, but the two current physical pilot identities remain pilot-only and must not be rebound to real research projects before the pilot is formally closed. Unattended multi-device production readiness is not yet formally closed.
 
 ## v2 direction
 
@@ -345,7 +345,8 @@ Current boundary:
 
 Operational readiness:
 
-- **supervised project use: available**;
+- **supervised project deployments: capability available**;
+- **current two-machine pilot identities/roots: pilot-only; do not bind real research projects yet**;
 - **unattended multi-device production readiness: pending remaining physical failure/recovery gates**.
 
 Detailed evidence:
