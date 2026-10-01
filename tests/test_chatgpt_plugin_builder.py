@@ -32,6 +32,8 @@ def test_build_archive_uses_self_hosted_url(tmp_path):
             "mcp.json",
             "plugin.json",
             "skills/remote-mcp/SKILL.md",
+            "commands/status.md",
+            "commands/restart.md",
         } <= names
         mcp=json.loads(z.read(".mcp.json"))
         assert mcp["mcpServers"]["remote"]["url"]=="https://example.com/mcp"
@@ -40,4 +42,10 @@ def test_build_archive_uses_self_hosted_url(tmp_path):
         skill=z.read("skills/remote-mcp/SKILL.md").decode()
         assert "project_register_on_device" in skill
         assert "gateway-local compatibility tools" in skill
+        assert "/restart <device>" in skill
+        restart=z.read("commands/restart.md").decode()
+        status=z.read("commands/status.md").decode()
+        assert "device_restart" in restart
+        assert "active_routed_jobs" in restart
+        assert "device_list" in status
         assert "remote.threadon.xyz" not in skill
