@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 import httpx
 
@@ -69,6 +72,30 @@ class NodeService:
         except asyncio.TimeoutError:
             pass
 
+    def _schedule_self_restart(self):
+        source_root=Path(__file__).resolve().parents[2]
+        runtime=str(self.config.runtime_dir)
+        helper=(
+            "import subprocess,sys,time;"
+            "time.sleep(1.5);"
+            "flags=(getattr(subprocess,'CREATE_NO_WINDOW',0)|"
+            "getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0)) if sys.platform.startswith('win') else 0;"
+            "subprocess.Popen([sys.argv[1],'-m','remotemcp.node','run','--runtime-dir',sys.argv[3]],"
+            "cwd=sys.argv[2],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,"
+            "creationflags=flags)"
+        )
+        flags=0
+        if os.name=="nt":
+            flags=getattr(subprocess,"CREATE_NO_WINDOW",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)
+        subprocess.Popen(
+            [sys.executable,"-c",helper,sys.executable,str(source_root),runtime],
+            cwd=str(source_root),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+
     async def run_forever(self):
         if not self.identity.paired:
             raise RuntimeError("node must be paired before run")
@@ -91,6 +118,10 @@ class NodeService:
                     if envelope is not None:
                         result=await self.executor.execute(envelope)
                         await self.client.result(envelope["command_id"],result)
+                        if self.executor.restart_requested:
+                            self._schedule_self_restart()
+                            self._stop.set()
+                            continue
                     backoff=self.RECONNECT_INITIAL_SECONDS
                 except asyncio.CancelledError:
                     raise
