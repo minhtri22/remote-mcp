@@ -341,6 +341,7 @@ Current boundary:
 - the node reconnect fix survived a real gateway restart on machine 1 without replacing its device identity;
 - the ChatGPT consumer surface has been verified to expose the V2-BD device tools;
 - remaining physical qualification is the explicit offline/no-failover, same-identity reconnect, durable-job restart/replay, stale-generation/signature and CAS recovery chain;
+- those disruptive failure/recovery gates are currently under an **operational hold** because an active SIX experiment requires uninterrupted two-machine connectivity; machine 2 was observed ONLINE with active routed work when the hold was entered;
 - no real research project is part of the pilot evidence; only disposable pilot projects are bound.
 
 Operational readiness:
@@ -354,12 +355,19 @@ Detailed evidence:
 - docs/V2_BD_ROUTING_IMPLEMENTATION_AND_ZERO_SCIENCE_QUALIFICATION.md
 - docs/V2_BD_TARGET_DEVICE_IDENTITY_OBSERVABILITY_AMENDMENT.md
 - docs/V2_BD_ONE_FILE_JOIN_UX.md
+- docs/V2_BD_FAILURE_RECOVERY_OPERATIONAL_HOLD.md
 - docs/USER_GUIDE.md
 - docs/CHATGPT_PLUGIN_SETUP.md
 - specs/v2bd_implementation_qualification_manifest.json
 
-Next authorized gate:
+Current operational gate:
 
-REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTION
+`V2BD_FAILURE_RECOVERY_GATES_OPERATIONAL_HOLD_DUE_TO_ACTIVE_SIX_TWO_MACHINE_EXPERIMENT`
 
-The pilot must use isolated disposable roots on both physical machines and prove distinct dev_* identities, distinct physical host identity/marker evidence, project/task binding, routed-job execution on the expected host, offline/reconnect behavior, and no cross-route execution before V2-BD can be closed.
+While this hold is active, both primary nodes must remain ONLINE. Do not stop/restart/revoke machine 2 or open any qualification gate that intentionally interrupts its RemoteMCP connectivity. This hold is neither PASS nor FAIL for the deferred failure/recovery gates.
+
+Release condition: SIX explicitly no longer requires uninterrupted two-machine connectivity, or an explicit maintenance window is granted.
+
+After hold release, the next qualification gate is:
+
+`NODE_2_OFFLINE_NO_FAILOVER_AND_SAME_IDENTITY_RECONNECT_GATE`
