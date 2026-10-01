@@ -54,6 +54,30 @@ V2-BD routed multi-device tools:
 - [User guide — one machine, multiple machines, multiple projects](docs/USER_GUIDE.md)
 - [ChatGPT private-plugin package setup](docs/CHATGPT_PLUGIN_SETUP.md)
 
+### Start or restart an execution node on Windows
+
+The repository root includes `Start-RemoteMCP-Node.ps1`. Users should use this script instead of reconstructing the Python/venv command manually.
+
+Normal production node:
+
+```powershell
+.\Start-RemoteMCP-Node.ps1
+```
+
+Restart the same node identity:
+
+```powershell
+.\Start-RemoteMCP-Node.ps1 -Restart
+```
+
+Use an existing non-default runtime identity:
+
+```powershell
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "C:\path\to\existing\runtime"
+```
+
+The script reuses the existing device runtime/key, creates or reuses the dedicated RemoteMCP virtual environment, ensures the pinned node dependencies are available, avoids duplicate node processes, starts the node headlessly, and prints local node status. It does **not** pair a new device.
+
 Current practical readiness:
 
 - one-machine managed work: established;
