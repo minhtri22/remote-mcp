@@ -53,6 +53,7 @@ V2-BD routed multi-device tools:
 
 - [User guide — one machine, multiple machines, multiple projects](docs/USER_GUIDE.md)
 - [ChatGPT private-plugin package setup](docs/CHATGPT_PLUGIN_SETUP.md)
+- [Gateway timeout recovery and watchdog](docs/GATEWAY_RECOVERY.md)
 
 ### Start or restart an execution node on Windows
 
@@ -383,6 +384,17 @@ Detailed evidence:
 - docs/USER_GUIDE.md
 - docs/CHATGPT_PLUGIN_SETUP.md
 - specs/v2bd_implementation_qualification_manifest.json
+
+### Staged operator/recovery UX (source-next, not yet deployed)
+
+The current `main` branch additionally stages:
+
+- root `Start-RemoteMCP-Node.ps1` runtime discovery that reuses an existing paired identity and refuses to invent a new runtime identity;
+- routed `device_restart` with active-job protection;
+- ChatGPT plugin command files for `/status` and `/restart <device>`;
+- out-of-band gateway recovery scripts and a local watchdog for full MCP endpoint timeouts.
+
+These changes are **source-staged only** while the active SIX two-machine experiment holds disruptive production deployment. Current production remains on the previously deployed 44-tool surface until a safe deployment window is explicitly opened.
 
 Current operational gate:
 
