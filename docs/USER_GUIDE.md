@@ -169,9 +169,27 @@ As of the current V2-BD pilot:
 | Full physical restart/replay/CAS recovery chain | Pending |
 | Unattended production-readiness verdict | Pending |
 
-This means RemoteMCP can already be used for **supervised projects**. Keep important workloads supervised until the remaining physical failure/recovery gates are formally closed.
+This means the RemoteMCP routing capability can already support **supervised project deployments**. However, the two execution identities used by the current physical qualification remain pilot-only and must stay isolated from real research projects until the pilot is formally closed. Keep important workloads supervised until the remaining physical failure/recovery gates are closed.
 
-## 8. Recommended ChatGPT operating sequence
+## 8. Pilot identities versus production project roots
+
+The current physical V2-BD qualification uses disposable roots under:
+
+```text
+%USERPROFILE%\RemoteMCP-V2BD-Pilot\workspace
+```
+
+Those identities are evidence fixtures, not production project hosts. Do not bind real research repositories into those pilot roots before qualification closes.
+
+For a real deployment, choose a node root that contains the projects that node is allowed to execute. The generated one-file join flow currently defaults to:
+
+```text
+%USERPROFILE%\RemoteMCP-Workspace
+```
+
+Projects must live under the configured node root. If existing repositories live elsewhere, either place/clone them under the production node root or use an explicit production pairing configuration with the desired `--root`.
+
+## 9. Recommended ChatGPT operating sequence
 
 For multi-device work, the assistant should follow this order:
 
@@ -193,7 +211,7 @@ task-scoped read / CAS / job tools
 
 For a new project, tell ChatGPT which machine should own it. After that, the task binding should be treated as authoritative.
 
-## 9. Security notes
+## 10. Security notes
 
 - Do not commit OAuth state, pairing secrets, node private keys, or runtime databases.
 - Pairing credentials are short-lived and single-use.
@@ -202,6 +220,6 @@ For a new project, tell ChatGPT which machine should own it. After that, the tas
 - A project/task binding is not a load-balancing hint; it is an execution-placement invariant.
 - Revocation and route-generation errors fail closed.
 
-## 10. ChatGPT plugin setup
+## 11. ChatGPT plugin setup
 
 See [CHATGPT_PLUGIN_SETUP.md](CHATGPT_PLUGIN_SETUP.md) for the generated private-plugin package and schema-refresh guidance.
