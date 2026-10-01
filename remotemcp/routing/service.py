@@ -190,16 +190,62 @@ class RoutingService:
         op,created=self._reserve(operation_id,"DEVICE_REVOKE",{"device_id":device_id,"reason":reason})
         replay=self._operation_replay(op)
         if replay is not None:
-            replay=self._with_routing(
-                replay,binding["device_id"],project_id=task["project_id"],task_id=task_id,
-                binding_generation=int(binding["binding_generation"]),
-            )
+            replay=self._with_routing(replay,device_id)
             return {**replay,"replayed":True}
         if created:self.durable.operations.mark_executing(operation_id)
         row=self.devices.revoke(device_id,reason)
-        result=self.devices.status(row["device_id"])
+        result=self._with_routing(self.devices.status(row["device_id"]),device_id)
         self.durable.operations.succeed(operation_id,result)
         return result
+
+    async def device_restart(
+        self,
+        operation_id:str,
+        device_id:str,
+        reason:str="user-requested",
+        allow_active_jobs:bool=False,
+    )->dict:
+        status=self.devices.status(device_id)
+        if status["state"]!="ONLINE":
+            raise DurableError("DEVICE_OFFLINE","device is offline")
+        active_jobs=int(status.get("active_routed_jobs",0))
+        if active_jobs>0 and not bool(allow_active_jobs):
+            raise DurableError(
+                "DEVICE_BUSY",
+                "device has active routed jobs; restart requires explicit allow_active_jobs=true",
+                device_id=device_id,
+                active_routed_jobs=active_jobs,
+            )
+        args={
+            "device_id":device_id,
+            "reason":reason,
+            "allow_active_jobs":bool(allow_active_jobs),
+        }
+        op,created=self._reserve(operation_id,"DEVICE_RESTART",args)
+        replay=self._operation_replay(op)
+        if replay is not None:
+            replay=self._with_routing(replay,device_id)
+            return {**replay,"replayed":True}
+        if created:self.durable.operations.mark_executing(operation_id)
+        try:
+            result,_=await self._route_step(
+                device_id,
+                "NODE_RESTART",
+                {"reason":reason},
+                operation_id=operation_id,
+                operation_step=0,
+            )
+            result={
+                **result,
+                "active_routed_jobs_at_request":active_jobs,
+                "same_identity_expected":True,
+            }
+            result=self._with_routing(result,device_id)
+            self.durable.operations.succeed(operation_id,result)
+            return result
+        except Exception as exc:
+            self._fail_final(operation_id,exc)
+            raise
 
     # ---- project routing ----
 
