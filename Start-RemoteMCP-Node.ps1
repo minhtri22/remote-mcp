@@ -1,5 +1,5 @@
 param(
-    [string]$RuntimeDir = (Join-Path $env:LOCALAPPDATA "RemoteMCP\runtime"),
+    [string]$RuntimeDir = "",
     [string]$SourceDir = $PSScriptRoot,
     [string]$VenvDir = (Join-Path $env:LOCALAPPDATA "RemoteMCP\node-venv"),
     [switch]$Restart
@@ -7,6 +7,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+
+$Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
+$RuntimePointer = Join-Path $Base "active-runtime.txt"
 
 function Find-RemoteMCPPython {
     $candidates = @()
@@ -33,6 +36,59 @@ function Find-RemoteMCPPython {
     return $null
 }
 
+function Test-RemoteMCPPairedRuntime {
+    param([string]$Path)
+    if (-not $Path) { return $false }
+    return (
+        (Test-Path (Join-Path $Path "device.json")) -and
+        (Test-Path (Join-Path $Path "device-ed25519.pem"))
+    )
+}
+
+function Resolve-RemoteMCPRuntime {
+    param([string]$Requested)
+
+    if ($Requested) {
+        if (-not (Test-RemoteMCPPairedRuntime -Path $Requested)) {
+            throw "The requested runtime does not contain a paired RemoteMCP device identity: $Requested"
+        }
+        return (Resolve-Path $Requested).Path
+    }
+
+    $candidates = @()
+
+    if (Test-Path $RuntimePointer) {
+        try {
+            $remembered = (Get-Content $RuntimePointer -Raw).Trim()
+            if (Test-RemoteMCPPairedRuntime -Path $remembered) {
+                $candidates += (Resolve-Path $remembered).Path
+            }
+        } catch {}
+    }
+
+    $defaultRuntime = Join-Path $Base "runtime"
+    if (Test-RemoteMCPPairedRuntime -Path $defaultRuntime) {
+        $candidates += (Resolve-Path $defaultRuntime).Path
+    }
+
+    foreach ($parent in @(Get-ChildItem $env:USERPROFILE -Directory -Filter "RemoteMCP*" -ErrorAction SilentlyContinue)) {
+        $candidate = Join-Path $parent.FullName "runtime"
+        if (Test-RemoteMCPPairedRuntime -Path $candidate) {
+            $candidates += (Resolve-Path $candidate).Path
+        }
+    }
+
+    $candidates = @($candidates | Select-Object -Unique)
+    if ($candidates.Count -eq 1) { return $candidates[0] }
+
+    if ($candidates.Count -eq 0) {
+        throw "No paired RemoteMCP runtime identity was found. Run the one-time join/pair flow first. This starter never creates a new device identity."
+    }
+
+    $choices = ($candidates | ForEach-Object { "  - $_" }) -join [Environment]::NewLine
+    throw "Multiple paired RemoteMCP runtimes were found. Re-run with -RuntimeDir and choose exactly one:`n$choices"
+}
+
 function Get-RemoteMCPNodeProcess {
     param([string]$Runtime)
     $escaped = [Regex]::Escape($Runtime)
@@ -49,7 +105,10 @@ if (-not (Test-Path (Join-Path $SourceDir "remotemcp\node\__main__.py"))) {
     throw "RemoteMCP source not found under: $SourceDir"
 }
 
-New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null
+New-Item -ItemType Directory -Force -Path $Base | Out-Null
+$RuntimeDir = Resolve-RemoteMCPRuntime -Requested $RuntimeDir
+[System.IO.File]::WriteAllText($RuntimePointer,$RuntimeDir,[System.Text.UTF8Encoding]::new($false))
+
 New-Item -ItemType Directory -Force -Path (Split-Path $VenvDir -Parent) | Out-Null
 
 $BootstrapPython = Find-RemoteMCPPython
@@ -86,10 +145,8 @@ if ($Restart -and $existing.Count -gt 0) {
 }
 
 if ($existing.Count -eq 0) {
-    $logDir = Join-Path $env:LOCALAPPDATA "RemoteMCP"
-    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-    $logFile = Join-Path $logDir "node.log"
-    $errFile = Join-Path $logDir "node-error.log"
+    $logFile = Join-Path $Base "node.log"
+    $errFile = Join-Path $Base "node-error.log"
     Write-Host "Starting RemoteMCP node..."
     Start-Process -FilePath $NodePython -ArgumentList @("-m","remotemcp.node","run","--runtime-dir",$RuntimeDir) -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile | Out-Null
     Start-Sleep -Seconds 2
