@@ -1,13 +1,13 @@
 # RemoteMCP v2 — Durable Multi-Agent Runtime Implementation Plan
 
 Status: ACTIVE
-Current gate: REMOTE_MCP_V2BD_REAL_TWO_EXECUTION_MACHINE_ISOLATED_PILOT_EXECUTION
+Current gate: V2BD_FAILURE_RECOVERY_GATES_OPERATIONAL_HOLD_DUE_TO_ACTIVE_SIX_TWO_MACHINE_EXPERIMENT
 V2-0 status: PASS (2026-09-30)
 V2-A status: PASS (2026-09-30)
 V2-B status: PASS (2026-09-30)
-V2-BD implementation status: PASS / real two-machine pilot in progress (2026-10-01)
-V2-BD operator UX: one-file Windows join implemented and regression-qualified; no routing semantics changed
-Consumer surface: source/OAuth exposes 44 tools; stale 32-tool ChatGPT connector snapshot must be replaced/refreshed before project binding
+V2-BD implementation status: PASS / positive real two-machine routing pilot PASS / disruptive failure-recovery gates ON HOLD (2026-10-01)
+V2-BD operator UX: one-file/one-line Windows join implemented and regression-qualified; no routing semantics changed
+Consumer surface: ChatGPT has verified the full 44-tool V2-BD surface
 Repository: minhtri22/remote-mcp
 Local source: D:\WORK\RESEARCH\RemoteMCP-src
 
@@ -597,6 +597,16 @@ Exit gate:
 - resumed agent receives deterministic task state.
 
 ### V2-BD — Multi-device execution routing
+
+Operational hold (2026-10-01):
+
+- `V2BD_FAILURE_RECOVERY_GATES_OPERATIONAL_HOLD_DUE_TO_ACTIVE_SIX_TWO_MACHINE_EXPERIMENT` is ACTIVE.
+- Reason: an active SIX experiment requires uninterrupted two-machine connectivity.
+- Both primary RemoteMCP nodes must remain ONLINE during the hold.
+- Do not stop/restart/revoke machine 2 or intentionally interrupt its network/node connectivity for RemoteMCP qualification.
+- The deferred offline/no-failover/reconnect/restart/replay/CAS/revoke gates remain PENDING, not failed.
+- Release only when SIX no longer needs uninterrupted two-machine connectivity or an explicit maintenance window is granted.
+- Hold record: `docs/V2_BD_FAILURE_RECOVERY_OPERATIONAL_HOLD.md`.
 
 BD1. stable device_id per RemoteMCP installation.
 BD2. device pairing/registration under one owner account.
