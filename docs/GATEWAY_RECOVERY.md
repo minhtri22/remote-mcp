@@ -89,6 +89,29 @@ This checks:
 
 A listener alone is not considered healthy.
 
+## Triage: local gateway vs public tunnel vs ChatGPT connector
+
+Run local health first:
+
+```powershell
+.\Test-RemoteMCP-Gateway.ps1
+```
+
+Then, if local health is true, probe the public metadata URL:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing -Uri "$env:PUBLIC_URL/.well-known/oauth-authorization-server" -TimeoutSec 10
+```
+
+Interpretation:
+
+| Local metadata | Public metadata | ChatGPT tools | Likely layer | Action |
+| --- | --- | --- | --- | --- |
+| fail | fail/timeout | timeout | gateway process/runtime | out-of-band gateway recovery |
+| pass | fail/timeout | timeout | tunnel / DNS / edge | repair tunnel/edge; do not restart a healthy gateway repeatedly |
+| pass | pass | timeout | connector/OAuth/client path | refresh/reconnect plugin; do not pair devices or duplicate projects |
+| pass | pass | pass | healthy | no recovery action |
+
 ## Manual recovery
 
 Start if stopped, or recover if the listener is unhealthy:
