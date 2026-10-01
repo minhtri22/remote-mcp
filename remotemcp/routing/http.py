@@ -48,6 +48,21 @@ async def _body(request:Request,max_bytes:int)->tuple[bytes,dict]:
 
 
 def register_device_routes(mcp,service):
+    @mcp.custom_route("/device/v1/join/{pairing_id}/{ticket}",methods=["GET"])
+    async def join_script(request:Request):
+        try:
+            script=service.pairing.join_script(
+                request.path_params["pairing_id"],
+                request.path_params["ticket"],
+            )
+            return Response(
+                script,
+                media_type="text/plain; charset=utf-8",
+                headers={"Cache-Control":"no-store"},
+            )
+        except Exception as exc:
+            return _error(exc)
+
     @mcp.custom_route("/device/v1/pair",methods=["POST"])
     async def pair(request:Request):
         try:

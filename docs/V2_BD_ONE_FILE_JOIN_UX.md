@@ -13,18 +13,16 @@ A user adding a second Windows execution machine should not have to manually:
 - start the node with a separate command;
 - configure auto-start.
 
-The owner/gateway creates one short-lived, single-use artifact:
-
-`RemoteMCP-Join.ps1`
-
-The joining machine runs only that file.
+The owner/gateway can create either a short-lived, single-use artifact `RemoteMCP-Join.ps1` or, preferably, a short-lived one-line HTTPS join command. The one-line path avoids dependence on chat/file-download transport entirely.
 
 ## Gateway behavior
 
 `device_pair_begin(operation_id, device_name)` keeps the existing manual fields for compatibility and additionally returns:
 
 - `join_script_filename = RemoteMCP-Join.ps1`;
-- `join_script_powershell` containing an instance-bound one-file bootstrap.
+- `join_script_powershell` containing an instance-bound one-file bootstrap;
+- `join_url`, an opaque-ticket HTTPS endpoint that serves the same bootstrap only while the pairing is unused and unexpired;
+- `join_command`, a one-line PowerShell command (`irm <join_url> | iex`).
 
 The script embeds the same single-use pairing bundle already authorized by `device_pair_begin`. No new enrollment authority or bypass is introduced.
 

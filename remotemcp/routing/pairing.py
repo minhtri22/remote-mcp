@@ -47,6 +47,31 @@ class PairingService:
         mac=hmac.new(self.key,msg,hashlib.sha256).digest()
         return f"pc1_{nonce}_{b64u(mac)}"
 
+    def _join_ticket(self,row)->str:
+        msg=(
+            f"RMCPJOIN1|{row['pairing_id']}|{self.owner_account_id}|"
+            f"{row['requested_name']}|{row['code_nonce']}"
+        ).encode("utf-8")
+        return b64u(hmac.new(self.key,msg,hashlib.sha256).digest())
+
+    def join_script(self,pairing_id:str,ticket:str)->str:
+        row=self.db.query_one("SELECT * FROM device_pairings WHERE pairing_id=?",(pairing_id,))
+        if row is None or row["owner_account_id"]!=self.owner_account_id:
+            raise DurableError("DEVICE_PAIRING_INVALID","unknown pairing")
+        if row["used_at_ms"] is not None:
+            raise DurableError("DEVICE_PAIRING_INVALID","pairing already used")
+        if int(row["expires_at_ms"])<=now_ms():
+            raise DurableError("DEVICE_PAIRING_EXPIRED","pairing expired")
+        if not hmac.compare_digest(str(ticket),self._join_ticket(row)):
+            raise DurableError("DEVICE_PAIRING_INVALID","invalid join ticket")
+        code=self._code(row["pairing_id"],row["requested_name"],row["code_nonce"])
+        bundle=f"{row['pairing_id']}|{code}"
+        return render_windows_join_script(
+            public_origin=self.config.public_origin,
+            device_name=row["requested_name"],
+            pairing_bundle=bundle,
+        )
+
     def _response(self,row,*,include_code:bool)->dict:
         out={
             "pairing_id":row["pairing_id"],"expires_at_ms":int(row["expires_at_ms"]),
@@ -67,6 +92,16 @@ class PairingService:
                 public_origin=self.config.public_origin,
                 device_name=row["requested_name"],
                 pairing_bundle=bundle,
+            )
+            ticket=self._join_ticket(row)
+            join_url=(
+                f"{self.config.public_origin}/device/v1/join/"
+                f"{row['pairing_id']}/{ticket}"
+            )
+            out["join_url"]=join_url
+            out["join_command"]=(
+                "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+                f"\"irm '{join_url}' | iex\""
             )
         else:
             out["paired_device_id"]=row["paired_device_id"]
