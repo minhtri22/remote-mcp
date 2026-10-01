@@ -17,6 +17,7 @@ def test_windows_join_script_is_single_file_and_instance_bound():
     assert "httpx==0.28.1" in script
     assert "cryptography==46.0.6" in script
     assert "RemoteMCP-Node.vbs" in script
+    assert "active-runtime.txt" in script
     assert "-WindowStyle Hidden" in script
     assert "remote.threadon.xyz" not in script
 
