@@ -271,7 +271,8 @@ Delivered:
 - Windows headless child-process execution so RemoteMCP workers/jobs do not open console windows or steal focus;
 - target-device identity observability: device status and device-bound project/task/read/CAS/job results expose routing.device_id, device name, hostname and device state;
 - additive Windows join UX: `device_pair_begin` emits both an instance-bound `RemoteMCP-Join.ps1` and a one-line HTTPS `join_command`; both bootstrap dependencies/source, consume the single-use pairing bundle without manual `pairing_id`, start the outbound node headlessly and install per-user auto-start;
-- node transport now survives transient gateway/network interruptions with bounded reconnect backoff instead of exiting; terminal revoke/signature/route-generation failures still fail closed.
+- node transport now survives transient gateway/network interruptions with bounded reconnect backoff instead of exiting; terminal revoke/signature/route-generation failures still fail closed;
+- the self-hosted gateway serves `/device/v1/node-bundle.zip`, so normal node join/update no longer depends on GitHub availability.
 
 Routing rule:
 

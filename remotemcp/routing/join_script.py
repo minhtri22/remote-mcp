@@ -3,9 +3,6 @@ from __future__ import annotations
 import os
 
 
-DEFAULT_SOURCE_URL = "https://github.com/minhtri22/remote-mcp/archive/refs/heads/main.zip"
-
-
 def _ps_single(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
@@ -30,7 +27,11 @@ def render_windows_join_script(
     never leaves that machine.
     """
     origin = public_origin.rstrip("/")
-    url = source_url or os.environ.get("REMOTEMCP_NODE_SOURCE_URL") or DEFAULT_SOURCE_URL
+    url = (
+        source_url
+        or os.environ.get("REMOTEMCP_NODE_SOURCE_URL")
+        or f"{origin}/device/v1/node-bundle.zip"
+    )
 
     return f"""# RemoteMCP one-file node join
 # Generated for one device. Treat this file as sensitive until first successful run.
@@ -113,12 +114,18 @@ if (-not $LocalSource) {{
     Remove-Item $Source -Recurse -Force -ErrorAction SilentlyContinue
     Invoke-WebRequest -UseBasicParsing -Uri $SourceUrl -OutFile $Zip
     Expand-Archive -Path $Zip -DestinationPath $Extract -Force
-    $root = Get-ChildItem -Path $Extract -Directory | Select-Object -First 1
-    if (-not $root -or -not (Test-Path (Join-Path $root.FullName "remotemcp/node/__main__.py"))) {{
-        throw "Downloaded RemoteMCP source archive is invalid."
+    if (Test-Path (Join-Path $Extract "remotemcp/node/__main__.py")) {{
+        Move-Item -Path $Extract -Destination $Source
+    }} else {{
+        $root = Get-ChildItem -Path $Extract -Directory | Where-Object {{
+            Test-Path (Join-Path $_.FullName "remotemcp/node/__main__.py")
+        }} | Select-Object -First 1
+        if (-not $root) {{
+            throw "Downloaded RemoteMCP source archive is invalid."
+        }}
+        Move-Item -Path $root.FullName -Destination $Source
+        Remove-Item $Extract -Recurse -Force -ErrorAction SilentlyContinue
     }}
-    Move-Item -Path $root.FullName -Destination $Source
-    Remove-Item $Extract -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item $Zip -Force -ErrorAction SilentlyContinue
     $LocalSource = $Source
 }}

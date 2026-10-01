@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from .node_bundle import build_node_bundle
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -48,6 +49,17 @@ async def _body(request:Request,max_bytes:int)->tuple[bytes,dict]:
 
 
 def register_device_routes(mcp,service):
+    @mcp.custom_route("/device/v1/node-bundle.zip",methods=["GET"])
+    async def node_bundle(_request:Request):
+        try:
+            return Response(
+                build_node_bundle(),
+                media_type="application/zip",
+                headers={"Cache-Control":"no-store","Content-Disposition":"attachment; filename=remotemcp-node.zip"},
+            )
+        except Exception as exc:
+            return _error(exc)
+
     @mcp.custom_route("/device/v1/join/{pairing_id}/{ticket}",methods=["GET"])
     async def join_script(request:Request):
         try:

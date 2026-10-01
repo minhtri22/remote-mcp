@@ -17,6 +17,10 @@ def test_pair_custom_route_without_oauth(make_gateway,tmp_path):
         register_device_routes(m,b.routing)
         tr=httpx.ASGITransport(app=m.streamable_http_app())
         async with httpx.AsyncClient(transport=tr,base_url="http://test") as c:
+            bundle=await c.get("/device/v1/node-bundle.zip")
+            assert bundle.status_code==200,bundle.text
+            assert bundle.content.startswith(b"PK")
+            assert bundle.headers["cache-control"]=="no-store"
             join=await c.get(p["join_url"].replace("http://127.0.0.1:9999",""))
             assert join.status_code==200,join.text
             assert "$DeviceName = 'http-node'" in join.text

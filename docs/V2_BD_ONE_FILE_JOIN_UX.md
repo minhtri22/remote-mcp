@@ -35,7 +35,7 @@ The generated PowerShell script:
 1. finds Python 3.11+ or installs Python 3.12 through `winget` when available;
 2. creates an isolated node virtual environment under `%LOCALAPPDATA%\RemoteMCP`;
 3. installs the pinned node dependencies `httpx==0.28.1` and `cryptography==46.0.6`;
-4. uses a local RemoteMCP source tree when the script is run from one, otherwise downloads the configured public source archive;
+4. uses a local RemoteMCP source tree when the script is run from one, otherwise downloads the node runtime bundle directly from that user's own gateway at `/device/v1/node-bundle.zip`; no GitHub availability is required for normal join/update;
 5. creates the user's RemoteMCP workspace and node runtime directories;
 6. writes the embedded `pairing_id|pairing_code` only to a temporary local file;
 7. calls `python -m remotemcp.node pair` **without a manual `--pairing-id` argument**;
@@ -68,4 +68,4 @@ The gateway URL is taken from that installation's `PUBLIC_URL`.
 
 ## Current packaging boundary
 
-The script can bootstrap from the public source archive. A future packaged `RemoteMCPNode.exe` can replace the Python/source bootstrap without changing the pairing/routing protocol.
+The gateway serves its own node source bundle, so a joining machine needs network access only to that self-hosted gateway plus the Python package index for the two pinned Python dependencies. A future packaged `RemoteMCPNode.exe` can remove even those Python dependency installs without changing the pairing/routing protocol.
