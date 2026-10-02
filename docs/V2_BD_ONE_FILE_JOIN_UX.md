@@ -26,7 +26,7 @@ The owner/gateway can create either a short-lived, single-use artifact `RemoteMC
 
 The script embeds the same single-use pairing bundle already authorized by `device_pair_begin`. No new enrollment authority or bypass is introduced.
 
-The script is instance-bound through the gateway's configured `PUBLIC_URL`. The RemoteMCP source does not require `remote.threadon.xyz`; that domain is only one private deployment.
+The script is instance-bound through the gateway's configured `PUBLIC_URL`. The RemoteMCP source does not require `mcp.example.com`; that domain is only one private deployment.
 
 ## Join-machine behavior
 
