@@ -1,7 +1,7 @@
 import os
 os.environ.setdefault("SystemRoot",r"C:\Windows")
 os.environ.setdefault("WINDIR",r"C:\Windows")
-os.environ.setdefault("USERPROFILE",r"C:\Users\minht")
+os.environ.setdefault("USERPROFILE",os.path.expanduser("~"))
 
 import asyncio,json,subprocess,sys,tempfile
 from pathlib import Path
