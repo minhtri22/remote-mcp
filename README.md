@@ -125,7 +125,11 @@ This allows llama/Ollama/evaluation jobs to continue through browser disconnects
 
 ## Security
 
-Do not commit passwords, OAuth state files, tokens, job environment secrets, or generated worktrees/logs.
+Do not commit passwords, OAuth state files, tokens, job environment secrets, generated worktrees/logs, private deployment hostnames, physical machine names, device/session identifiers, or machine-specific filesystem paths.
+
+Private deployment metadata belongs in the local gitignored `.env` file. Copy `.env.example` and set values such as `PUBLIC_URL`, `MCP_ROOT`, `MCP_STATE`, `MCP_RUNTIME_DIR`, and optional qualification host/path variables there. `OWNER_PASSWORD` must not be stored in `.env`; the Windows gateway configurator stores it separately with DPAPI.
+
+Public docs/specs use placeholders such as `https://mcp.example.com`, `MACHINE_A_HOST`, and `<PRIVATE_STATE_ROOT>`.
 
 This project is intended for a bounded local workspace exposed through an authenticated tunnel.
 
