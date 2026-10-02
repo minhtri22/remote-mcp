@@ -255,3 +255,57 @@ For a new project, tell ChatGPT which machine should own it. After that, the tas
 ## 11. ChatGPT plugin setup
 
 See [CHATGPT_PLUGIN_SETUP.md](CHATGPT_PLUGIN_SETUP.md) for the generated private-plugin package and schema-refresh guidance.
+
+
+## Operator commands in ChatGPT
+
+The staged ChatGPT plugin package includes operator command files:
+
+```text
+/status
+/restart <device>
+```
+
+### `/status`
+
+Read-only. It inspects gateway-visible execution devices using `device_list` and `device_status`, then reports device state, hostname, route generation, project count, active commands, and active routed jobs.
+
+### `/restart <device>`
+
+Restarts exactly one execution node through the routed `device_restart` control operation.
+
+Safety rules:
+
+- when more than one device exists, the command must resolve an explicit device id, device name, or hostname; it must not guess;
+- if the target has active routed jobs, restart is blocked unless the user explicitly confirms interruption;
+- after restart, the same `device_id`, key fingerprint, and route generation must return;
+- pairing a replacement device is not a restart fallback.
+
+Example:
+
+```text
+/restart physical-machine-1
+```
+
+The command is **in-band**: it works only while the RemoteMCP gateway/MCP endpoint itself is responding.
+
+### What if the entire RemoteMCP endpoint is timing out?
+
+Do not try to repair a dead gateway through `/restart`. If unrelated MCP tools such as `device_list`, `project_status`, and `list_dir` all time out, use the out-of-band gateway recovery path on the gateway host:
+
+```powershell
+.\Test-RemoteMCP-Gateway.ps1
+.\Start-RemoteMCP-Gateway.ps1
+```
+
+For unattended recovery, install the watchdog:
+
+```powershell
+.\Install-RemoteMCP-Gateway-Watchdog.ps1 -StartNow
+```
+
+See [Gateway recovery and watchdog](GATEWAY_RECOVERY.md).
+
+### Current deployment boundary
+
+These operator commands and the `device_restart` backend are currently staged on `main`. They must not be described as live on the deployed production connector until the corresponding source release and plugin package have been deployed/refreshed.
