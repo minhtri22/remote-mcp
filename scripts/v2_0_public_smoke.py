@@ -1,7 +1,8 @@
 """V2-0 public no-credential smoke test.
 
 Usage:
-    python scripts/v2_0_public_smoke.py https://remote.threadon.xyz
+    PUBLIC_URL=https://mcp.example.com python scripts/v2_0_public_smoke.py
+    python scripts/v2_0_public_smoke.py https://mcp.example.com
 
 Checks only public metadata and the unauthenticated 401 contract.
 It never requests or handles the owner password.
@@ -32,10 +33,12 @@ def fetch(url: str):
 
 
 def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: python scripts/v2_0_public_smoke.py <base-url>")
-
-    base = sys.argv[1].rstrip("/")
+    if len(sys.argv) > 2:
+        raise SystemExit("usage: python scripts/v2_0_public_smoke.py [base-url]")
+    raw = sys.argv[1] if len(sys.argv) == 2 else os.environ.get("PUBLIC_URL", "")
+    if not raw:
+        raise SystemExit("set PUBLIC_URL or pass <base-url>")
+    base = raw.rstrip("/")
 
     status, _, body = fetch(base + "/.well-known/oauth-authorization-server")
     assert status == 200, (status, body[:200])
