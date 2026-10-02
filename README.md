@@ -155,7 +155,7 @@ Final QA:
 
 - `17 passed` regression/unit tests;
 - full OAuth integration: PASS;
-- public `https://remote.threadon.xyz` smoke: PASS;
+- public `https://mcp.example.com` smoke: PASS;
 - `git diff --check`: PASS.
 
 Known baseline limitations:
@@ -274,13 +274,13 @@ Deployed: 2026-09-30.
 
 Operational cutover:
 
-- previous production: `D:\\2.RemoteMCP`, PID **28464**, port **8099**;
-- release snapshot: `D:\\2.RemoteMCP-releases\\673d09f`;
+- previous production: `<PRIVATE_PREVIOUS_RELEASE_ROOT>`, PID **28464**, port **8099**;
+- release snapshot: `<PRIVATE_RELEASE_ROOT>\\673d09f`;
 - release source commit: `673d09fc74c8a248ca52cfab7bf47dd68226f9b8`;
 - current production PID: **11372** on `127.0.0.1:8099`;
-- persistent OAuth state: `D:\\2.RemoteMCP-state\\oauth-state.json`;
-- persistent V2 runtime: `D:\\2.RemoteMCP-state\\runtime`;
-- rollback source/state snapshot retained under `D:\\2.RemoteMCP-backups\\pre-v2b-28464`.
+- persistent OAuth state: `<PRIVATE_STATE_ROOT>\\oauth-state.json`;
+- persistent V2 runtime: `<PRIVATE_STATE_ROOT>\\runtime`;
+- rollback source/state snapshot retained under `<PRIVATE_BACKUP_ROOT>\\pre-v2b`.
 
 Release gates:
 
@@ -289,7 +289,7 @@ Release gates:
 - unauthenticated `/mcp` Bearer challenge: **401 PASS**;
 - runtime schema migrations: **[1, 2] PASS**;
 - existing OAuth connector session survived the cutover: **PASS**;
-- public `https://remote.threadon.xyz` smoke after cutover: **PASS**;
+- public `https://mcp.example.com` smoke after cutover: **PASS**;
 - production runtime currently has **0 registered V2-B projects**, so managed mode has not yet disabled compatibility execution tools.
 
 The tunnel was not repointed; it continues forwarding to local port 8099. No V2-B project should be registered until the consuming client refreshes the 32-tool schema and is ready to use task-scoped execution, because registering the first managed project intentionally disables legacy `run_command` and direct `job_submit`.
@@ -358,7 +358,7 @@ Current boundary:
 
 - **V2-BD as a whole is not yet PASS**;
 - production currently runs release `721a691` with the full **44-tool** MCP surface;
-- the real two-machine pilot has two distinct execution identities: `DESKTOP-4PSD0G2` (`dev_6bba...`) and `DESKTOP-VKIC2RU` (`dev_a5f0...`);
+- the real two-machine pilot has two distinct execution identities: `MACHINE_A_HOST` (`dev_A`) and `MACHINE_B_HOST` (`dev_B`);
 - both disposable pilot projects were registered on the intended device and tasks inherited immutable device placement;
 - routed marker reads returned `PHYSICAL_MACHINE_1_ONLY` and `PHYSICAL_MACHINE_2_ONLY` from the correct hosts;
 - routed CAS probes remained isolated to their intended machine;
