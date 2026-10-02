@@ -10,6 +10,23 @@ from pathlib import Path
 
 FORBIDDEN=("arcllm","cqg","six","cldp","mindforge","cot-from-zero","remotemcp-src")
 
+def load_private_env():
+    env_path=Path(__file__).resolve().parents[1]/".env"
+    if not env_path.is_file():
+        return
+    allowed={"REMOTEMCP_PILOT_HOST_A","REMOTEMCP_PILOT_HOST_B"}
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line=raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key,value=line.split("=",1)
+        key=key.strip()
+        if key not in allowed or key in os.environ:
+            continue
+        value=value.strip().strip('"').strip("'")
+        if value:
+            os.environ[key]=value
+
 def expected_hosts():
     host_a=os.environ.get("REMOTEMCP_PILOT_HOST_A","").strip().upper()
     host_b=os.environ.get("REMOTEMCP_PILOT_HOST_B","").strip().upper()
@@ -26,6 +43,7 @@ def expected_hosts():
     }
 
 def main():
+    load_private_env()
     p=argparse.ArgumentParser()
     p.add_argument("--execute",action="store_true")
     p.add_argument("--ack-isolated-pilot",action="store_true")
