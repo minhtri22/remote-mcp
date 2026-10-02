@@ -18,8 +18,13 @@ if (-not (Test-Path $ConfigFile) -or -not (Test-Path $SecretFile)) {
 }
 
 $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
-$secure = Get-Content $SecretFile -Raw | ConvertTo-SecureString
+$encryptedSecret = (Get-Content $SecretFile -Raw).Trim()
+if (-not $encryptedSecret) {
+    throw "Gateway owner-password secret file is empty. Re-run .\Configure-RemoteMCP-Gateway.ps1."
+}
+$secure = ConvertTo-SecureString -String $encryptedSecret
 $ownerPassword = [System.Net.NetworkCredential]::new("",$secure).Password
+$encryptedSecret = $null
 
 function Test-GatewayHealth {
     param([int]$Port,[int]$TimeoutSec)
