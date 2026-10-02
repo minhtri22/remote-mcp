@@ -778,3 +778,30 @@ phase implementation
     -> commit / sync
     -> only then open next phase
 ```
+
+## Public repository hygiene / operator command source closure
+
+Status: **COMPLETE / PASS**  
+Closed: 2026-10-02
+
+Gate:
+
+`PUBLIC_REPO_CURRENT_MAIN_SANITIZATION_AND_COMMAND_LAYOUT_STATIC_QA`
+
+This is an engineering/operational source QA closure and does not alter V2-BD scientific/qualification evidence.
+
+Current-main source has been sanitized for deployment-specific metadata, private deployment configuration is moved to a gitignored local `.env` contract, and operator commands are first-class sources under `commands/`:
+
+```text
+/status
+/devices
+/restart <device>
+```
+
+No runtime deployment/restart/plugin refresh occurred in this gate. Active agents therefore remain untouched.
+
+Git history rewrite is explicitly blocked while active agents may depend on current commit identities.
+
+Next authorized history-maintenance gate, only after all active agents stop or an explicit maintenance window is granted:
+
+`PUBLIC_REPO_GIT_HISTORY_PRIVATE_METADATA_PURGE_AND_FRESH_CLONE_VERIFICATION`
