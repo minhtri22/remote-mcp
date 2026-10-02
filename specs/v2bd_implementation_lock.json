@@ -204,7 +204,7 @@
       "device_name",
       "node_pair_command"
     ],
-    "node_pair_command": "python -m remotemcp.node pair --url https://remote.threadon.xyz --pairing-id <PAIRING_ID> --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>"
+    "node_pair_command": "python -m remotemcp.node pair --url https://mcp.example.com --pairing-id <PAIRING_ID> --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>"
   },
   "signed_request_verifier": {
     "headers": [
@@ -518,14 +518,14 @@
     "machines": {
       "machine1": {
         "login_identity": "physical-machine-1",
-        "expected_host_label": "DESKTOP-4PSD0G2",
+        "expected_host_label": "MACHINE_A_HOST",
         "root_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\workspace",
         "runtime_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\runtime",
         "project_dir": "pilot-machine-1"
       },
       "machine2": {
         "login_identity": "physical-machine-2",
-        "expected_host_label": "DESKTOP-VKIC2RU",
+        "expected_host_label": "MACHINE_B_HOST",
         "root_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\workspace",
         "runtime_template": "%USERPROFILE%\\\\RemoteMCP-V2BD-Pilot\\\\runtime",
         "project_dir": "pilot-machine-2"
