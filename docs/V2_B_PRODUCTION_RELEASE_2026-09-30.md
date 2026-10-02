@@ -7,18 +7,18 @@ This is an operational deployment record. It does not alter the scientific/engin
 ## Source and release snapshot
 
 - source commit: `673d09fc74c8a248ca52cfab7bf47dd68226f9b8`
-- source repo: `D:\WORK\RESEARCH\RemoteMCP-src`
-- immutable runtime snapshot: `D:\2.RemoteMCP-releases\673d09f`
+- source repo: `<LOCAL_SOURCE_ROOT>`
+- immutable runtime snapshot: `<PRIVATE_RELEASE_ROOT>\673d09f`
 
 Previous production:
 
-- cwd: `D:\2.RemoteMCP`
+- cwd: `<PRIVATE_PREVIOUS_RELEASE_ROOT>`
 - PID: `28464`
 - listener: `127.0.0.1:8099`
 
 Current production:
 
-- cwd: `D:\2.RemoteMCP-releases\673d09f`
+- cwd: `<PRIVATE_RELEASE_ROOT>\673d09f`
 - PID: `11372`
 - listener: `127.0.0.1:8099`
 - public endpoint: `https://mcp.example.com`
@@ -27,11 +27,11 @@ Current production:
 
 OAuth state is explicitly pinned to:
 
-`D:\2.RemoteMCP-state\oauth-state.json`
+`<PRIVATE_STATE_ROOT>\oauth-state.json`
 
 V2 runtime state is explicitly pinned to:
 
-`D:\2.RemoteMCP-state\runtime`
+`<PRIVATE_STATE_ROOT>\runtime`
 
 The runtime database reports migrations:
 
@@ -44,7 +44,7 @@ At cutover completion the projects table contained **0** V2-B projects. Therefor
 
 Rollback material is retained under:
 
-`D:\2.RemoteMCP-backups\pre-v2b-28464`
+`<PRIVATE_BACKUP_ROOT>\pre-v2b`
 
 ## Preflight
 
@@ -64,7 +64,7 @@ The first health helper attempt reported FAIL only because its own stripped chil
 
 A detached local helper:
 
-1. verified PID 28464 still owned port 8099 and cwd `D:\2.RemoteMCP`;
+1. verified PID 28464 still owned port 8099 and cwd `<PRIVATE_PREVIOUS_RELEASE_ROOT>`;
 2. captured the existing process environment without printing secrets;
 3. stopped only PID 28464;
 4. copied the latest OAuth state into the explicit production state path;
