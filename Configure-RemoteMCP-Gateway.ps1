@@ -16,6 +16,10 @@ $ProgressPreference = "SilentlyContinue"
 function Import-RemoteMCPDotEnv {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return }
+    $allowed = @(
+        "PUBLIC_URL","PORT","MCP_ROOT","MCP_STATE","MCP_RUNTIME_DIR",
+        "ALLOWED_REDIRECT_HOSTS","REMOTEMCP_PILOT_HOST_A","REMOTEMCP_PILOT_HOST_B"
+    )
     foreach ($line in Get-Content $Path) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
@@ -23,7 +27,7 @@ function Import-RemoteMCPDotEnv {
         if ($parts.Count -ne 2) { continue }
         $name = $parts[0].Trim()
         $value = $parts[1].Trim()
-        if (-not $name) { continue }
+        if (-not $name -or $name -notin $allowed) { continue }
         if ($value.Length -ge 2 -and (
             ($value.StartsWith('"') -and $value.EndsWith('"')) -or
             ($value.StartsWith("'") -and $value.EndsWith("'"))
@@ -38,6 +42,7 @@ function Import-RemoteMCPDotEnv {
 
 Import-RemoteMCPDotEnv (Join-Path $PSScriptRoot ".env")
 
+if (-not $PSBoundParameters.ContainsKey("Port") -and $env:PORT) { $Port = [int]$env:PORT }
 if (-not $PublicUrl) { $PublicUrl = $env:PUBLIC_URL }
 if (-not $McpRoot) { $McpRoot = $env:MCP_ROOT }
 if (-not $StateFile) { $StateFile = $env:MCP_STATE }
