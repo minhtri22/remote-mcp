@@ -27,7 +27,7 @@
     "legacy_gateway_negative_evidence": {
       "caller_context": "physical-machine-2 chat",
       "legacy_tool": "run_command",
-      "observed_hostname": "DESKTOP-4PSD0G2",
+      "observed_hostname": "MACHINE_A_HOST",
       "interpretation": "Current deployed V2-B legacy tool is gateway-local; not evidence of V2-BD routing."
     },
     "routing_authority": "device_id dev_* via project binding and immutable task inheritance",
