@@ -138,7 +138,9 @@ $cfg = [ordered]@{
     allowed_redirect_hosts = $AllowedRedirectHosts
 }
 $cfg | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $ConfigFile
-$OwnerPassword | ConvertFrom-SecureString | Set-Content -Encoding ASCII $SecretFile
+$encryptedSecret = $OwnerPassword | ConvertFrom-SecureString
+[System.IO.File]::WriteAllText($SecretFile,$encryptedSecret,[System.Text.Encoding]::ASCII)
+$encryptedSecret = $null
 
 Write-Host "RemoteMCP gateway recovery configuration saved."
 Write-Host "Config : $ConfigFile"
