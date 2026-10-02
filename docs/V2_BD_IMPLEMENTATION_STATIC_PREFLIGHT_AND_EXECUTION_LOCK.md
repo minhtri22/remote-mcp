@@ -97,7 +97,7 @@ Node pairing uses:
 
 ```text
 python -m remotemcp.node pair
-  --url https://remote.threadon.xyz
+  --url https://mcp.example.com
   --code-file <PAIRING_CODE_FILE>
   --name <DEVICE_NAME>
   --root <MCP_NODE_ROOT>
@@ -209,8 +209,8 @@ The machine lock freezes the full failure matrix, including pairing-response los
 
 Final real-device qualification is fixed to the already proven login identities:
 
-- `physical-machine-1` / expected host label `DESKTOP-4PSD0G2`;
-- `physical-machine-2` / expected host label `DESKTOP-VKIC2RU`.
+- `physical-machine-1` / expected host label `MACHINE_A_HOST`;
+- `physical-machine-2` / expected host label `MACHINE_B_HOST`.
 
 Each machine uses only:
 
