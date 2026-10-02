@@ -4,20 +4,20 @@
   "deployed_at": "2026-09-30",
   "source_commit": "673d09fc74c8a248ca52cfab7bf47dd68226f9b8",
   "previous": {
-    "cwd": "D:\\2.RemoteMCP",
+    "cwd": "<PRIVATE_PREVIOUS_RELEASE_ROOT>",
     "pid": 28464,
     "port": 8099
   },
   "current": {
-    "cwd": "D:\\2.RemoteMCP-releases\\673d09f",
+    "cwd": "<PRIVATE_RELEASE_ROOT>\\673d09f",
     "pid": 11372,
     "port": 8099,
-    "public_url": "https://remote.threadon.xyz"
+    "public_url": "https://mcp.example.com"
   },
   "state": {
-    "oauth": "D:\\2.RemoteMCP-state\\oauth-state.json",
-    "runtime": "D:\\2.RemoteMCP-state\\runtime",
-    "backup": "D:\\2.RemoteMCP-backups\\pre-v2b-28464"
+    "oauth": "<PRIVATE_STATE_ROOT>\\oauth-state.json",
+    "runtime": "<PRIVATE_STATE_ROOT>\\runtime",
+    "backup": "<PRIVATE_PREVIOUS_RELEASE_ROOT>-backups\\pre-v2b-28464"
   },
   "preflight": {
     "isolated_port": 8101,
