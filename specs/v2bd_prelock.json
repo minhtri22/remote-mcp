@@ -19,8 +19,8 @@
     "qualification_execution_allowed": false
   },
   "architecture": {
-    "public_mcp_endpoint": "https://remote.threadon.xyz/mcp",
-    "device_transport_origin": "https://remote.threadon.xyz",
+    "public_mcp_endpoint": "https://mcp.example.com/mcp",
+    "device_transport_origin": "https://mcp.example.com",
     "topology": "Single public control-plane endpoint. Execution nodes initiate outbound HTTPS long-poll connections to the control plane. No inbound listener, port-forward, or per-device public tunnel is required.",
     "control_plane_authority": [
       "owner account",
@@ -62,7 +62,7 @@
     "ttl_seconds": 600,
     "one_time": true,
     "completion_endpoint": "POST /device/v1/pair",
-    "node_cli": "python -m remotemcp.node pair --url https://remote.threadon.xyz --pairing-id <PAIRING_ID> --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>",
+    "node_cli": "python -m remotemcp.node pair --url https://mcp.example.com --pairing-id <PAIRING_ID> --code-file <PAIRING_CODE_FILE> --name <DEVICE_NAME> --root <MCP_NODE_ROOT> --runtime-dir <MCP_NODE_RUNTIME_DIR>",
     "proof_of_possession": "Initial pair request includes Ed25519 public key and a signature over canonical pairing payload; gateway verifies signature with submitted public key plus one-time pairing code.",
     "result": "Gateway creates dev_* identity, route_generation=1, state ONLINE; node persists device_id/public origin/key fingerprint.",
     "re_pair_revoked": "Forbidden. Pair as a new device identity.",
@@ -340,7 +340,7 @@
     "preconditions": [
       "both ChatGPT login-device sessions already proven under same owner account",
       "production gateway healthy",
-      "both machines have outbound HTTPS access to remote.threadon.xyz",
+      "both machines have outbound HTTPS access to mcp.example.com",
       "clock skew within signature window",
       "no managed research project registered"
     ],
