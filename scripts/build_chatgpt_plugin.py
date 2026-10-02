@@ -12,6 +12,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 COMMANDS_DIR = REPO_ROOT / "commands"
 
 
+def load_local_public_url(path: Path = REPO_ROOT / ".env") -> None:
+    if os.environ.get("PUBLIC_URL") or not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line=raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key,value=line.split("=",1)
+        if key.strip()!="PUBLIC_URL":
+            continue
+        value=value.strip().strip('"').strip("'")
+        if value:
+            os.environ["PUBLIC_URL"]=value
+        return
+
+
 def normalize_mcp_url(value: str) -> str:
     raw = (value or "").strip().rstrip("/")
     if not raw:
@@ -150,6 +166,7 @@ def build_archive(
 
 
 def main() -> None:
+    load_local_public_url()
     parser = argparse.ArgumentParser(
         description="Build a private ChatGPT plugin archive for one RemoteMCP gateway."
     )
