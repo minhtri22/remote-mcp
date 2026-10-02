@@ -20,8 +20,8 @@ This hold is operational only. It is **not** a PASS or FAIL result for the defer
 
 Both primary execution devices were observed ONLINE immediately before the hold was recorded:
 
-- machine 1: `DESKTOP-4PSD0G2`, `dev_6bba77b53496113b9a9bb0793367e712`, route generation 1;
-- machine 2: `DESKTOP-VKIC2RU`, `dev_a5f0c2051ac5504d94e9f3f30807e6bd`, route generation 1.
+- machine 1: `MACHINE_A_HOST`, `dev_<redacted-machine-a>`, route generation 1;
+- machine 2: `MACHINE_B_HOST`, `dev_<redacted-machine-b>`, route generation 1.
 
 At the hold snapshot:
 
@@ -38,7 +38,7 @@ Until this hold is explicitly released, RemoteMCP qualification MUST NOT:
 - restart the machine-2 RemoteMCP node for qualification purposes;
 - reboot or shut down machine 2;
 - disable/restart its network adapter or intentionally interrupt its connectivity;
-- revoke `dev_a5f0c2051ac5504d94e9f3f30807e6bd`;
+- revoke `dev_<redacted-machine-b>`;
 - rotate or replace its device identity/key/runtime;
 - alter route generation to provoke stale-generation behavior;
 - open the node-2 OFFLINE/no-failover gate;
