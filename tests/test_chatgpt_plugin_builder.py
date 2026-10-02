@@ -73,7 +73,7 @@ def test_build_archive_uses_self_hosted_url_and_exact_command_sources(tmp_path):
         assert "/devices" in skill
         assert "/restart <device>" in skill
         assert "There is no `/deviceList` alias" in skill
-        assert "remote.threadon.xyz" not in skill
+        assert "private.example.invalid" not in skill
 
         for name in ("status.md","devices.md","restart.md"):
             source=(ROOT/"commands"/name).read_text(encoding="utf-8")
