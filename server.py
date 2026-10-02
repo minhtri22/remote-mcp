@@ -38,6 +38,30 @@ from remotemcp.routing.http import register_device_routes
 
 import mcp.server.auth.routes as auth_routes
 
+
+def _load_local_deployment_env(path: Path) -> None:
+    allowed={
+        "PUBLIC_URL","PORT","MCP_ROOT","MCP_STATE","MCP_RUNTIME_DIR",
+        "ALLOWED_REDIRECT_HOSTS",
+    }
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line=raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key,value=line.split("=",1)
+        key=key.strip()
+        if key not in allowed or key in os.environ:
+            continue
+        value=value.strip()
+        if len(value)>=2 and value[0]==value[-1] and value[0] in {"'", '"'}:
+            value=value[1:-1]
+        os.environ[key]=value
+
+
+_load_local_deployment_env(Path(__file__).resolve().parent/".env")
+
 _original_build_metadata = auth_routes.build_metadata
 
 def _build_metadata_chatgpt(*args, **kwargs):
