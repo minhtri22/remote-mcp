@@ -56,7 +56,7 @@ A first physical-machine-2 check found:
 
 ```text
 legacy run_command
-HOSTNAME=DESKTOP-4PSD0G2
+HOSTNAME=MACHINE_A_HOST
 ```
 
 That is expected for the still-deployed V2-B compatibility surface: legacy `run_command` is gateway-local and is **not** evidence of V2-BD execution routing.
