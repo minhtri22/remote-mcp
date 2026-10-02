@@ -10,7 +10,7 @@
     "server_blob": "8cec91ecd9c9aeffb9a95802309db29e04ab8366"
   },
   "deployment_policy": {
-    "production_endpoint": "http://127.0.0.1:8099 behind https://remote.threadon.xyz",
+    "production_endpoint": "http://127.0.0.1:8099 behind https://mcp.example.com",
     "production_mutation_forbidden_during_v2b_prelock": true,
     "switch_rule": "Do not replace/restart the active production RemoteMCP for this redesign until the remaining planned phases are complete, an explicit release-QA gate passes, and the owner explicitly authorizes deployment.",
     "reason": "Other active research projects depend on the currently running remote."
