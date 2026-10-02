@@ -67,6 +67,14 @@ The configuration stores only non-secret gateway paths/settings in:
 %LOCALAPPDATA%\RemoteMCP\gateway-config.json
 ```
 
+The configurator also creates/reuses a dedicated gateway Python environment at:
+
+```text
+%LOCALAPPDATA%\RemoteMCP\gateway-venv
+```
+
+If no existing Python environment already has the required gateway modules, it bootstraps this venv from Python 3.11+ and installs the gateway dependency set. Users do not need to discover which historical Python executable launched the previous gateway process.
+
 The owner password is stored separately using Windows DPAPI via `ConvertFrom-SecureString`:
 
 ```text
