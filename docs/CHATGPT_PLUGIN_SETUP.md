@@ -47,7 +47,12 @@ The generated package contains:
 mcp.json
 plugin.json
 skills/remote-mcp/SKILL.md
+commands/status.md
+commands/devices.md
+commands/restart.md
 ```
+
+The command files are copied from the repository's first-class `commands/` directory; `commands/_conventions.md` is repository metadata and is not packaged as a user-facing command.
 
 The skill tells ChatGPT the important routing rule:
 
@@ -65,10 +70,13 @@ Supported staged commands:
 
 ```text
 /status
+/devices
 /restart <device>
 ```
 
-`/status` is read-only and uses the RemoteMCP device tools.
+`/status` is read-only and gives a compact health summary.
+
+`/devices` is read-only and lists the complete gateway-visible execution-device inventory using `device_list`. The canonical command is `/devices`; no `/deviceList` alias is packaged.
 
 `/restart <device>` resolves the requested execution device, checks `active_routed_jobs`, and uses the staged `device_restart` tool. It will not guess a target when several devices exist and will not override active-job protection without explicit user confirmation.
 
