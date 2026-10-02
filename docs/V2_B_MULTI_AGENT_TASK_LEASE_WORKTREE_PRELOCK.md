@@ -16,7 +16,7 @@ Machine-readable source of truth:
 
 ## Deployment invariant
 
-The currently active RemoteMCP on port 8099 / `remote.threadon.xyz` is **not** replaced, restarted or repointed during this prelock or V2-B implementation work.
+The currently active RemoteMCP on port 8099 / `mcp.example.com` is **not** replaced, restarted or repointed during this prelock or V2-B implementation work.
 
 The redesign is deployed only after the remaining planned phases are complete, an explicit release-QA gate passes, and the owner explicitly authorizes the switch. This protects the other research projects currently using the live remote.
 
