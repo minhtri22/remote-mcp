@@ -9,10 +9,21 @@ import argparse,json,os,socket
 from pathlib import Path
 
 FORBIDDEN=("arcllm","cqg","six","cldp","mindforge","cot-from-zero","remotemcp-src")
-EXPECTED={
-    "DESKTOP-4PSD0G2":{"project":"pilot-machine-1","marker":"PHYSICAL_MACHINE_1_ONLY"},
-    "DESKTOP-VKIC2RU":{"project":"pilot-machine-2","marker":"PHYSICAL_MACHINE_2_ONLY"},
-}
+
+def expected_hosts():
+    host_a=os.environ.get("REMOTEMCP_PILOT_HOST_A","").strip().upper()
+    host_b=os.environ.get("REMOTEMCP_PILOT_HOST_B","").strip().upper()
+    if not host_a or not host_b:
+        raise SystemExit(
+            "PILOT_CONFIG_REQUIRED: set REMOTEMCP_PILOT_HOST_A and "
+            "REMOTEMCP_PILOT_HOST_B in the private deployment environment"
+        )
+    if host_a==host_b:
+        raise SystemExit("PILOT_CONFIG_INVALID: pilot host names must be distinct")
+    return {
+        host_a:{"project":"pilot-machine-1","marker":"PHYSICAL_MACHINE_1_ONLY"},
+        host_b:{"project":"pilot-machine-2","marker":"PHYSICAL_MACHINE_2_ONLY"},
+    }
 
 def main():
     p=argparse.ArgumentParser()
@@ -20,6 +31,7 @@ def main():
     p.add_argument("--ack-isolated-pilot",action="store_true")
     a=p.parse_args()
     host=socket.gethostname().upper()
+    EXPECTED=expected_hosts()
     user=Path(os.environ.get("USERPROFILE",str(Path.home()))).resolve()
     root=(user/"RemoteMCP-V2BD-Pilot"/"workspace").resolve()
     runtime=(user/"RemoteMCP-V2BD-Pilot"/"runtime").resolve()
