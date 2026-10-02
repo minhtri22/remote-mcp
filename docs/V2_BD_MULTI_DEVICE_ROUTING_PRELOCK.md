@@ -39,7 +39,7 @@ ChatGPT machine 1     ChatGPT machine 2
           \             /
            same owner account
                   |
-        remote.threadon.xyz
+        mcp.example.com
                   |
             control plane
           /               \
@@ -78,7 +78,7 @@ execution node
     |
     | HTTPS signed poll / heartbeat
     v
-https://remote.threadon.xyz/device/v1/...
+https://mcp.example.com/device/v1/...
     |
     v
 central command queue
@@ -86,7 +86,7 @@ central command queue
 
 The public MCP endpoint remains:
 
-`https://remote.threadon.xyz/mcp`
+`https://mcp.example.com/mcp`
 
 Internal node endpoints:
 
@@ -143,7 +143,7 @@ Node command:
 
 ```text
 python -m remotemcp.node pair
-  --url https://remote.threadon.xyz
+  --url https://mcp.example.com
   --code-file <PAIRING_CODE_FILE>
   --name <DEVICE_NAME>
   --root <MCP_NODE_ROOT>
