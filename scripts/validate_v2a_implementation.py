@@ -13,7 +13,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 os.environ.setdefault("SystemRoot",r"C:\Windows")
 os.environ.setdefault("WINDIR",r"C:\Windows")
-os.environ.setdefault("USERPROFILE",r"C:\Users\minht")
+os.environ.setdefault("USERPROFILE",os.path.expanduser("~"))
 os.environ.setdefault("PUBLIC_URL","http://localhost:8765")
 os.environ.setdefault("OWNER_PASSWORD","correct-horse-battery")
 os.environ.setdefault("MCP_ROOT",str(ROOT/".v2test-root"))
