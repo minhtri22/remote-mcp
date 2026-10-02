@@ -19,7 +19,7 @@ def test_windows_join_script_is_single_file_and_instance_bound():
     assert "RemoteMCP-Node.vbs" in script
     assert "active-runtime.txt" in script
     assert "-WindowStyle Hidden" in script
-    assert "remote.threadon.xyz" not in script
+    assert "private.example.invalid" not in script
 
 
 def test_windows_join_script_escapes_powershell_single_quotes():
