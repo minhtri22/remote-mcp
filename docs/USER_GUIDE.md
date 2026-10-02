@@ -309,3 +309,33 @@ See [Gateway recovery and watchdog](GATEWAY_RECOVERY.md).
 ### Current deployment boundary
 
 These operator commands and the `device_restart` backend are currently staged on `main`. They must not be described as live on the deployed production connector until the corresponding source release and plugin package have been deployed/refreshed.
+
+
+## Private deployment configuration
+
+RemoteMCP is a public repository, so deployment-specific values must stay local.
+
+Copy:
+
+```text
+.env.example -> .env
+```
+
+The local `.env` file is gitignored. Use it for non-secret deployment metadata such as:
+
+```text
+PUBLIC_URL
+PORT
+MCP_ROOT
+MCP_STATE
+MCP_RUNTIME_DIR
+ALLOWED_REDIRECT_HOSTS
+REMOTEMCP_PILOT_HOST_A
+REMOTEMCP_PILOT_HOST_B
+REMOTEMCP_QUAL_WORKSPACE
+REMOTEMCP_QUAL_LLAMA_CLI
+```
+
+Do not put `OWNER_PASSWORD`, OAuth tokens, pairing codes, node private keys, or other credentials in `.env`. On Windows, `Configure-RemoteMCP-Gateway.ps1` persists the owner password separately using DPAPI.
+
+Public documentation and qualification records should use placeholders rather than real domains, hostnames, device/session IDs, or local filesystem paths.
