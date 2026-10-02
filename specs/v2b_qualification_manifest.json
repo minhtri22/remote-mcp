@@ -52,7 +52,7 @@
     "successor_gate": "REMOTE_MCP_V2BD_MULTI_DEVICE_ROUTING_PRELOCK"
   },
   "production": {
-    "endpoint": "https://remote.threadon.xyz/mcp",
+    "endpoint": "https://mcp.example.com/mcp",
     "local_listener": "127.0.0.1:8099",
     "pid": 28464,
     "deployed_new_source": false,
