@@ -55,6 +55,30 @@ V2-BD routed multi-device tools:
 - [ChatGPT private-plugin package setup](docs/CHATGPT_PLUGIN_SETUP.md)
 - [Gateway timeout recovery and watchdog](docs/GATEWAY_RECOVERY.md)
 
+### ChatGPT operator commands
+
+Command sources are first-class files under:
+
+```text
+commands/
+├── _conventions.md
+├── status.md
+├── devices.md
+└── restart.md
+```
+
+The plugin builder copies the user-facing command files into the generated package instead of embedding command Markdown inside Python.
+
+Current staged commands:
+
+- `/status` — compact gateway/device health summary;
+- `/devices` — read-only inventory of every gateway-visible execution device;
+- `/restart <device>` — safely restart one execution node, with active-job protection and same-identity verification.
+
+There is no `/deviceList` alias. The canonical inventory command is `/devices`.
+
+These command/backend additions remain source-staged until the corresponding release and plugin package are deployed/refreshed; modifying these source files alone does not interrupt currently connected agents.
+
 ### Start or restart an execution node on Windows
 
 The repository root includes `Start-RemoteMCP-Node.ps1`. Users should use this script instead of reconstructing the Python/venv command manually.
