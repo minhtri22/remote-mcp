@@ -10,7 +10,7 @@ Observed negative evidence from physical machine 2:
 
 ```text
 legacy run_command
-HOSTNAME=DESKTOP-4PSD0G2
+HOSTNAME=MACHINE_A_HOST
 ```
 
 That call still executed on the production gateway host. Therefore the currently deployed 32-tool V2-B surface is **not** evidence of multi-execution-device routing.
@@ -103,4 +103,4 @@ The pilot cannot PASS until all of the following are observed:
 8. no task operation can override its frozen device;
 9. no cross-route execution occurs.
 
-The existing physical-machine-2 observation of `DESKTOP-4PSD0G2` through legacy `run_command` is retained as negative evidence and does not count as V2-BD success.
+The existing physical-machine-2 observation of `MACHINE_A_HOST` through legacy `run_command` is retained as negative evidence and does not count as V2-BD success.
