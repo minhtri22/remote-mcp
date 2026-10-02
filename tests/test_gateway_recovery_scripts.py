@@ -14,6 +14,11 @@ def test_gateway_recovery_scripts_are_out_of_band_and_state_preserving():
     assert "ConvertFrom-SecureString" in configure
     assert "gateway-owner-password.txt" in configure
     assert "DPAPI-encrypted" in configure
+    assert "gateway-venv" in configure
+    assert '"mcp[cli]<2"' in configure
+    assert '"httpx==0.28.1"' in configure
+    assert '"cryptography==46.0.6"' in configure
+    assert "Creating dedicated RemoteMCP gateway virtual environment" in configure
     assert "MCP_STATE" in start
     assert "MCP_RUNTIME_DIR" in start
     assert "PUBLIC_URL" in start
