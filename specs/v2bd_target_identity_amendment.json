@@ -1,7 +1,7 @@
 {
   "amendment_id": "REMOTE_MCP_V2BD_TARGET_DEVICE_IDENTITY_OBSERVABILITY_AMENDMENT",
   "status": "FROZEN_BEFORE_RUNTIME_PATCH",
-  "rationale": "A ChatGPT session on physical machine 2 currently invokes the legacy gateway-local run_command and observes HOSTNAME=DESKTOP-4PSD0G2. The V2-BD routing surface must make execution-device selection and inferred task placement externally observable before the real two-machine pilot can PASS.",
+  "rationale": "A ChatGPT session on physical machine 2 currently invokes the legacy gateway-local run_command and observes HOSTNAME=MACHINE_A_HOST. The V2-BD routing surface must make execution-device selection and inferred task placement externally observable before the real two-machine pilot can PASS.",
   "invariants": {
     "legacy_tools": [
       "list_dir",
@@ -83,7 +83,7 @@
     ]
   },
   "acceptance": {
-    "current_negative_evidence": "From physical machine 2, legacy run_command returned HOSTNAME=DESKTOP-4PSD0G2; this is expected for the still-deployed V2-B gateway-local surface and is NOT a V2-BD PASS.",
+    "current_negative_evidence": "From physical machine 2, legacy run_command returned HOSTNAME=MACHINE_A_HOST; this is expected for the still-deployed V2-B gateway-local surface and is NOT a V2-BD PASS.",
     "real_pilot_requires": [
       "device_list shows two distinct dev_* execution identities",
       "device A and device B report distinct expected hostnames or equivalent physical-node marker evidence",
