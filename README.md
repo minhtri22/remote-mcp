@@ -435,3 +435,29 @@ Release condition: SIX explicitly no longer requires uninterrupted two-machine c
 After hold release, the next qualification gate is:
 
 `NODE_2_OFFLINE_NO_FAILOVER_AND_SAME_IDENTITY_RECONNECT_GATE`
+
+
+### Public repository sanitization + command layout static QA: COMPLETE
+
+Closed: 2026-10-02.
+
+Delivered:
+
+- public current-main deployment metadata sanitization;
+- gitignored local `.env` configuration with generic `.env.example`;
+- DPAPI-only owner-password persistence outside `.env`;
+- first-class `commands/status.md`, `commands/devices.md`, and `commands/restart.md`;
+- canonical `/devices` command with no `/deviceList` alias;
+- plugin builder packaging command source files directly;
+- public-repo hygiene regression checks;
+- README/User Guide/Plugin Setup documentation aligned with the command surface.
+
+This closure is source/static only. It did not deploy or restart the running RemoteMCP gateway/nodes and did not refresh the installed plugin, so active agents were not interrupted.
+
+Detailed record: [docs/PUBLIC_REPO_CURRENT_MAIN_SANITIZATION_AND_COMMAND_LAYOUT_STATIC_QA.md](docs/PUBLIC_REPO_CURRENT_MAIN_SANITIZATION_AND_COMMAND_LAYOUT_STATIC_QA.md).
+
+History rewrite remains deferred until no active agent depends on the current commit graph.
+
+Next history gate when a maintenance window is explicitly available:
+
+`PUBLIC_REPO_GIT_HISTORY_PRIVATE_METADATA_PURGE_AND_FRESH_CLONE_VERIFICATION`
