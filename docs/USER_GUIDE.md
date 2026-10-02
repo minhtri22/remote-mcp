@@ -263,12 +263,21 @@ The staged ChatGPT plugin package includes operator command files:
 
 ```text
 /status
+/devices
 /restart <device>
 ```
 
 ### `/status`
 
 Read-only. It inspects gateway-visible execution devices using `device_list` and `device_status`, then reports device state, hostname, route generation, project count, active commands, and active routed jobs.
+
+### `/devices`
+
+Read-only device inventory. It calls `device_list` once and lists every gateway-visible execution device, including ONLINE/OFFLINE/REVOKED state, hostname, `device_id`, route generation, bound projects, active commands, and active routed jobs when present.
+
+If `device_list` times out, the command reports gateway/transport unavailability; it must not reinterpret a timeout as an empty registry.
+
+There is no `/deviceList` alias. Use `/devices`.
 
 ### `/restart <device>`
 
