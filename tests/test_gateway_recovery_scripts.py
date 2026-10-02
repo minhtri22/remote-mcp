@@ -14,6 +14,8 @@ def test_gateway_recovery_scripts_are_out_of_band_and_state_preserving():
     assert "ConvertFrom-SecureString" in configure
     assert "gateway-owner-password.txt" in configure
     assert "DPAPI-encrypted" in configure
+    assert "WriteAllText($SecretFile" in configure
+    assert "(Get-Content $SecretFile -Raw).Trim()" in start
     assert "gateway-venv" in configure
     assert '"mcp[cli]<2"' in configure
     assert '"httpx==0.28.1"' in configure
