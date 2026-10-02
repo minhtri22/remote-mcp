@@ -21,7 +21,7 @@ Current production:
 - cwd: `D:\2.RemoteMCP-releases\673d09f`
 - PID: `11372`
 - listener: `127.0.0.1:8099`
-- public endpoint: `https://remote.threadon.xyz`
+- public endpoint: `https://mcp.example.com`
 
 ## Persistent state
 
