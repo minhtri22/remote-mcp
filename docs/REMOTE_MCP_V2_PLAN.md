@@ -9,7 +9,7 @@ V2-BD implementation status: PASS / positive real two-machine routing pilot PASS
 V2-BD operator UX: one-file/one-line Windows join implemented and regression-qualified; no routing semantics changed
 Consumer surface: ChatGPT has verified the full 44-tool V2-BD surface
 Repository: minhtri22/remote-mcp
-Local source: D:\WORK\RESEARCH\RemoteMCP-src
+Local source: <LOCAL_SOURCE_ROOT>
 
 ## 1. Goal
 
@@ -70,7 +70,7 @@ The OAuth implementation and ROOT path containment remain part of the trusted ba
       worker            worker             worker
         +-----------------+------------------+
                           |
-                  D:\WORK\RESEARCH
+                  <LOCAL_WORKSPACE_ROOT>
                    files / git / jobs
 
 Persistent control state:
