@@ -53,6 +53,7 @@ V2-BD routed multi-device tools:
 
 - [User guide — one machine, multiple machines, multiple projects](docs/USER_GUIDE.md)
 - [ChatGPT private-plugin package setup](docs/CHATGPT_PLUGIN_SETUP.md)
+  - Web verification: `RemoteMCP V2 Web` v1.3.0 app-backed packaging passed a fresh ChatGPT Web `device_list` call on 2026-10-03.
   - Desktop: `desktop-direct-mcp` keeps direct MCP manifests and is expected to be Desktop only.
   - Web: `web-app-ref` contains `.app.json`, contains no direct MCP manifest, and requires an existing eligible ChatGPT App / Site-backed app ID.
 - [Gateway timeout recovery and watchdog](docs/GATEWAY_RECOVERY.md)
