@@ -45,6 +45,26 @@ $IdentitySnapshot = [ordered]@{
 
 $arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -RuntimeDir "{1}" -SourceDir "{2}" -NodeSourceDir "{3}"' -f $Watchdog,$RuntimeDir,$SourceDir,$NodeSourceDir
 
+function Get-NodeProcesses([string]$Runtime) {
+    $runtimeEscaped = [Regex]::Escape($Runtime)
+    return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -match "remotemcp\.node" -and
+        $_.CommandLine -match "--runtime-dir" -and
+        $_.CommandLine -match $runtimeEscaped
+    })
+}
+
+function Get-LogicalNodeRoots([array]$Processes) {
+    $ids = @{}
+    foreach ($p in @($Processes)) {
+        $ids[[int]$p.ProcessId] = $true
+    }
+    return @($Processes | Where-Object {
+        -not $ids.ContainsKey([int]$_.ParentProcessId)
+    })
+}
+
 function Get-WatchdogProcess {
     $watchdogEscaped = [Regex]::Escape($Watchdog)
     $runtimeEscaped = [Regex]::Escape($RuntimeDir)
@@ -127,19 +147,19 @@ if ($PlanOnly) {
     return
 }
 
-$runtimeEscaped = [Regex]::Escape($RuntimeDir)
-$nodeProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    $_.CommandLine -and
-    $_.CommandLine -match "remotemcp\.node" -and
-    $_.CommandLine -match "--runtime-dir" -and
-    $_.CommandLine -match $runtimeEscaped
-})
-if ($nodeProcesses.Count -ne 1) {
+$nodeProcesses = @(Get-NodeProcesses -Runtime $RuntimeDir)
+$nodeRoots = @(Get-LogicalNodeRoots -Processes $nodeProcesses)
+if ($nodeRoots.Count -ne 1) {
     throw (
-        "Supervisor deployment requires exactly one existing node process for the exact runtime; " +
-        "found " + $nodeProcesses.Count + ". Resolve node-process ambiguity before installation."
+        "Supervisor deployment requires exactly one logical node root for the exact runtime; " +
+        "found roots=" + $nodeRoots.Count + ", raw_processes=" + $nodeProcesses.Count +
+        ". Resolve node-process ambiguity before installation."
     )
 }
+Write-Host (
+    "Logical node process group: root_pid={0}, raw_processes={1}" -f
+    $nodeRoots[0].ProcessId,$nodeProcesses.Count
+)
 
 $InstalledMode = $null
 if ($PersistenceMode -in @("Auto","ScheduledTask")) {
