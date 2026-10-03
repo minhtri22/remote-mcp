@@ -177,7 +177,6 @@ def package_files(
     if target == TARGET_DESKTOP_DIRECT_MCP:
         mcp_url = normalize_mcp_url(gateway_url)
         native_manifest["mcpServers"] = "./.mcp.json"
-        portable_openai["mcpServers"] = "./mcp.json"
         files[".mcp.json"] = _json(
             {
                 "mcpServers": {
