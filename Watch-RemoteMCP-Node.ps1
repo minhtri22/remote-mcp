@@ -1,0 +1,117 @@
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$RuntimeDir,
+    [string]$SourceDir = $PSScriptRoot,
+    [int]$IntervalSeconds = 15,
+    [int]$MissingProcessThreshold = 2,
+    [int]$PostStartGraceSeconds = 3
+)
+
+$ErrorActionPreference = "Continue"
+$ProgressPreference = "SilentlyContinue"
+
+$Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
+$StartScript = Join-Path $SourceDir "Start-RemoteMCP-Node.ps1"
+
+function Log([string]$Path,[string]$Message) {
+    Add-Content -Encoding UTF8 -Path $Path -Value ("{0} {1}" -f (Get-Date).ToString("o"),$Message)
+}
+
+function Read-Identity([string]$Runtime) {
+    $DeviceFile = Join-Path $Runtime "device.json"
+    $KeyFile = Join-Path $Runtime "device-ed25519.pem"
+
+    if (-not (Test-Path $DeviceFile) -or -not (Test-Path $KeyFile)) {
+        throw "Runtime does not contain a paired RemoteMCP device identity: $Runtime"
+    }
+
+    $d = Get-Content $DeviceFile -Raw | ConvertFrom-Json
+    if (-not $d.device_id -or -not $d.key_fingerprint_sha256 -or $null -eq $d.route_generation) {
+        throw "Runtime identity is incomplete: $Runtime"
+    }
+
+    return [ordered]@{
+        device_id = [string]$d.device_id
+        key_fingerprint_sha256 = [string]$d.key_fingerprint_sha256
+        route_generation = [string]$d.route_generation
+    }
+}
+
+function Get-NodeProcess([string]$Runtime) {
+    $escaped = [Regex]::Escape($Runtime)
+    return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -match "remotemcp\.node" -and
+        $_.CommandLine -match "--runtime-dir" -and
+        $_.CommandLine -match $escaped
+    })
+}
+
+$RuntimeDir = (Resolve-Path $RuntimeDir).Path
+$SourceDir = (Resolve-Path $SourceDir).Path
+if (-not (Test-Path $StartScript)) {
+    throw "RemoteMCP node starter not found: $StartScript"
+}
+
+$Expected = Read-Identity -Runtime $RuntimeDir
+New-Item -ItemType Directory -Force -Path $Base | Out-Null
+$WatchdogLog = Join-Path $Base ("node-watchdog-" + $Expected.device_id + ".log")
+
+function Assert-IdentityUnchanged {
+    $Current = Read-Identity -Runtime $RuntimeDir
+    foreach ($Field in @("device_id","key_fingerprint_sha256","route_generation")) {
+        if ([string]$Current[$Field] -ne [string]$Expected[$Field]) {
+            throw "Identity changed while watchdog was running: $Field"
+        }
+    }
+}
+
+$threshold = [Math]::Max(1,$MissingProcessThreshold)
+$interval = [Math]::Max(5,$IntervalSeconds)
+$grace = [Math]::Max(1,$PostStartGraceSeconds)
+$missing = 0
+
+Log $WatchdogLog ("watchdog started device_id={0} runtime={1}" -f $Expected.device_id,$RuntimeDir)
+
+while ($true) {
+    try {
+        Assert-IdentityUnchanged
+    } catch {
+        Log $WatchdogLog ("identity safety stop: " + $_.Exception.Message)
+        exit 3
+    }
+
+    $existing = @(Get-NodeProcess -Runtime $RuntimeDir)
+
+    if ($existing.Count -gt 0) {
+        if ($missing -gt 0) {
+            Log $WatchdogLog ("node process recovered without supervisor start; consecutive_missing={0}" -f $missing)
+        }
+        $missing = 0
+    } else {
+        $missing += 1
+        Log $WatchdogLog ("node process absent {0}/{1}" -f $missing,$threshold)
+
+        if ($missing -ge $threshold) {
+            try {
+                Assert-IdentityUnchanged
+                Log $WatchdogLog "process absence threshold reached; invoking state-preserving node start"
+                & $StartScript -RuntimeDir $RuntimeDir -SourceDir $SourceDir *>> $WatchdogLog
+                Start-Sleep -Seconds $grace
+                Assert-IdentityUnchanged
+
+                $after = @(Get-NodeProcess -Runtime $RuntimeDir)
+                if ($after.Count -gt 0) {
+                    Log $WatchdogLog "node process restored"
+                } else {
+                    Log $WatchdogLog "starter returned but node process is still absent"
+                }
+            } catch {
+                Log $WatchdogLog ("node start failed: " + $_.Exception.Message)
+            }
+            $missing = 0
+        }
+    }
+
+    Start-Sleep -Seconds $interval
+}
