@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$RuntimeDir,
     [string]$SourceDir = $PSScriptRoot,
-    [switch]$StartNow
+    [switch]$StartNow,
+    [switch]$PlanOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,6 +45,11 @@ Write-Host ("Task       : {0}" -f $TaskName)
 Write-Host ("Runtime    : {0}" -f $RuntimeDir)
 Write-Host ("Device id  : {0}" -f $IdentitySnapshot.device_id)
 Write-Host ("Generation : {0}" -f $IdentitySnapshot.route_generation)
+
+if ($PlanOnly) {
+    Write-Host "REMOTEMCP_NODE_SUPERVISOR_PLAN_ONLY=PASS"
+    return
+}
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 Write-Host "Installed per-user RemoteMCP node supervisor scheduled task."
