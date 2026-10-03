@@ -174,15 +174,6 @@ def package_files(
     portable_openai = {"interface": interface}
 
     files = {
-        "plugin.json": _json(
-            {
-                "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-                "name": plugin_name,
-                "version": version,
-                "description": description,
-                "extensions": {"com.openai": portable_openai},
-            }
-        ),
         "skills/remote-mcp/SKILL.md": _skill(),
     }
 
@@ -226,6 +217,15 @@ def package_files(
             }
         )
 
+    files["plugin.json"] = _json(
+        {
+            "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+            "name": plugin_name,
+            "version": version,
+            "description": description,
+            "extensions": {"com.openai": portable_openai},
+        }
+    )
     files[".codex-plugin/plugin.json"] = _json(native_manifest)
     files.update(load_command_files(command_dir))
     return files
