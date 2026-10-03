@@ -54,6 +54,29 @@ class Database:
             statements.append(stmt)
         return statements
 
+    @staticmethod
+    def _migration_checksum_candidates(sql_bytes: bytes) -> set[str]:
+        """Return raw and newline-equivalent SHA-256 identities.
+
+        Migration history is content-immutable, but Windows checkouts can
+        materialize the same UTF-8 SQL text with CRLF while git archives use
+        LF. Accept only that line-ending equivalence; all other byte/content
+        drift remains startup-fatal.
+        """
+        candidates = {hashlib.sha256(sql_bytes).hexdigest()}
+        try:
+            text = sql_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return candidates
+
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        for variant in (
+            normalized.encode("utf-8"),
+            normalized.replace("\n", "\r\n").encode("utf-8"),
+        ):
+            candidates.add(hashlib.sha256(variant).hexdigest())
+        return candidates
+
     def bootstrap(self, target_version: int = 1) -> None:
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
@@ -71,6 +94,7 @@ class Database:
 
             sql_bytes = path.read_bytes()
             checksum = hashlib.sha256(sql_bytes).hexdigest()
+            checksum_candidates = self._migration_checksum_candidates(sql_bytes)
 
             con = self.connect()
             try:
@@ -103,7 +127,7 @@ class Database:
                     (version,),
                 ).fetchone()
                 if row is not None:
-                    if row["checksum_sha256"] != checksum:
+                    if row["checksum_sha256"] not in checksum_candidates:
                         raise DurableError(
                             "STARTUP_FATAL_SCHEMA_MISMATCH",
                             f"migration {version:03d} checksum mismatch",
