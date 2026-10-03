@@ -134,7 +134,9 @@ finally:
     dst.close()
     src.close()
 '@
-        & $PythonExe -c $BackupCode $LiveDb $ProbeDb
+        $BackupScript = Join-Path $ProbeBase "backup_runtime_db.py"
+        [IO.File]::WriteAllText($BackupScript,$BackupCode,(New-Object Text.UTF8Encoding($false)))
+        & $PythonExe $BackupScript $LiveDb $ProbeDb
         if ($LASTEXITCODE -ne 0) {
             throw "Could not create consistent SQLite backup for production-state preflight"
         }
@@ -175,7 +177,9 @@ if before != after:
 
 print("REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS")
 '@
-        & $PythonExe -c $ProbeCode $SourceDir $ProbeRuntime
+        $ProbeScript = Join-Path $ProbeBase "probe_migration_compat.py"
+        [IO.File]::WriteAllText($ProbeScript,$ProbeCode,(New-Object Text.UTF8Encoding($false)))
+        & $PythonExe $ProbeScript $SourceDir $ProbeRuntime
         if ($LASTEXITCODE -ne 0) {
             throw (
                 "Candidate migration compatibility failed against a consistent backup of production runtime.db " +
