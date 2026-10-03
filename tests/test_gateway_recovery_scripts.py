@@ -40,6 +40,13 @@ def test_gateway_recovery_scripts_are_out_of_band_and_state_preserving():
     assert "REMOTEMCP_GATEWAY_UPDATE_PREFLIGHT_ONLY=PASS" in update
     assert "diagnostic.invalid" in update
     assert "Get-FreeLoopbackPort" in update
+    assert "Invoke-ProductionRuntimeMigrationProbe" in update
+    assert "REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=PASS" in update
+    assert "REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS" in update
+    assert "src.backup(dst)" in update
+    assert "Database(runtime_dir).bootstrap(target_version=3)" in update
+    assert "migration ledger changed during compatibility probe" in update
+    assert update.index("Invoke-ProductionRuntimeMigrationProbe") < update.index("if ($PreflightOnly)")
     assert update.index("if ($PreflightOnly)") < update.index("$BackupFile =")
 
     assert "gateway-upgrade-failed-" in update
