@@ -12,7 +12,7 @@ Recovery sub-gate:
 
 Status:
 
-`SOURCE-STAGED — WINDOWS QA REQUIRED — NOT DEPLOYED`
+`PASS — RECOVERY PREFLIGHT LOCKED / NOT DEPLOYED`
 
 ## Trigger
 
@@ -60,3 +60,30 @@ This recovery preflight is PASS only after:
 - exact source/test/workflow hashes are frozen.
 
 No production process mutation is part of this sub-gate.
+
+
+## Executable QA lock
+
+GitHub Actions run: `37135395855`
+
+Observed:
+
+- PowerShell parse preflight: PASS
+- exact-runtime/source wiring PlanOnly preflight: `REMOTEMCP_NODE_SUPERVISOR_PLAN_ONLY=PASS`
+- per-user Startup-mode PlanOnly construction: `REMOTEMCP_NODE_SUPERVISOR_PLAN_ONLY=PASS`
+- targeted supervisor + starter + public-hygiene tests: `9 passed`
+
+Frozen source identities:
+
+- `Watch-RemoteMCP-Node.ps1`: `1f135c84d159f9b1a189d0eb78ed57282ef74fba`
+- `Install-RemoteMCP-Node-Supervisor.ps1`: `eb59da19c407db578800897bd728fd89f4a7a8a1`
+- `tests/test_node_supervisor_scripts.py`: `9425c6cfd3d65dcfeb40140699fdf8267a8306bf`
+- `.github/workflows/node-supervisor-static-qa.yml`: `f29cddb11ee9f3e64cf14cc5d5132aa8e27d2803`
+
+The v1 deployment attempt created no Scheduled Task and no watchdog process. The existing execution node process set was unchanged by that failed installation attempt.
+
+## Gate adjudication
+
+`REMOTEMCP_MACHINE1_SELF_HEALING_NODE_SUPERVISOR_DEPLOYMENT_COMPAT_RECOVERY_PREFLIGHT = PASS`
+
+The maintenance deployment remains blocked until the duplicate exact-runtime node-process condition is diagnosed and reduced to an unambiguous single process without violating active-job continuity.
