@@ -19,6 +19,7 @@ DEFAULT_VERSION = "1.3.0"
 TARGET_DESKTOP_DIRECT_MCP = "desktop-direct-mcp"
 TARGET_WEB_APP_REF = "web-app-ref"
 TARGETS = (TARGET_DESKTOP_DIRECT_MCP, TARGET_WEB_APP_REF)
+WEB_APP_BACKED_PLUGIN_NAME = "remote-mcp-v2-web"
 
 _APP_ID_RE = re.compile(r"^(?:asdk_app_|connector_|templated_apps_)[A-Za-z0-9][A-Za-z0-9_-]*$")
 
@@ -63,6 +64,14 @@ def normalize_app_id(value: str) -> str:
             "asdk_app_, connector_, or templated_apps_"
         )
     return raw
+
+
+def validate_target_identity(*, plugin_name: str, target: str) -> None:
+    if plugin_name == WEB_APP_BACKED_PLUGIN_NAME and target != TARGET_WEB_APP_REF:
+        raise ValueError(
+            f"{WEB_APP_BACKED_PLUGIN_NAME} is frozen as app-backed and must use "
+            f"--target {TARGET_WEB_APP_REF}; refusing {target}"
+        )
 
 
 def _json(data: dict) -> str:
@@ -145,6 +154,7 @@ def package_files(
 ) -> dict[str, str]:
     if target not in TARGETS:
         raise ValueError(f"unsupported target: {target}")
+    validate_target_identity(plugin_name=plugin_name, target=target)
 
     description = (
         "RemoteMCP V2 connector with durable multi-device routed execution "
@@ -257,7 +267,7 @@ def main() -> None:
     parser.add_argument(
         "--target",
         choices=TARGETS,
-        default=TARGET_DESKTOP_DIRECT_MCP,
+        required=True,
         help=(
             "desktop-direct-mcp embeds MCP manifests and is Desktop only; "
             "web-app-ref references an existing eligible ChatGPT app and embeds no MCP manifest."
