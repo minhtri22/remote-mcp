@@ -8,7 +8,7 @@ Gate:
 
 Verdict:
 
-`SOURCE_STATIC_PRELOCK_PASS / WEB_RELEASE_BLOCKED_BY_ACCOUNT_APP_ELIGIBILITY`
+`WEB_MIGRATION_PASS`
 
 ## What passed
 
@@ -106,3 +106,52 @@ That gate must:
 9. only then authorize replacement/update of the production RemoteMCP V2 plugin.
 
 Until that prerequisite exists, keep the current Desktop package and production plugin unchanged.
+
+
+## Fresh Web verification closure
+
+On 2026-10-03, a clean private sibling plugin was created:
+
+- plugin name: `remote-mcp-v2-web`;
+- display name: `RemoteMCP V2 Web`;
+- version: `1.3.0`;
+- packaging: app-backed;
+- dependency: the user's existing RemoteDesktop Apps SDK app;
+- direct MCP manifests: absent.
+
+The plugin detail page showed:
+
+```text
+Apps 1
+└── RemoteDesktop
+    └── Connected
+```
+
+A fresh ChatGPT Web conversation launched from **Try in chat** successfully invoked live RemoteMCP device inventory through the app-backed path.
+
+Observed result:
+
+```text
+registered devices: 5
+ONLINE: 2
+OFFLINE: 3
+```
+
+This proves all of the following together:
+
+- ChatGPT Web can load the `RemoteMCP V2 Web` wrapper;
+- the wrapper resolves the existing RemoteDesktop app dependency;
+- the existing OAuth/account connection is usable;
+- the full RemoteMCP tool surface is available through the underlying app;
+- live gateway calls succeed from a fresh Web conversation;
+- direct `.mcp.json` / `mcp.json` packaging is not required for the Web wrapper.
+
+Final verdict:
+
+`REMOTEMCP_V2_WEB_FRESH_CHAT_WRAPPER_VERIFICATION = PASS`
+
+The legacy `RemoteDesktop` app-backed plugin remains the underlying app/OAuth carrier.
+
+The existing `RemoteMCP V2` Desktop direct-MCP plugin remains unchanged and must not be removed until a later explicit cleanup/migration decision.
+
+Scientific jobs and execution-device state were not mutated by this verification.
