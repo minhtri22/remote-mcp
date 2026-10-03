@@ -518,6 +518,22 @@ Detailed evidence:
 - docs/CHATGPT_PLUGIN_SETUP.md
 - specs/v2bd_implementation_qualification_manifest.json
 
+### Control-plane read-path contention fix (source-staged, not yet deployed)
+
+A source-only fix is staged for a V2-BD control-plane contention defect in which request-time `device_list`, `device_status`, and online guards could indirectly execute `sweep_offline()` and open SQLite `BEGIN IMMEDIATE` transactions.
+
+The staged fix:
+
+- makes request-time device status/online checks pure-read;
+- computes effective OFFLINE state from heartbeat freshness without mutating SQLite;
+- keeps the routing background loop as the sole periodic offline-state writer;
+- keeps the background writer alive across transient `DB_BUSY` collisions;
+- adds regression coverage for writer-lock contention and fail-closed stale-device handling.
+
+Static preflight and an isolated SQLite WAL contention harness passed. Full repository pytest remains pending because external QA runners were unavailable; this source change is **not deployed** yet.
+
+Detailed record: [docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md](docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md).
+
 ### Staged operator/recovery UX (source-next, not yet deployed)
 
 The current `main` branch additionally stages:
