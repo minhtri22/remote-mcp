@@ -258,6 +258,8 @@ Private deployment metadata belongs in the local gitignored `.env` file. Copy `.
 
 Public docs/specs use placeholders such as `https://mcp.example.com`, `MACHINE_A_HOST`, and `<PRIVATE_STATE_ROOT>`.
 
+Current-main privacy audit: [docs/PUBLIC_REPO_PRIVACY_REAUDIT_2026-10-03.md](docs/PUBLIC_REPO_PRIVACY_REAUDIT_2026-10-03.md).
+
 This project is intended for a bounded local workspace exposed through an authenticated tunnel.
 
 ## Project operating protocol
