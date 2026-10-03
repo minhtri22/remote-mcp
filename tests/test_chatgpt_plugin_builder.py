@@ -195,6 +195,30 @@ def test_targets_do_not_silently_cross_wire(tmp_path):
     assert "mcp.json" not in web
 
 
+
+def test_web_app_ref_supports_distinct_clean_plugin_identity(tmp_path):
+    b = _load_builder()
+    out = b.build_archive(
+        tmp_path / "web-plugin.zip",
+        target=b.TARGET_WEB_APP_REF,
+        app_id="asdk_app_example",
+        plugin_name="remote-mcp-v2-web",
+        display_name="RemoteMCP V2 Web",
+        version="1.3.0",
+    )
+
+    with zipfile.ZipFile(out) as z:
+        native = json.loads(z.read(".codex-plugin/plugin.json"))
+        portable = json.loads(z.read("plugin.json"))
+
+        assert native["name"] == "remote-mcp-v2-web"
+        assert native["interface"]["displayName"] == "RemoteMCP V2 Web"
+        assert portable["name"] == "remote-mcp-v2-web"
+        assert portable["extensions"]["com.openai"]["interface"]["displayName"] == "RemoteMCP V2 Web"
+        assert ".app.json" in z.namelist()
+        assert ".mcp.json" not in z.namelist()
+        assert "mcp.json" not in z.namelist()
+
 def test_devices_command_is_read_only_and_canonical():
     text = (ROOT / "commands" / "devices.md").read_text(encoding="utf-8")
     assert "device_list" in text
