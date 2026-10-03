@@ -21,7 +21,10 @@ DEFAULT_VERSION = "1.3.0"
 TARGET_DESKTOP_DIRECT_MCP = "desktop-direct-mcp"
 TARGET_WEB_APP_REF = "web-app-ref"
 TARGETS = (TARGET_DESKTOP_DIRECT_MCP, TARGET_WEB_APP_REF)
-WEB_APP_BACKED_PLUGIN_NAME = "remote-mcp-v2-web"
+CANONICAL_WEB_APP_PLUGIN_NAME = "remote-mcp-v2-web-clean"
+LEGACY_WEB_DIRECT_PLUGIN_NAME = "remote-mcp-v2-web"
+CANONICAL_WEB_DISPLAY_NAME = "RemoteMCP V2 Web (Canonical)"
+LEGACY_WEB_DISPLAY_NAME = "RemoteMCP V2 Web (Legacy Direct)"
 
 _APP_ID_RE = re.compile(r"^(?:asdk_app_|connector_|templated_apps_)[A-Za-z0-9][A-Za-z0-9_-]*$")
 
@@ -69,10 +72,16 @@ def normalize_app_id(value: str) -> str:
 
 
 def validate_target_identity(*, plugin_name: str, target: str) -> None:
-    if plugin_name == WEB_APP_BACKED_PLUGIN_NAME and target != TARGET_WEB_APP_REF:
+    if plugin_name == CANONICAL_WEB_APP_PLUGIN_NAME and target != TARGET_WEB_APP_REF:
         raise ValueError(
-            f"{WEB_APP_BACKED_PLUGIN_NAME} is frozen as app-backed and must use "
-            f"--target {TARGET_WEB_APP_REF}; refusing {target}"
+            f"{CANONICAL_WEB_APP_PLUGIN_NAME} is the canonical ChatGPT Web identity "
+            f"and is frozen as app-backed; use --target {TARGET_WEB_APP_REF}"
+        )
+    if plugin_name == LEGACY_WEB_DIRECT_PLUGIN_NAME:
+        raise ValueError(
+            f"{LEGACY_WEB_DIRECT_PLUGIN_NAME} is a legacy direct-MCP identity and "
+            "must not be rebuilt or selected as the canonical ChatGPT Web route; "
+            f"use {CANONICAL_WEB_APP_PLUGIN_NAME}"
         )
 
 
