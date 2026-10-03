@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
@@ -11,20 +12,30 @@ from urllib.parse import urlparse
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMMANDS_DIR = REPO_ROOT / "commands"
 
+PLUGIN_NAME = "remote-mcp-v2bd"
+DISPLAY_NAME = "RemoteMCP V2"
+DEFAULT_VERSION = "1.3.0"
+
+TARGET_DESKTOP_DIRECT_MCP = "desktop-direct-mcp"
+TARGET_WEB_APP_REF = "web-app-ref"
+TARGETS = (TARGET_DESKTOP_DIRECT_MCP, TARGET_WEB_APP_REF)
+
+_APP_ID_RE = re.compile(r"^(?:asdk_app_|connector_|templated_apps_)[A-Za-z0-9][A-Za-z0-9_-]*$")
+
 
 def load_local_public_url(path: Path = REPO_ROOT / ".env") -> None:
     if os.environ.get("PUBLIC_URL") or not path.is_file():
         return
     for raw in path.read_text(encoding="utf-8").splitlines():
-        line=raw.strip()
+        line = raw.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        key,value=line.split("=",1)
-        if key.strip()!="PUBLIC_URL":
+        key, value = line.split("=", 1)
+        if key.strip() != "PUBLIC_URL":
             continue
-        value=value.strip().strip('"').strip("'")
+        value = value.strip().strip('"').strip("'")
         if value:
-            os.environ["PUBLIC_URL"]=value
+            os.environ["PUBLIC_URL"] = value
         return
 
 
@@ -40,6 +51,18 @@ def normalize_mcp_url(value: str) -> str:
     if parsed.path.rstrip("/").endswith("/mcp"):
         return raw
     return raw + "/mcp"
+
+
+def normalize_app_id(value: str) -> str:
+    raw = (value or "").strip()
+    if raw.startswith("plugin_asdk_app_"):
+        raw = raw[len("plugin_"):]
+    if not _APP_ID_RE.fullmatch(raw):
+        raise ValueError(
+            "web-app-ref requires an eligible app id beginning with "
+            "asdk_app_, connector_, or templated_apps_"
+        )
+    return raw
 
 
 def _json(data: dict) -> str:
@@ -65,22 +88,23 @@ def load_command_files(command_dir: Path = COMMANDS_DIR) -> dict[str, str]:
     return files
 
 
-def package_files(
-    mcp_url: str,
-    version: str,
-    command_dir: Path = COMMANDS_DIR,
-) -> dict[str, str]:
-    description = "RemoteMCP connector with durable multi-device routed execution and operator commands."
-    interface = {
-        "displayName": "RemoteMCP",
+def _interface() -> dict:
+    return {
+        "displayName": DISPLAY_NAME,
         "shortDescription": "Self-hosted RemoteMCP routed execution",
         "longDescription": (
             "Work with a self-hosted RemoteMCP gateway, including durable jobs, "
-            "multi-agent tasks, and multi-device execution routing."
+            "multi-agent tasks, multi-device execution routing, and operator commands."
         ),
         "defaultPrompt": "List my RemoteMCP execution devices and their status.",
+        "developerName": "RemoteMCP OSS",
+        "category": "Other",
+        "capabilities": [],
     }
-    skill = """---
+
+
+def _skill() -> str:
+    return """---
 name: remote-mcp
 description: Use the full RemoteMCP V2 surface, including multi-device execution routing.
 ---
@@ -107,84 +131,162 @@ There is no `/deviceList` alias. Use `/devices`.
 
 If a client does not expose a native slash-command picker but sends these strings as ordinary chat text, follow the same semantics.
 """
+
+
+def package_files(
+    *,
+    version: str,
+    target: str,
+    gateway_url: str = "",
+    app_id: str = "",
+    command_dir: Path = COMMANDS_DIR,
+) -> dict[str, str]:
+    if target not in TARGETS:
+        raise ValueError(f"unsupported target: {target}")
+
+    description = (
+        "RemoteMCP V2 connector with durable multi-device routed execution "
+        "and operator commands."
+    )
+    interface = _interface()
+
+    native_manifest = {
+        "interface": interface,
+        "name": PLUGIN_NAME,
+        "version": version,
+        "description": description,
+        "author": {"name": "RemoteMCP OSS"},
+        "keywords": ["mcp", "remote", "multi-device", "self-hosted"],
+        "skills": "./skills",
+    }
+    portable_openai = {"interface": interface}
+
     files = {
-        ".codex-plugin/plugin.json": _json({
-            "interface": interface,
-            "name": "remote-mcp",
-            "version": version,
-            "description": description,
-            "author": {"name": "RemoteMCP OSS"},
-            "keywords": ["mcp", "remote", "multi-device", "self-hosted"],
-            "skills": "./skills",
-            "mcpServers": "./.mcp.json",
-        }),
-        ".mcp.json": _json({
-            "mcpServers": {
-                "remote": {
-                    "type": "streamable-http",
-                    "url": mcp_url,
-                    "headers": {},
+        "plugin.json": _json(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                "name": PLUGIN_NAME,
+                "version": version,
+                "description": description,
+                "extensions": {"com.openai": portable_openai},
+            }
+        ),
+        "skills/remote-mcp/SKILL.md": _skill(),
+    }
+
+    if target == TARGET_DESKTOP_DIRECT_MCP:
+        mcp_url = normalize_mcp_url(gateway_url)
+        native_manifest["mcpServers"] = "./.mcp.json"
+        portable_openai["mcpServers"] = "./mcp.json"
+        files[".mcp.json"] = _json(
+            {
+                "mcpServers": {
+                    "remote": {
+                        "type": "streamable-http",
+                        "url": mcp_url,
+                        "headers": {},
+                    }
                 }
             }
-        }),
-        "mcp.json": _json({
-            "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
-            "mcpServers": {
-                "remote": {
-                    "type": "streamable-http",
-                    "url": mcp_url,
+        )
+        files["mcp.json"] = _json(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+                "mcpServers": {
+                    "remote": {
+                        "type": "streamable-http",
+                        "url": mcp_url,
+                    }
+                },
+            }
+        )
+    else:
+        normalized_app_id = normalize_app_id(app_id)
+        native_manifest["apps"] = "./.app.json"
+        portable_openai["apps"] = "./.app.json"
+        files[".app.json"] = _json(
+            {
+                "apps": {
+                    "remote": {
+                        "id": normalized_app_id,
+                        "required": True,
+                    }
                 }
-            },
-        }),
-        "plugin.json": _json({
-            "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-            "name": "remote-mcp",
-            "version": version,
-            "description": description,
-            "extensions": {"com.openai": {"interface": interface}},
-        }),
-        "skills/remote-mcp/SKILL.md": skill,
-    }
+            }
+        )
+
+    files[".codex-plugin/plugin.json"] = _json(native_manifest)
     files.update(load_command_files(command_dir))
     return files
 
 
 def build_archive(
-    gateway_url: str,
     output: Path,
-    version: str = "1.2.0",
+    *,
+    target: str,
+    gateway_url: str = "",
+    app_id: str = "",
+    version: str = DEFAULT_VERSION,
     command_dir: Path = COMMANDS_DIR,
 ) -> Path:
-    mcp_url = normalize_mcp_url(gateway_url)
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    files = package_files(mcp_url, version, command_dir)
+    files = package_files(
+        version=version,
+        target=target,
+        gateway_url=gateway_url,
+        app_id=app_id,
+        command_dir=command_dir,
+    )
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for name, content in sorted(files.items()):
-            zf.writestr(name, content)
+        for name, file_content in sorted(files.items()):
+            zf.writestr(name, file_content)
     return output
 
 
 def main() -> None:
     load_local_public_url()
     parser = argparse.ArgumentParser(
-        description="Build a private ChatGPT plugin archive for one RemoteMCP gateway."
+        description="Build a private ChatGPT plugin archive for RemoteMCP."
+    )
+    parser.add_argument(
+        "--target",
+        choices=TARGETS,
+        default=TARGET_DESKTOP_DIRECT_MCP,
+        help=(
+            "desktop-direct-mcp embeds MCP manifests and is Desktop only; "
+            "web-app-ref references an existing eligible ChatGPT app and embeds no MCP manifest."
+        ),
     )
     parser.add_argument(
         "--url",
         default=os.environ.get("PUBLIC_URL", ""),
-        help="RemoteMCP public HTTPS origin, e.g. https://mcp.example.com",
+        help="RemoteMCP public HTTPS origin for desktop-direct-mcp.",
+    )
+    parser.add_argument(
+        "--app-id",
+        default=os.environ.get("REMOTEMCP_CHATGPT_APP_ID", ""),
+        help=(
+            "Existing eligible app id for web-app-ref "
+            "(asdk_app_*, connector_*, or templated_apps_*)."
+        ),
     )
     parser.add_argument(
         "--out",
         default="dist/remote-mcp-chatgpt-plugin.zip",
         help="Output ZIP path.",
     )
-    parser.add_argument("--version", default="1.2.0", help="Plugin package version.")
+    parser.add_argument("--version", default=DEFAULT_VERSION, help="Plugin package version.")
     args = parser.parse_args()
 
     try:
-        path = build_archive(args.url, Path(args.out), args.version)
+        path = build_archive(
+            Path(args.out),
+            target=args.target,
+            gateway_url=args.url,
+            app_id=args.app_id,
+            version=args.version,
+        )
     except ValueError as exc:
         parser.error(str(exc))
         return
