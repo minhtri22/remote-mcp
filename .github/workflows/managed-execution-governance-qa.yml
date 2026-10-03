@@ -11,6 +11,7 @@ on:
       - "tests/test_chatgpt_plugin_builder.py"
       - "tests/test_public_repo_hygiene.py"
       - "docs/REMOTEMCP_MANAGED_EXECUTION_IDENTITY_AND_PAIRING_GOVERNANCE_SKILL_PREFLIGHT_LOCK.md"
+      - "docs/REMOTEMCP_V2_WEB_CANONICAL_PLUGIN_IDENTITY_AND_SESSION_BINDING_PREFLIGHT.md"
       - ".github/workflows/managed-execution-governance-qa.yml"
   workflow_dispatch:
 
