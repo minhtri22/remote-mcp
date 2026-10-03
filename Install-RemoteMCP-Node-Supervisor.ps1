@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$RuntimeDir,
     [string]$SourceDir = $PSScriptRoot,
+    [Parameter(Mandatory=$true)]
+    [string]$NodeSourceDir,
     [switch]$StartNow,
     [switch]$PlanOnly,
     [ValidateSet("Auto","ScheduledTask","Startup")]
@@ -12,10 +14,14 @@ $ErrorActionPreference = "Stop"
 
 $RuntimeDir = (Resolve-Path $RuntimeDir).Path
 $SourceDir = (Resolve-Path $SourceDir).Path
+$NodeSourceDir = (Resolve-Path $NodeSourceDir).Path
 $Watchdog = Join-Path $SourceDir "Watch-RemoteMCP-Node.ps1"
 
 if (-not (Test-Path $Watchdog)) {
     throw "RemoteMCP node watchdog not found: $Watchdog"
+}
+if (-not (Test-Path (Join-Path $NodeSourceDir "remotemcp\node\__main__.py"))) {
+    throw "RemoteMCP node source not found under: $NodeSourceDir"
 }
 
 $DeviceFile = Join-Path $RuntimeDir "device.json"
@@ -37,7 +43,7 @@ $IdentitySnapshot = [ordered]@{
     route_generation = [string]$d.route_generation
 }
 
-$arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -RuntimeDir "{1}" -SourceDir "{2}"' -f $Watchdog,$RuntimeDir,$SourceDir
+$arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -RuntimeDir "{1}" -SourceDir "{2}" -NodeSourceDir "{3}"' -f $Watchdog,$RuntimeDir,$SourceDir,$NodeSourceDir
 
 function Get-WatchdogProcess {
     $watchdogEscaped = [Regex]::Escape($Watchdog)
@@ -119,6 +125,20 @@ Write-Host ("Requested persistence: {0}" -f $PersistenceMode)
 if ($PlanOnly) {
     Write-Host "REMOTEMCP_NODE_SUPERVISOR_PLAN_ONLY=PASS"
     return
+}
+
+$runtimeEscaped = [Regex]::Escape($RuntimeDir)
+$nodeProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -and
+    $_.CommandLine -match "remotemcp\.node" -and
+    $_.CommandLine -match "--runtime-dir" -and
+    $_.CommandLine -match $runtimeEscaped
+})
+if ($nodeProcesses.Count -ne 1) {
+    throw (
+        "Supervisor deployment requires exactly one existing node process for the exact runtime; " +
+        "found " + $nodeProcesses.Count + ". Resolve node-process ambiguity before installation."
+    )
 }
 
 $InstalledMode = $null
