@@ -82,3 +82,34 @@ def test_env_ignore_policy():
     assert ".env" in text
     assert ".env.*" in text
     assert "!.env.example" in text
+
+
+def test_public_text_does_not_contain_personal_account_or_email_markers():
+    patterns={
+        "named connected account": re.compile(r"\b[A-Za-z0-9._-]+['’]s RemoteDesktop account\b",re.I),
+        "non-example email": re.compile(
+            r"\b[A-Z0-9._%+-]+@(?!example\.com\b)[A-Z0-9.-]+\.[A-Z]{2,}\b",
+            re.I,
+        ),
+    }
+    hits=[]
+    for path in text_files():
+        text=path.read_text(encoding="utf-8",errors="ignore")
+        for name,rx in patterns.items():
+            if rx.search(text):
+                hits.append(f"{path.relative_to(ROOT)}: {name}")
+    assert not hits, "personal account metadata leaked:\n" + "\n".join(hits)
+
+
+def test_env_example_is_placeholder_only():
+    text=(ROOT/".env.example").read_text(encoding="utf-8")
+    required=(
+        "PUBLIC_URL=https://mcp.example.com",
+        "PORT=<GATEWAY_PORT>",
+        "MCP_ROOT=<WORKSPACE_ROOT>",
+        "MCP_STATE=<PRIVATE_STATE_FILE>",
+        "MCP_RUNTIME_DIR=<PRIVATE_RUNTIME_DIR>",
+        "REMOTEMCP_CHATGPT_APP_ID=<CHATGPT_APP_ID>",
+    )
+    for item in required:
+        assert item in text
