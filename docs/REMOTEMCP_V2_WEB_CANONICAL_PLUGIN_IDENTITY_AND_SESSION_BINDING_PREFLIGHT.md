@@ -8,7 +8,7 @@ Gate:
 
 Status:
 
-`SOURCE-STAGED — CROSS-PLATFORM QA AND LIVE PACKAGE PROPAGATION REQUIRED`
+`PASS — CANONICAL WEB IDENTITY AND SESSION-BINDING PREFLIGHT LOCKED`
 
 ## Trigger
 
@@ -93,3 +93,81 @@ This gate may be adjudicated PASS only when:
 - the remaining limitation of existing-conversation freshness is stated explicitly.
 
 No gateway/node restart, pairing, project mutation, or scientific job mutation belongs to this gate.
+
+
+## Executable QA lock
+
+GitHub Actions run:
+
+`37139777440`
+
+Results:
+
+- Ubuntu governance/package/public-hygiene suite: `38 passed`
+- Windows governance/package/public-hygiene suite: `38 passed`
+
+Frozen source identities:
+
+- `scripts/build_chatgpt_plugin.py`: `af219d1251216c493fd21e40513e3c33df94f30c`
+- `skills/remote-mcp/SKILL.md`: `299158fdefb514002d871c5e0b5f908c018106c0`
+- `skills/remote-mcp/managed_execution_policy.json`: `74eaf19179d48028462203fadc04da5a061a8449`
+- `scripts/managed_execution_preflight.py`: `9fd66928707e6f6e2576ecb3a0c464d5ca22fbfd`
+- `tests/test_chatgpt_plugin_builder.py`: `e7ef72a9b40edafa9152b34333588aaf36881e1c`
+- `tests/test_managed_execution_governance.py`: `254f8abba436aef36283b41cd6b41a3132b650a7`
+- `.github/workflows/managed-execution-governance-qa.yml`: `ca5e52d2ef6b5aa1a0df8496451952ee039c0452`
+
+Source lock merge commit:
+
+`4e6316d3e40533e287ab8090821722ffebfffa46`
+
+## Live private-package propagation
+
+Canonical Web package:
+
+- identity: `remote-mcp-v2-web-clean`
+- version: `1.5.2`
+- display name: `RemoteMCP V2 Web (Canonical)`
+- transport: app-backed
+- package contains `.app.json`
+- package does not contain `.mcp.json`
+- package does not contain `mcp.json`
+
+Legacy package:
+
+- identity: `remote-mcp-v2-web`
+- version: `1.4.3`
+- display name: `RemoteMCP V2 Web (Legacy Direct)`
+- legacy direct-MCP files remain present by design
+- it is explicitly non-canonical
+
+Both packages carry the same locked session-binding governance skill and machine-readable policy.
+
+## Live read-only smoke after propagation
+
+After the private-package updates:
+
+- both currently exposed linked-account handles successfully executed `device_list`;
+- both observed the same live RemoteMCP control plane;
+- `device_status` for the established execution node succeeded;
+- the execution node remained ONLINE with unchanged route generation;
+- no pairing, node restart, project mutation, task mutation, or scientific job relaunch was performed.
+
+This proves the underlying app connection and linked-account eligibility are healthy at gate close.
+
+## Fresh-conversation limitation
+
+An already-open ChatGPT conversation can retain stale plugin/tool attachment state after a private plugin release changes.
+
+This gate cannot turn the current conversation into a newly created conversation, so it does not claim that the exact stale thread which triggered the investigation has refreshed its UI attachment cache.
+
+The operational rule is therefore locked prospectively:
+
+- in a fresh conversation, select `RemoteMCP V2 Web (Canonical)`;
+- if the canonical plugin is unavailable/not installed or an eligible linked account cannot be resolved, classify the condition as `PLUGIN_SESSION_BINDING_FAILURE`;
+- do not remediate that condition by pairing, node restart, root widening, replacement project registration, or scientific-job relaunch.
+
+## Gate adjudication
+
+`REMOTEMCP_V2_WEB_CANONICAL_PLUGIN_IDENTITY_AND_SESSION_BINDING_PREFLIGHT = PASS`
+
+This is infrastructure/control-plane evidence and must not be appended to scientific `LINEAGE.md`.
