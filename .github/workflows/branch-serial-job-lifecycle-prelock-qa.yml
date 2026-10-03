@@ -1,0 +1,31 @@
+name: Branch serial job lifecycle prelock QA
+
+on:
+  pull_request:
+    paths:
+      - "specs/branch_serial_job_lifecycle_prelock.json"
+      - "docs/REMOTEMCP_BRANCH_SERIAL_JOB_LIFECYCLE_AND_PREDECESSOR_ADMISSION_PREREGISTRATION.md"
+      - "tests/test_branch_serial_job_lifecycle_prelock.py"
+      - "tests/test_public_repo_hygiene.py"
+      - ".github/workflows/branch-serial-job-lifecycle-prelock-qa.yml"
+  workflow_dispatch:
+
+jobs:
+  prelock-qa:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Prelock and public-hygiene QA
+        run: >-
+          python -m pytest -q
+          tests/test_branch_serial_job_lifecycle_prelock.py
+          tests/test_public_repo_hygiene.py
