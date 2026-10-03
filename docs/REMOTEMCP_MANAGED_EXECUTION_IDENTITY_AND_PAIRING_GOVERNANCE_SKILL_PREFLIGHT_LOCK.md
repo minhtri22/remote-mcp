@@ -8,7 +8,7 @@ Gate:
 
 Status:
 
-`SOURCE-STAGED — CROSS-PLATFORM QA REQUIRED — NOT YET LOCKED`
+`PASS — GOVERNANCE SKILL PREFLIGHT LOCKED`
 
 ## Problem
 
@@ -81,3 +81,39 @@ This gate may be adjudicated PASS only when:
 - no execution device, project, task, job, or production gateway is mutated by this gate.
 
 Only after PASS may the already-open node supervisor maintenance deployment/drill continue.
+
+
+## Executable QA lock
+
+GitHub Actions workflow:
+
+- name: `Managed execution governance preflight QA`
+- run id: `37134310904`
+- Windows conclusion: `success`
+- Ubuntu conclusion: `success`
+- Windows targeted suite: `31 passed`
+- Ubuntu targeted suite: `31 passed`
+
+Frozen source identities:
+
+- `skills/remote-mcp/SKILL.md`: `eadf3109611a8aadbf6731f3d177b1d96c777729`
+- `skills/remote-mcp/managed_execution_policy.json`: `8287dbe3a1a6e8ceb036ce2d4c818405cf105116`
+- `scripts/managed_execution_preflight.py`: `348827da50433ad909cf27cb224f9eb3caef58f6`
+- `scripts/build_chatgpt_plugin.py`: `44ccb353d82e97f49005222a305c42f11463d30e`
+- `tests/test_managed_execution_governance.py`: `1fce6b25eea0be62ba0dad492debb16e88bc0f64`
+- `tests/test_chatgpt_plugin_builder.py`: `cce1f17ab177d87e1c8581d6c7d749a0fe7865dc`
+- `.github/workflows/managed-execution-governance-qa.yml`: `791f06143ae78a96e98df86c8c4c31e498e927ba`
+
+The QA proved that both Desktop direct-MCP and Web app-backed package targets contain the exact audited skill and machine-readable policy, while the Web app-backed identity guard still refuses a Desktop target.
+
+Any change to the frozen skill, policy, evaluator, plugin builder, or governance tests requires this gate's QA again.
+
+No production gateway, device identity, project, task, routed job, or scientific run was mutated while establishing this lock.
+
+## Gate adjudication
+
+`REMOTEMCP_MANAGED_EXECUTION_IDENTITY_AND_PAIRING_GOVERNANCE_SKILL_PREFLIGHT_LOCK = PASS`
+
+The next valid infrastructure gate is:
+
+`REMOTEMCP_MACHINE1_SELF_HEALING_NODE_SUPERVISOR_MAINTENANCE_DEPLOYMENT_AND_CONTROLLED_RECOVERY_DRILL`
