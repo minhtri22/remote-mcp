@@ -85,3 +85,22 @@ def test_device_read_paths_do_not_wait_on_immediate_writer_lock(
     finally:
         writer.execute("ROLLBACK")
         writer.close()
+
+
+def test_background_offline_writer_survives_transient_db_busy(
+    make_gateway,monkeypatch
+):
+    async def run():
+        bundle=make_gateway()
+
+        def busy_once():
+            bundle.routing._stop.set()
+            raise DurableError("DB_BUSY","database is locked")
+
+        monkeypatch.setattr(bundle.routing.devices,"sweep_offline",busy_once)
+
+        # DB_BUSY is an expected transient writer collision. It must not kill
+        # the routing loop with an exception.
+        await bundle.routing._loop()
+
+    asyncio.run(run())
