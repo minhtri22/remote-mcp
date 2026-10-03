@@ -278,3 +278,41 @@ def test_web_identity_still_builds_only_app_backed(tmp_path):
         native = json.loads(z.read(".codex-plugin/plugin.json"))
         assert native["apps"] == "./.app.json"
         assert "mcpServers" not in native
+
+
+def test_packaged_skill_and_policy_are_exact_audited_sources(tmp_path):
+    b = _load_builder()
+    source_skill = (ROOT / "skills" / "remote-mcp" / "SKILL.md").read_text(encoding="utf-8")
+    source_policy = (
+        ROOT / "skills" / "remote-mcp" / "managed_execution_policy.json"
+    ).read_text(encoding="utf-8")
+
+    for target, kwargs in (
+        (
+            b.TARGET_DESKTOP_DIRECT_MCP,
+            {"gateway_url": "https://example.com"},
+        ),
+        (
+            b.TARGET_WEB_APP_REF,
+            {"app_id": "asdk_app_example"},
+        ),
+    ):
+        out = b.build_archive(
+            tmp_path / f"{target}.zip",
+            target=target,
+            version="9.9.9",
+            **kwargs,
+        )
+        with zipfile.ZipFile(out) as z:
+            assert z.read("skills/remote-mcp/SKILL.md").decode() == source_skill
+            assert (
+                z.read("skills/remote-mcp/managed_execution_policy.json").decode()
+                == source_policy
+            )
+
+
+def test_builder_no_longer_embeds_skill_governance_text():
+    builder = (ROOT / "scripts" / "build_chatgpt_plugin.py").read_text(encoding="utf-8")
+    assert 'SKILL_PATH = REPO_ROOT / "skills" / "remote-mcp" / "SKILL.md"' in builder
+    assert "load_skill" in builder
+    assert "A pairing ticket is capability material" not in builder
