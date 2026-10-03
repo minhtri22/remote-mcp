@@ -79,7 +79,19 @@ An app reference does **not** create an app and does not grant access.
 
 The referenced app must already exist and be available to the current ChatGPT account/workspace. Authentication and action permissions remain those of the referenced app.
 
-For personal Plus/Pro accounts, full custom MCP Apps with write/modify actions are not currently available through the Business/Enterprise Developer Mode path. A ChatGPT Site-hosted MCP plugin is the plan-independent web-capable path documented by OpenAI.
+Current account evidence (2026-10-03):
+
+- ChatGPT Sites can host MCP tools implemented by the Site itself;
+- the available Sites capability for this account could not attach the existing RemoteMCP endpoint with its existing OAuth flow;
+- Sites reported that the required connector-eligibility capability was unavailable and that only allowed plugins may be used;
+- therefore a Site is **not** a valid bridge to the existing RemoteMCP deployment for this account;
+- no Site, app, plugin, or credential was created during that attempt.
+
+This is an account/capability boundary, not a RemoteMCP server failure.
+
+Do not present ChatGPT Sites as a default bridge for the existing RemoteMCP endpoint unless an actual account/workspace exposes the required external-MCP connection capability and that capability is verified before packaging.
+
+For full custom MCP apps with write/modify actions, the currently documented ChatGPT route is Business/Enterprise/Edu Developer Mode. Pro can have more limited custom-MCP access, but that does not satisfy RemoteMCP's full write/execute surface. A personal Plus account should not be assumed to have a web-capable external-MCP app-creation path.
 
 Therefore this prelock does not invent or hard-code an app ID.
 
@@ -87,7 +99,7 @@ Therefore this prelock does not invent or hard-code an app ID.
 
 The currently installed RemoteMCP V2 private plugin remains unchanged until all of the following are true:
 
-1. an eligible real app/Site-backed app exists;
+1. an eligible real app exists;
 2. its exact app ID is captured;
 3. a `web-app-ref` package is built from the frozen builder;
 4. package inspection confirms no `mcp.json` or `.mcp.json`;
@@ -144,4 +156,6 @@ This migration does not:
 - change project/task routing;
 - modify scientific jobs;
 - create a replacement app ID;
+- attempt to bypass ChatGPT plan/workspace app eligibility;
+- claim Sites can bridge an external MCP endpoint unless that capability is actually available;
 - claim web compatibility before an actual web verification succeeds.
