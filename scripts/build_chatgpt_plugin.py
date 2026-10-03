@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMMANDS_DIR = REPO_ROOT / "commands"
+SKILL_PATH = REPO_ROOT / "skills" / "remote-mcp" / "SKILL.md"
+SKILL_POLICY_PATH = REPO_ROOT / "skills" / "remote-mcp" / "managed_execution_policy.json"
 
 PLUGIN_NAME = "remote-mcp-v2bd"
 DISPLAY_NAME = "RemoteMCP V2"
@@ -112,34 +114,28 @@ def _interface(display_name: str = DISPLAY_NAME) -> dict:
     }
 
 
-def _skill() -> str:
-    return """---
-name: remote-mcp
-description: Use the full RemoteMCP V2 surface, including multi-device execution routing.
----
+def load_skill(
+    skill_path: Path = SKILL_PATH,
+    policy_path: Path = SKILL_POLICY_PATH,
+) -> dict[str, str]:
+    if not skill_path.is_file():
+        raise ValueError(f"RemoteMCP skill source not found: {skill_path}")
+    if not policy_path.is_file():
+        raise ValueError(f"RemoteMCP skill policy not found: {policy_path}")
 
-Use `device_list` and `device_status` to inspect execution nodes.
-If no execution devices are paired, local project tools may be used on the gateway.
-For multi-device work, use `project_register_on_device` or `project_bind_device` to choose placement.
-Before registering a project again, reuse an existing project/task when the user or prior context already identifies it.
-Tasks inherit immutable project-to-device placement; do not try to override a task's device.
-Use `task_read_file`, CAS mutation tools, and `task_job_*` for routed task work.
-Legacy `run_command`, `read_file`, and `write_file` are gateway-local compatibility tools and are not evidence of execution routing.
-When managed projects exist, prefer task-scoped tools over legacy execution/mutation tools.
+    skill = skill_path.read_text(encoding="utf-8")
+    policy = policy_path.read_text(encoding="utf-8")
 
-Operator commands:
-- `/status`: show a compact gateway/device health summary.
-- `/devices`: list all gateway-visible execution devices using `device_list`.
-- `/restart <device>`: restart one execution node using `device_restart`.
-  If more than one device exists and no target is supplied, ask the user to choose; never guess.
-  If the target reports active routed jobs, do not set `allow_active_jobs=true` without explicit user confirmation.
-  After restart, verify the same device_id, fingerprint, and route_generation.
-- `/restart gateway`: explain that an unresponsive gateway cannot restart itself through the same MCP endpoint; use the host/out-of-band restart path instead.
+    if not skill.startswith("---\n") or "\nname: remote-mcp\n" not in skill:
+        raise ValueError("RemoteMCP skill source is missing required frontmatter")
+    parsed_policy = json.loads(policy)
+    if parsed_policy.get("schema") != "remotemcp.managed-execution-governance.v1":
+        raise ValueError("RemoteMCP managed execution policy schema mismatch")
 
-There is no `/deviceList` alias. Use `/devices`.
-
-If a client does not expose a native slash-command picker but sends these strings as ordinary chat text, follow the same semantics.
-"""
+    return {
+        "skills/remote-mcp/SKILL.md": skill,
+        "skills/remote-mcp/managed_execution_policy.json": policy,
+    }
 
 
 def package_files(
@@ -173,9 +169,7 @@ def package_files(
     }
     portable_openai = {"interface": interface}
 
-    files = {
-        "skills/remote-mcp/SKILL.md": _skill(),
-    }
+    files = load_skill()
 
     if target == TARGET_DESKTOP_DIRECT_MCP:
         mcp_url = normalize_mcp_url(gateway_url)
