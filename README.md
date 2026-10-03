@@ -530,9 +530,14 @@ The staged fix:
 - keeps the background writer alive across transient `DB_BUSY` collisions;
 - adds regression coverage for writer-lock contention and fail-closed stale-device handling.
 
-Static preflight and an isolated SQLite WAL contention harness passed. Full repository pytest remains pending because external QA runners were unavailable; this source change is **not deployed** yet.
+Static preflight and an isolated SQLite WAL contention harness passed.
 
-Detailed record: [docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md](docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md).
+Executable QA subsequently passed on Windows for the targeted read-path tests plus the full V2-BD, V2-B, V2-A, and frozen V2-0 regression suites. The exact source identity is deployment-locked; production deployment/restart remains a separate maintenance action.
+
+Records:
+
+- [static preflight](docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md)
+- [executable QA and deployment lock](docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_EXECUTABLE_QA_AND_DEPLOYMENT_LOCK.md)
 
 ### Staged operator/recovery UX (source-next, not yet deployed)
 
