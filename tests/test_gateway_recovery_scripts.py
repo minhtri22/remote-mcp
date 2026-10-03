@@ -8,6 +8,7 @@ def test_gateway_recovery_scripts_are_out_of_band_and_state_preserving():
     configure=(ROOT/"Configure-RemoteMCP-Gateway.ps1").read_text(encoding="utf-8")
     start=(ROOT/"Start-RemoteMCP-Gateway.ps1").read_text(encoding="utf-8")
     restart=(ROOT/"Restart-RemoteMCP-Gateway.ps1").read_text(encoding="utf-8")
+    update=(ROOT/"Update-RemoteMCP-Gateway.ps1").read_text(encoding="utf-8")
     watchdog=(ROOT/"Watch-RemoteMCP-Gateway.ps1").read_text(encoding="utf-8")
     status=(ROOT/"Test-RemoteMCP-Gateway.ps1").read_text(encoding="utf-8")
 
@@ -34,6 +35,20 @@ def test_gateway_recovery_scripts_are_out_of_band_and_state_preserving():
     assert "restart threshold reached" in watchdog
     assert ".well-known/oauth-authorization-server" in status
 
+    assert "Invoke-IsolatedGatewayReleaseProbe" in update
+    assert "REMOTEMCP_GATEWAY_RELEASE_PROBE=PASS" in update
+    assert "REMOTEMCP_GATEWAY_UPDATE_PREFLIGHT_ONLY=PASS" in update
+    assert "diagnostic.invalid" in update
+    assert "Get-FreeLoopbackPort" in update
+    assert update.index("if ($PreflightOnly)") < update.index("$BackupFile =")
+
+    assert "gateway-upgrade-failed-" in update
+    assert "Copy-Item -Force $LiveErrFile $SavedLiveErr" in update
+
+    assert '$RollbackStarter = Join-Path $NewSource "Start-RemoteMCP-Gateway.ps1"' in update
+    assert "& $RollbackStarter -Restart -HealthTimeoutSec $HealthTimeoutSec" in update
+    assert "OldRestart" not in update
+
 
 def test_gateway_recovery_does_not_pair_or_revoke_devices():
     combined="\n".join(
@@ -42,6 +57,7 @@ def test_gateway_recovery_does_not_pair_or_revoke_devices():
             "Configure-RemoteMCP-Gateway.ps1",
             "Start-RemoteMCP-Gateway.ps1",
             "Restart-RemoteMCP-Gateway.ps1",
+            "Update-RemoteMCP-Gateway.ps1",
             "Watch-RemoteMCP-Gateway.ps1",
             "Test-RemoteMCP-Gateway.ps1",
         )

@@ -2,7 +2,8 @@ param(
     [string]$SourceRepo = $PSScriptRoot,
     [string]$Ref = "origin/main",
     [int]$HealthTimeoutSec = 5,
-    [switch]$SkipFetch
+    [switch]$SkipFetch,
+    [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,8 +11,96 @@ $ProgressPreference = "SilentlyContinue"
 
 $Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
 $ConfigFile = Join-Path $Base "gateway-config.json"
+$LiveLogFile = Join-Path $Base "gateway.log"
+$LiveErrFile = Join-Path $Base "gateway-error.log"
+
 if (-not (Test-Path $ConfigFile)) {
     throw "RemoteMCP gateway is not configured: $ConfigFile"
+}
+
+function Get-FreeLoopbackPort {
+    $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback,0)
+    try {
+        $listener.Start()
+        return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        try { $listener.Stop() } catch {}
+    }
+}
+
+function Invoke-IsolatedGatewayReleaseProbe {
+    param(
+        [string]$PythonExe,
+        [string]$SourceDir,
+        [string]$ReleaseShort,
+        [int]$TimeoutSec
+    )
+
+    $ProbeBase = Join-Path $env:TEMP ("remotemcp-gateway-probe-" + [guid]::NewGuid().ToString("N"))
+    $ProbeRoot = Join-Path $ProbeBase "workspace"
+    $ProbeRuntime = Join-Path $ProbeBase "runtime"
+    $ProbeState = Join-Path $ProbeBase "oauth-state.json"
+    $ProbeOut = Join-Path $ProbeBase "stdout.log"
+    $ProbeErr = Join-Path $ProbeBase "stderr.log"
+    New-Item -ItemType Directory -Force -Path $ProbeRoot,$ProbeRuntime | Out-Null
+
+    $Port = Get-FreeLoopbackPort
+    $Names = @(
+        "PUBLIC_URL","OWNER_PASSWORD","MCP_ROOT","MCP_STATE","MCP_RUNTIME_DIR",
+        "ALLOWED_REDIRECT_HOSTS","PORT"
+    )
+    $Saved = @{}
+    foreach ($Name in $Names) {
+        $Saved[$Name] = [Environment]::GetEnvironmentVariable($Name,"Process")
+    }
+
+    $Process = $null
+    try {
+        [Environment]::SetEnvironmentVariable("PUBLIC_URL","https://diagnostic.invalid","Process")
+        [Environment]::SetEnvironmentVariable("OWNER_PASSWORD","diagnostic-password-only","Process")
+        [Environment]::SetEnvironmentVariable("MCP_ROOT",$ProbeRoot,"Process")
+        [Environment]::SetEnvironmentVariable("MCP_STATE",$ProbeState,"Process")
+        [Environment]::SetEnvironmentVariable("MCP_RUNTIME_DIR",$ProbeRuntime,"Process")
+        [Environment]::SetEnvironmentVariable("ALLOWED_REDIRECT_HOSTS","chatgpt.com,localhost,127.0.0.1","Process")
+        [Environment]::SetEnvironmentVariable("PORT",[string]$Port,"Process")
+
+        $Process = Start-Process -FilePath $PythonExe -ArgumentList @("server.py") -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $ProbeOut -RedirectStandardError $ProbeErr -PassThru
+
+        $Deadline = (Get-Date).AddSeconds([Math]::Max(15,$TimeoutSec * 4))
+        $Healthy = $false
+        do {
+            Start-Sleep -Milliseconds 500
+            if ($Process.HasExited) { break }
+            try {
+                $r = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:{0}/.well-known/oauth-authorization-server" -f $Port) -TimeoutSec $TimeoutSec
+                $Healthy = ($r.StatusCode -eq 200)
+            } catch {}
+        } while (-not $Healthy -and (Get-Date) -lt $Deadline)
+
+        if (-not $Healthy) {
+            $Stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+            $PreservedOut = Join-Path $Base ("gateway-upgrade-probe-failed-" + $ReleaseShort + "-" + $Stamp + ".stdout.log")
+            $PreservedErr = Join-Path $Base ("gateway-upgrade-probe-failed-" + $ReleaseShort + "-" + $Stamp + ".stderr.log")
+            if (Test-Path $ProbeOut) { Copy-Item -Force $ProbeOut $PreservedOut }
+            if (Test-Path $ProbeErr) { Copy-Item -Force $ProbeErr $PreservedErr }
+            $ExitText = if ($Process.HasExited) { [string]$Process.ExitCode } else { "still-running-unhealthy" }
+            throw ("Isolated gateway release startup probe failed; exit=" + $ExitText + "; stdout=" + $PreservedOut + "; stderr=" + $PreservedErr)
+        }
+
+        Write-Host "REMOTEMCP_GATEWAY_RELEASE_PROBE=PASS"
+        Write-Host ("Probe commit short : {0}" -f $ReleaseShort)
+        Write-Host ("Probe loopback port: {0}" -f $Port)
+    } finally {
+        if ($Process -and -not $Process.HasExited) {
+            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+        }
+        foreach ($Name in $Names) {
+            [Environment]::SetEnvironmentVariable($Name,$Saved[$Name],"Process")
+        }
+        if (Test-Path $ProbeBase) {
+            Remove-Item -Recurse -Force $ProbeBase -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 $SourceRepo = (Resolve-Path $SourceRepo).Path
@@ -72,11 +161,7 @@ if (Test-Path $NewSource) {
             created_at = (Get-Date).ToString("o")
             source_repo = $SourceRepo
         }
-        [IO.File]::WriteAllText(
-            (Join-Path $Tmp ".remotemcp-release.json"),
-            ($markerObj | ConvertTo-Json -Depth 4),
-            (New-Object Text.UTF8Encoding($false))
-        )
+        [IO.File]::WriteAllText((Join-Path $Tmp ".remotemcp-release.json"),($markerObj | ConvertTo-Json -Depth 4),(New-Object Text.UTF8Encoding($false)))
         Move-Item -Path $Tmp -Destination $NewSource
     } finally {
         if (Test-Path $Tmp) { Remove-Item -Recurse -Force $Tmp }
@@ -89,12 +174,20 @@ if (-not (Test-Path $PythonExe)) { throw "Configured gateway Python is missing: 
 & $PythonExe -m py_compile (Join-Path $NewSource "server.py") (Join-Path $NewSource "oauth_provider.py")
 if ($LASTEXITCODE -ne 0) { throw "New release Python syntax preflight failed" }
 
-# Validate that the configured environment can import the gateway dependencies
-# before touching the live process.
 & $PythonExe -c "import mcp,uvicorn,httpx,cryptography"
 if ($LASTEXITCODE -ne 0) { throw "Configured gateway Python dependency preflight failed" }
 
-$BackupFile = Join-Path $Base ("gateway-config.pre-upgrade-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".json")
+Invoke-IsolatedGatewayReleaseProbe -PythonExe $PythonExe -SourceDir $NewSource -ReleaseShort $Short -TimeoutSec $HealthTimeoutSec
+
+if ($PreflightOnly) {
+    Write-Host "REMOTEMCP_GATEWAY_UPDATE_PREFLIGHT_ONLY=PASS"
+    Write-Host "Commit : $Commit"
+    Write-Host "Release: $NewSource"
+    Write-Host "Live gateway configuration and process were not changed."
+    exit 0
+}
+
+$BackupFile = Join-Path $Base ("gateway-config.pre-upgrade-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".json")
 Copy-Item -Force $ConfigFile $BackupFile
 
 $cfg.source_dir = $NewSource
@@ -128,11 +221,37 @@ try {
     Write-Host "Gateway durable runtime/state/device identities were reused."
     Write-Host "Execution nodes were not restarted."
 } catch {
-    Write-Warning ("Upgrade failed; rolling gateway source_dir back to: " + $OldSourceResolved)
+    $UpgradeFailure = $_
+    $Stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+    $SavedLiveOut = Join-Path $Base ("gateway-upgrade-failed-" + $Short + "-" + $Stamp + ".stdout.log")
+    $SavedLiveErr = Join-Path $Base ("gateway-upgrade-failed-" + $Short + "-" + $Stamp + ".stderr.log")
+
+    if (Test-Path $LiveLogFile) { Copy-Item -Force $LiveLogFile $SavedLiveOut }
+    if (Test-Path $LiveErrFile) { Copy-Item -Force $LiveErrFile $SavedLiveErr }
+
+    Write-Warning ("Upgrade failed; preserved stdout: " + $SavedLiveOut)
+    Write-Warning ("Upgrade failed; preserved stderr: " + $SavedLiveErr)
+    Write-Warning ("Rolling gateway source_dir back to: " + $OldSourceResolved)
+
     Copy-Item -Force $BackupFile $ConfigFile
-    $OldRestart = Join-Path $OldSourceResolved "Restart-RemoteMCP-Gateway.ps1"
-    if (Test-Path $OldRestart) {
-        try { & $OldRestart } catch { Write-Warning ("Rollback restart also failed: " + $_.Exception.Message) }
+
+    $RollbackStarter = Join-Path $NewSource "Start-RemoteMCP-Gateway.ps1"
+    $RollbackFailure = $null
+    if (Test-Path $RollbackStarter) {
+        try {
+            & $RollbackStarter -Restart -HealthTimeoutSec $HealthTimeoutSec
+        } catch {
+            $RollbackFailure = $_.Exception.Message
+            Write-Warning ("Rollback restart also failed: " + $RollbackFailure)
+        }
+    } else {
+        $RollbackFailure = "candidate release is missing Start-RemoteMCP-Gateway.ps1"
+        Write-Warning ("Rollback restart also failed: " + $RollbackFailure)
     }
-    throw
+
+    if ($RollbackFailure) {
+        throw ("Gateway upgrade failed: " + $UpgradeFailure.Exception.Message + "; rollback restart failed: " + $RollbackFailure + "; preserved stderr: " + $SavedLiveErr)
+    }
+
+    throw $UpgradeFailure
 }
