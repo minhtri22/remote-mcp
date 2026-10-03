@@ -1,8 +1,68 @@
-# remote-mcp
+# RemoteMCP
 
-RemoteMCP is a local MCP server for securely exposing a bounded workspace to authorized AI clients.
+> Self-hosted MCP gateway and routed execution runtime for securely operating bounded workspaces from authorized AI clients.
 
-The current baseline provides OAuth-protected filesystem/search tools and allowlisted command execution. The v2 program evolves this into a durable multi-agent runtime with idempotent retry, persistent long-running jobs, task/lease coordination, Git worktree isolation, an append-only journal, and compact resume context.
+## About
+
+RemoteMCP provides an OAuth-protected MCP control plane for filesystem access, allowlisted command execution, durable jobs, multi-agent task coordination, CAS-safe mutation, Git worktree isolation, and explicit multi-device routing.
+
+The project is designed around three principles:
+
+- **self-hosted by default** — deployment URL, workspace roots, OAuth state, runtime state, and device identities remain under the operator's control;
+- **fail closed** — no silent task migration, replacement pairing, or bypass of task/lease/CAS rules;
+- **public-source safe** — the repository contains placeholders only for deployment-specific values; real domains, machine names, IDs, local paths, and credentials stay in ignored local configuration.
+
+Current ChatGPT integration supports an app-backed Web wrapper and a separate direct-MCP Desktop package. The public repository never embeds a private deployment endpoint or a real ChatGPT app/plugin identifier.
+
+## Architecture
+
+```text
+                         ┌──────────────────────────────┐
+                         │       Authorized client      │
+                         │  ChatGPT Web / Desktop / MCP │
+                         └──────────────┬───────────────┘
+                                        │
+                    ┌───────────────────┴───────────────────┐
+                    │                                       │
+          Web: app-backed wrapper                Desktop: direct MCP
+             (.app.json)                         (.mcp.json / mcp.json)
+                    │                                       │
+                    └───────────────────┬───────────────────┘
+                                        │
+                              HTTPS + OAuth + MCP
+                                        │
+                         ┌──────────────▼──────────────┐
+                         │       RemoteMCP Gateway     │
+                         │ OAuth / registry / routing  │
+                         │ projects / tasks / journal │
+                         └───────┬───────────┬─────────┘
+                                 │           │
+                         gateway-local   routed control
+                         compatibility       plane
+                                 │           │
+                                 │     outbound-only nodes
+                                 │       ┌────┴────┐
+                                 │       │         │
+                                 ▼       ▼         ▼
+                            local work  node A    node B
+                                      project(s) project(s)
+                                          │         │
+                                          └── tasks ┘
+                                              │
+                                   read / CAS / durable jobs
+```
+
+Routing is explicit:
+
+```text
+device
+  ↓
+project binding
+  ↓
+task inherits immutable placement
+  ↓
+task-scoped read / CAS / durable execution
+```
 
 ## Current baseline
 
@@ -55,7 +115,7 @@ V2-BD routed multi-device tools:
 - [ChatGPT private-plugin package setup](docs/CHATGPT_PLUGIN_SETUP.md)
   - Web verification: `RemoteMCP V2 Web` v1.3.0 app-backed packaging passed a fresh ChatGPT Web `device_list` call on 2026-10-03.
   - Desktop: `desktop-direct-mcp` keeps direct MCP manifests and is expected to be Desktop only.
-  - Web: `web-app-ref` contains `.app.json`, contains no direct MCP manifest, and requires an existing eligible ChatGPT App / Site-backed app ID.
+  - Web: `web-app-ref` contains `.app.json`, contains no direct MCP manifest, and requires an existing eligible ChatGPT App ID.
 - [Gateway timeout recovery and watchdog](docs/GATEWAY_RECOVERY.md)
 
 ### ChatGPT operator commands
@@ -150,11 +210,51 @@ job_result
 
 This allows llama/Ollama/evaluation jobs to continue through browser disconnects or OAuth reconnects.
 
+## Releases
+
+The repository currently uses source commits and qualification records as the authoritative development history.
+
+GitHub Release assets are intentionally not required for a self-hosted deployment. When formal releases are published, they must be reproducible from a tagged public commit and must contain **no deployment-specific configuration**.
+
+Public release notes may include:
+
+- source commit/tag;
+- feature and compatibility summary;
+- migration requirements;
+- qualification/test verdicts;
+- generic upgrade/rollback instructions using placeholders.
+
+They must not include real domains, machine names, device/session IDs, local filesystem paths, OAuth/client identifiers, connected-account names, or credentials.
+
+## Packages
+
+RemoteMCP does not require a central hosted package or service.
+
+ChatGPT plugin archives are built locally from public source:
+
+```powershell
+# Desktop direct-MCP package
+$env:PUBLIC_URL = "https://mcp.example.com"
+python scripts/build_chatgpt_plugin.py `
+  --target desktop-direct-mcp
+
+# Web app-backed wrapper
+$env:REMOTEMCP_CHATGPT_APP_ID = "<CHATGPT_APP_ID>"
+python scripts/build_chatgpt_plugin.py `
+  --target web-app-ref `
+  --plugin-name remote-mcp-v2-web `
+  --display-name "RemoteMCP V2 Web"
+```
+
+Generated archives belong under local build output such as `dist/` and should not contain OAuth tokens, owner passwords, device keys, pairing secrets, real runtime paths, or private deployment URLs unless the operator is intentionally building a private local artifact.
+
+GitHub Packages is optional and is not required by the runtime.
+
 ## Security
 
 Do not commit passwords, OAuth state files, tokens, job environment secrets, generated worktrees/logs, private deployment hostnames, physical machine names, device/session identifiers, or machine-specific filesystem paths.
 
-Private deployment metadata belongs in the local gitignored `.env` file. Copy `.env.example` and set values such as `PUBLIC_URL`, `MCP_ROOT`, `MCP_STATE`, `MCP_RUNTIME_DIR`, and optional qualification host/path variables there. `OWNER_PASSWORD` must not be stored in `.env`; the Windows gateway configurator stores it separately with DPAPI.
+Private deployment metadata belongs in the local gitignored `.env` file. Copy `.env.example` and replace only placeholder values locally; never commit the populated file. Variables include `PUBLIC_URL`, `PORT`, `MCP_ROOT`, `MCP_STATE`, `MCP_RUNTIME_DIR`, redirect hosts, qualification paths, and optional ChatGPT app references. `OWNER_PASSWORD` must not be stored in `.env`; the Windows gateway configurator stores it separately with DPAPI.
 
 Public docs/specs use placeholders such as `https://mcp.example.com`, `MACHINE_A_HOST`, and `<PRIVATE_STATE_ROOT>`.
 
@@ -240,7 +340,7 @@ Known limitations / next-phase boundaries:
 - Context Broker/resume packages are not implemented yet.
 - native MCP Tasks integration is deferred to V2-D.
 - legacy `write_file/edit_file` remain compatibility tools; durable multi-agent file mutation requires a prospectively locked CAS/workspace-isolation contract rather than silently changing them.
-- this repository closure does **not** automatically replace the currently running production process on port 8099; deployment/connector refresh is a separate operational action.
+- this repository closure does **not** automatically replace the currently running production gateway process; deployment/connector refresh is a separate operational action.
 
 Detailed evidence: `docs/V2_A_IMPLEMENTATION_AND_QUALIFICATION.md`.
 
@@ -279,7 +379,7 @@ Qualification evidence:
 - two-writer CAS race exactly-one-commit: **PASS**;
 - worktree crash recovery with no duplicate worktree: **PASS**;
 - durable job survives takeover; stale token rejected; current claimant cancellation succeeds: **PASS**;
-- production port 8099 remained on PID **28464** throughout final QA.
+- production gateway remained on port `<GATEWAY_PORT>` with the expected process identity throughout final QA.
 - qualification harness uses the frozen **120-second task lease TTL**; takeover/expiry cases use controlled expiry injection rather than an out-of-contract short TTL.
 
 Security/recovery notes:
@@ -305,17 +405,17 @@ Deployed: 2026-09-30.
 
 Operational cutover:
 
-- previous production: `<PRIVATE_PREVIOUS_RELEASE_ROOT>`, PID **28464**, port **8099**;
-- release snapshot: `<PRIVATE_RELEASE_ROOT>\\673d09f`;
+- previous production: `<PREVIOUS_RELEASE_ROOT>`, PID `<PREVIOUS_GATEWAY_PID>`, port `<GATEWAY_PORT>`;
+- release snapshot: `<RELEASE_ROOT>\\<RELEASE_ID>`;
 - release source commit: `673d09fc74c8a248ca52cfab7bf47dd68226f9b8`;
-- current production PID: **11372** on `127.0.0.1:8099`;
-- persistent OAuth state: `<PRIVATE_STATE_ROOT>\\oauth-state.json`;
-- persistent V2 runtime: `<PRIVATE_STATE_ROOT>\\runtime`;
-- rollback source/state snapshot retained under `<PRIVATE_BACKUP_ROOT>\\pre-v2b`.
+- current production PID: `<GATEWAY_PID>` on `127.0.0.1:<GATEWAY_PORT>`;
+- persistent OAuth state: `<PRIVATE_STATE_FILE>`;
+- persistent V2 runtime: `<PRIVATE_RUNTIME_DIR>`;
+- rollback source/state snapshot retained under `<PRIVATE_BACKUP_ROOT>`.
 
 Release gates:
 
-- isolated production-like boot on port 8101: **PASS**;
+- isolated production-like boot on `<QUALIFICATION_PORT>`: **PASS**;
 - OAuth metadata: **PASS**;
 - unauthenticated `/mcp` Bearer challenge: **401 PASS**;
 - runtime schema migrations: **[1, 2] PASS**;
@@ -323,7 +423,7 @@ Release gates:
 - public `https://mcp.example.com` smoke after cutover: **PASS**;
 - production runtime currently has **0 registered V2-B projects**, so managed mode has not yet disabled compatibility execution tools.
 
-The tunnel was not repointed; it continues forwarding to local port 8099. No V2-B project should be registered until the consuming client refreshes the 32-tool schema and is ready to use task-scoped execution, because registering the first managed project intentionally disables legacy `run_command` and direct `job_submit`.
+The tunnel was not repointed; it continues forwarding to local `<GATEWAY_PORT>` configured outside the public repository. No V2-B project should be registered until the consuming client refreshes the 32-tool schema and is ready to use task-scoped execution, because registering the first managed project intentionally disables legacy `run_command` and direct `job_submit`.
 
 Release evidence: `docs/V2_B_PRODUCTION_RELEASE_2026-09-30.md`.
 
