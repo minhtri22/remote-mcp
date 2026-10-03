@@ -2,6 +2,7 @@
   "schema": "remotemcp.managed-execution-governance.v1",
   "mode": "fail-closed",
   "mandatory_preflight_before": [
+    "chatgpt_web_session_binding",
     "device_pair_begin",
     "device_revoke",
     "device_restart",
@@ -58,5 +59,27 @@
   "infrastructure": {
     "use_scientific_task_as_transport": false,
     "append_to_scientific_lineage_by_default": false
+  },
+  "plugin_session_binding": {
+    "canonical_web_plugin_name": "remote-mcp-v2-web-clean",
+    "legacy_web_plugin_name": "remote-mcp-v2-web",
+    "canonical_web_transport": "app-backed",
+    "legacy_web_transport": "direct-mcp",
+    "canonical_display_must_differ_from_legacy": true,
+    "canonical_package_forbidden_files": [
+      ".mcp.json",
+      "mcp.json"
+    ],
+    "failure_decision": "PLUGIN_SESSION_BINDING_FAILURE",
+    "node_repair_actions_forbidden": [
+      "pair",
+      "re-pair",
+      "revoke-replace",
+      "node-restart",
+      "root-widening",
+      "replacement-project-register",
+      "scientific-job-relaunch"
+    ],
+    "fresh_conversation_required_for_final_session_smoke_after_release_change": true
   }
 }
