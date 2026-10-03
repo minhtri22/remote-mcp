@@ -39,13 +39,23 @@ function Read-Identity([string]$Runtime) {
     }
 }
 
-function Get-NodeProcess([string]$Runtime) {
+function Get-NodeProcesses([string]$Runtime) {
     $escaped = [Regex]::Escape($Runtime)
     return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
         $_.CommandLine -and
         $_.CommandLine -match "remotemcp\.node" -and
         $_.CommandLine -match "--runtime-dir" -and
         $_.CommandLine -match $escaped
+    })
+}
+
+function Get-LogicalNodeRoots([array]$Processes) {
+    $ids = @{}
+    foreach ($p in @($Processes)) {
+        $ids[[int]$p.ProcessId] = $true
+    }
+    return @($Processes | Where-Object {
+        -not $ids.ContainsKey([int]$_.ParentProcessId)
     })
 }
 
@@ -87,14 +97,18 @@ while ($true) {
         exit 3
     }
 
-    $existing = @(Get-NodeProcess -Runtime $RuntimeDir)
+    $existing = @(Get-NodeProcesses -Runtime $RuntimeDir)
+    $roots = @(Get-LogicalNodeRoots -Processes $existing)
 
-    if ($existing.Count -gt 1) {
-        Log $WatchdogLog ("safety stop: multiple exact-runtime node processes detected count={0}" -f $existing.Count)
+    if ($roots.Count -gt 1) {
+        Log $WatchdogLog (
+            "safety stop: multiple independent exact-runtime node roots detected roots={0} raw_processes={1}" -f
+            $roots.Count,$existing.Count
+        )
         exit 4
     }
 
-    if ($existing.Count -eq 1) {
+    if ($roots.Count -eq 1) {
         if ($missing -gt 0) {
             Log $WatchdogLog ("node process recovered without supervisor start; consecutive_missing={0}" -f $missing)
         }
@@ -111,11 +125,21 @@ while ($true) {
                 Start-Sleep -Seconds $grace
                 Assert-IdentityUnchanged
 
-                $after = @(Get-NodeProcess -Runtime $RuntimeDir)
-                if ($after.Count -gt 0) {
-                    Log $WatchdogLog "node process restored"
+                $after = @(Get-NodeProcesses -Runtime $RuntimeDir)
+                $afterRoots = @(Get-LogicalNodeRoots -Processes $after)
+                if ($afterRoots.Count -eq 1) {
+                    Log $WatchdogLog (
+                        "logical node process restored root_pid={0} raw_processes={1}" -f
+                        $afterRoots[0].ProcessId,$after.Count
+                    )
+                } elseif ($afterRoots.Count -gt 1) {
+                    Log $WatchdogLog (
+                        "safety stop after restore: multiple independent node roots roots={0} raw_processes={1}" -f
+                        $afterRoots.Count,$after.Count
+                    )
+                    exit 4
                 } else {
-                    Log $WatchdogLog "starter returned but node process is still absent"
+                    Log $WatchdogLog "starter returned but logical node process is still absent"
                 }
             } catch {
                 Log $WatchdogLog ("node start failed: " + $_.Exception.Message)
