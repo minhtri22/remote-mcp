@@ -245,16 +245,16 @@ def test_all_user_facing_commands_have_required_sections():
             assert heading in text, f"{path.name} missing {heading}"
 
 
-def test_web_identity_refuses_desktop_target(tmp_path):
+def test_canonical_web_identity_refuses_desktop_target(tmp_path):
     b = _load_builder()
 
-    with pytest.raises(ValueError, match="frozen as app-backed"):
+    with pytest.raises(ValueError, match="canonical ChatGPT Web identity"):
         b.build_archive(
             tmp_path / "must-fail.zip",
             target=b.TARGET_DESKTOP_DIRECT_MCP,
             gateway_url="https://example.com",
-            plugin_name="remote-mcp-v2-web",
-            display_name="RemoteMCP V2 Web",
+            plugin_name=b.CANONICAL_WEB_APP_PLUGIN_NAME,
+            display_name=b.CANONICAL_WEB_DISPLAY_NAME,
             version="9.9.9",
         )
 
