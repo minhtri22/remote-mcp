@@ -8,7 +8,7 @@ Gate:
 
 Verdict:
 
-`SOURCE_STATIC_PRELOCK_PASS / WEB_RELEASE_NOT_YET_AUTHORIZED`
+`SOURCE_STATIC_PRELOCK_PASS / WEB_RELEASE_BLOCKED_BY_ACCOUNT_APP_ELIGIBILITY`
 
 ## What passed
 
@@ -58,27 +58,51 @@ It was not updated or replaced during this prelock.
 
 No gateway, OAuth state, execution device, project, task, or scientific job was changed.
 
+## Sites bridge attempt
+
+A ChatGPT Sites attempt was performed to create a Web bridge around the existing RemoteMCP endpoint.
+
+Observed result:
+
+- the existing RemoteMCP HTTPS MCP endpoint was recognized;
+- the Sites capability available to this account could not attach that remote endpoint using its existing OAuth flow;
+- the connector-eligibility tool required to reuse RemoteMCP was unavailable;
+- Sites enforced an `allowed plugins` boundary;
+- no Site or plugin was created;
+- no credential was stored.
+
+Adjudication:
+
+`SITES_EXTERNAL_REMOTEMCP_BRIDGE_NOT_AVAILABLE_ON_CURRENT_ACCOUNT_SURFACE`
+
+This is not a failure of the RemoteMCP endpoint. It is a ChatGPT account/capability boundary.
+
 ## Remaining prerequisite for Web release
 
-The Web target requires one real eligible ChatGPT App / Site-backed app ID.
+The Web target requires one real eligible ChatGPT App that can expose the existing RemoteMCP tool surface on ChatGPT web.
 
-The currently owned personal-plugin inventory contains the existing RemoteMCP plugins only; no eligible Site/App reference is presently available for this migration.
+For the full RemoteMCP write/execute surface, the currently supported direct custom-MCP path requires an eligible managed workspace with full MCP support. Do not assume that a personal Plus account can create that app.
+
+The existing personal-plugin inventory contains RemoteMCP plugins only; it does not provide an eligible app ID for `web-app-ref`.
 
 Do not invent an app ID and do not upload a Web package until the referenced app exists and can be authorized.
 
 ## Next gate
 
-After an eligible app exists:
+When an eligible app-creation surface becomes available:
 
 `REMOTEMCP_V2_WEB_APP_REFERENCE_MATERIALIZATION_AND_FRESH_WEB_VERIFICATION`
 
 That gate must:
 
-1. capture the exact eligible app ID;
-2. build `web-app-ref`;
-3. verify ZIP contents contain `.app.json` and no direct MCP manifests;
-4. run executable package tests when a runner is available;
-5. install/update a test plugin;
-6. authorize the underlying app;
-7. verify a live `device_list` call from a fresh ChatGPT Web conversation;
-8. only then authorize replacement/update of the production RemoteMCP V2 plugin.
+1. create or select the eligible app through a supported ChatGPT app-creation path;
+2. capture its exact app ID;
+3. build `web-app-ref`;
+4. verify ZIP contents contain `.app.json` and no direct MCP manifests;
+5. run executable package tests when a runner is available;
+6. install/update a test plugin;
+7. authorize the underlying app;
+8. verify a live `device_list` call from a fresh ChatGPT Web conversation;
+9. only then authorize replacement/update of the production RemoteMCP V2 plugin.
+
+Until that prerequisite exists, keep the current Desktop package and production plugin unchanged.
