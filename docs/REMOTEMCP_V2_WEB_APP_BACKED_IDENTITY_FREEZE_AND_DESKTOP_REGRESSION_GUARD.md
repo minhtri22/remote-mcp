@@ -1,6 +1,6 @@
 # RemoteMCP V2 Web app-backed identity freeze
 
-Status: SOURCE GUARD IMPLEMENTED — pending merge and live-plugin recovery.
+Status: SOURCE GUARD MERGED — live-plugin recovery pending.
 
 ## Frozen contract
 
