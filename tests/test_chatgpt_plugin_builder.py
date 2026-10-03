@@ -243,3 +243,38 @@ def test_all_user_facing_commands_have_required_sections():
             "## Summary",
         ):
             assert heading in text, f"{path.name} missing {heading}"
+
+
+def test_web_identity_refuses_desktop_target(tmp_path):
+    b = _load_builder()
+
+    with pytest.raises(ValueError, match="frozen as app-backed"):
+        b.build_archive(
+            tmp_path / "must-fail.zip",
+            target=b.TARGET_DESKTOP_DIRECT_MCP,
+            gateway_url="https://example.com",
+            plugin_name="remote-mcp-v2-web",
+            display_name="RemoteMCP V2 Web",
+            version="9.9.9",
+        )
+
+
+def test_web_identity_still_builds_only_app_backed(tmp_path):
+    b = _load_builder()
+    out = b.build_archive(
+        tmp_path / "web-only.zip",
+        target=b.TARGET_WEB_APP_REF,
+        app_id="asdk_app_example",
+        plugin_name="remote-mcp-v2-web",
+        display_name="RemoteMCP V2 Web",
+        version="9.9.9",
+    )
+
+    with zipfile.ZipFile(out) as z:
+        names = set(z.namelist())
+        assert ".app.json" in names
+        assert ".mcp.json" not in names
+        assert "mcp.json" not in names
+        native = json.loads(z.read(".codex-plugin/plugin.json"))
+        assert native["apps"] == "./.app.json"
+        assert "mcpServers" not in native
