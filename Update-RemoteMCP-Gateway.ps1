@@ -103,6 +103,94 @@ function Invoke-IsolatedGatewayReleaseProbe {
     }
 }
 
+function Invoke-ProductionRuntimeMigrationProbe {
+    param(
+        [string]$PythonExe,
+        [string]$SourceDir,
+        [string]$RuntimeDir,
+        [string]$ReleaseShort
+    )
+
+    $LiveDb = Join-Path $RuntimeDir "runtime.db"
+    if (-not (Test-Path $LiveDb)) {
+        Write-Host "REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=SKIP_NO_RUNTIME_DB"
+        return
+    }
+
+    $ProbeBase = Join-Path $env:TEMP ("remotemcp-production-state-probe-" + [guid]::NewGuid().ToString("N"))
+    $ProbeRuntime = Join-Path $ProbeBase "runtime"
+    $ProbeDb = Join-Path $ProbeRuntime "runtime.db"
+    New-Item -ItemType Directory -Force -Path $ProbeRuntime | Out-Null
+
+    try {
+        $BackupCode = @'
+import sqlite3, sys
+src_path, dst_path = sys.argv[1], sys.argv[2]
+src = sqlite3.connect(src_path, timeout=5.0)
+dst = sqlite3.connect(dst_path, timeout=5.0)
+try:
+    src.backup(dst)
+finally:
+    dst.close()
+    src.close()
+'@
+        & $PythonExe -c $BackupCode $LiveDb $ProbeDb
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not create consistent SQLite backup for production-state preflight"
+        }
+
+        $ProbeCode = @'
+import sqlite3, sys
+from pathlib import Path
+
+source_dir = Path(sys.argv[1]).resolve()
+runtime_dir = Path(sys.argv[2]).resolve()
+sys.path.insert(0, str(source_dir))
+
+from remotemcp.durable.db import Database
+
+db_path = runtime_dir / "runtime.db"
+con = sqlite3.connect(db_path)
+try:
+    before = con.execute(
+        "SELECT version, applied_at_ms, checksum_sha256 "
+        "FROM schema_migrations ORDER BY version"
+    ).fetchall()
+finally:
+    con.close()
+
+Database(runtime_dir).bootstrap(target_version=3)
+
+con = sqlite3.connect(db_path)
+try:
+    after = con.execute(
+        "SELECT version, applied_at_ms, checksum_sha256 "
+        "FROM schema_migrations ORDER BY version"
+    ).fetchall()
+finally:
+    con.close()
+
+if before != after:
+    raise SystemExit("migration ledger changed during compatibility probe")
+
+print("REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS")
+'@
+        & $PythonExe -c $ProbeCode $SourceDir $ProbeRuntime
+        if ($LASTEXITCODE -ne 0) {
+            throw (
+                "Candidate migration compatibility failed against a consistent backup of production runtime.db " +
+                "for release " + $ReleaseShort
+            )
+        }
+
+        Write-Host "REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=PASS"
+    } finally {
+        if (Test-Path $ProbeBase) {
+            Remove-Item -Recurse -Force $ProbeBase -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $SourceRepo = (Resolve-Path $SourceRepo).Path
 if (-not (Test-Path (Join-Path $SourceRepo ".git"))) {
     throw "SourceRepo is not a Git repository: $SourceRepo"
@@ -178,6 +266,7 @@ if ($LASTEXITCODE -ne 0) { throw "New release Python syntax preflight failed" }
 if ($LASTEXITCODE -ne 0) { throw "Configured gateway Python dependency preflight failed" }
 
 Invoke-IsolatedGatewayReleaseProbe -PythonExe $PythonExe -SourceDir $NewSource -ReleaseShort $Short -TimeoutSec $HealthTimeoutSec
+Invoke-ProductionRuntimeMigrationProbe -PythonExe $PythonExe -SourceDir $NewSource -RuntimeDir ([string]$cfg.runtime_dir) -ReleaseShort $Short
 
 if ($PreflightOnly) {
     Write-Host "REMOTEMCP_GATEWAY_UPDATE_PREFLIGHT_ONLY=PASS"
