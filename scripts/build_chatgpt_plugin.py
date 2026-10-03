@@ -88,9 +88,9 @@ def load_command_files(command_dir: Path = COMMANDS_DIR) -> dict[str, str]:
     return files
 
 
-def _interface() -> dict:
+def _interface(display_name: str = DISPLAY_NAME) -> dict:
     return {
-        "displayName": DISPLAY_NAME,
+        "displayName": display_name,
         "shortDescription": "Self-hosted RemoteMCP routed execution",
         "longDescription": (
             "Work with a self-hosted RemoteMCP gateway, including durable jobs, "
@@ -139,6 +139,8 @@ def package_files(
     target: str,
     gateway_url: str = "",
     app_id: str = "",
+    plugin_name: str = PLUGIN_NAME,
+    display_name: str = DISPLAY_NAME,
     command_dir: Path = COMMANDS_DIR,
 ) -> dict[str, str]:
     if target not in TARGETS:
@@ -148,11 +150,11 @@ def package_files(
         "RemoteMCP V2 connector with durable multi-device routed execution "
         "and operator commands."
     )
-    interface = _interface()
+    interface = _interface(display_name)
 
     native_manifest = {
         "interface": interface,
-        "name": PLUGIN_NAME,
+        "name": plugin_name,
         "version": version,
         "description": description,
         "author": {"name": "RemoteMCP OSS"},
@@ -165,7 +167,7 @@ def package_files(
         "plugin.json": _json(
             {
                 "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-                "name": PLUGIN_NAME,
+                "name": plugin_name,
                 "version": version,
                 "description": description,
                 "extensions": {"com.openai": portable_openai},
@@ -225,6 +227,8 @@ def build_archive(
     target: str,
     gateway_url: str = "",
     app_id: str = "",
+    plugin_name: str = PLUGIN_NAME,
+    display_name: str = DISPLAY_NAME,
     version: str = DEFAULT_VERSION,
     command_dir: Path = COMMANDS_DIR,
 ) -> Path:
@@ -235,6 +239,8 @@ def build_archive(
         target=target,
         gateway_url=gateway_url,
         app_id=app_id,
+        plugin_name=plugin_name,
+        display_name=display_name,
         command_dir=command_dir,
     )
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -271,6 +277,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--plugin-name",
+        default=PLUGIN_NAME,
+        help="Plugin identity name. Use a distinct name for a clean web sibling.",
+    )
+    parser.add_argument(
+        "--display-name",
+        default=DISPLAY_NAME,
+        help="User-facing plugin display name.",
+    )
+    parser.add_argument(
         "--out",
         default="dist/remote-mcp-chatgpt-plugin.zip",
         help="Output ZIP path.",
@@ -284,6 +300,8 @@ def main() -> None:
             target=args.target,
             gateway_url=args.url,
             app_id=args.app_id,
+            plugin_name=args.plugin_name,
+            display_name=args.display_name,
             version=args.version,
         )
     except ValueError as exc:
