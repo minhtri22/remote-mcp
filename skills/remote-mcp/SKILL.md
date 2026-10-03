@@ -12,7 +12,8 @@ Run this preflight before any action that could pair, re-pair, revoke, replace, 
 1. Start read-only. Use `device_list`, then `device_status` for the intended existing device when one is known.
 2. Reuse an existing project, task, and device placement when prior context already identifies them.
 3. Classify the failure domain before mutation:
-   - connector/session authorization;
+   - ChatGPT plugin/session binding;
+   - connector/account-link authorization;
    - gateway/control-plane availability;
    - execution-node process/heartbeat;
    - managed project exposure/root mismatch;
@@ -25,9 +26,25 @@ Run this preflight before any action that could pair, re-pair, revoke, replace, 
 9. Loss of job observability is not authorization to resubmit or relaunch a scientific job. Read existing task/job state first. Relaunch only with explicit authorization.
 10. Connector/OAuth/gateway errors are not evidence that an execution node must be restarted. Restart a node only when the node/process failure is independently established and the requested restart is authorized.
 11. Before any restart with active routed jobs, require explicit confirmation. After restart, verify the same device ID, key fingerprint, and route generation expected by the operation.
-12. If identity, approved root, approved runtime, or authorization is ambiguous, fail closed and report the blocked prerequisite instead of inventing a route.
+12. If ChatGPT reports the canonical Web plugin as unavailable/not installed, or a tool reports that `link_id` is not an eligible linked account, classify the condition as `PLUGIN_SESSION_BINDING_FAILURE`. Do not pair/re-pair, create a node, widen a root, register a replacement project, restart `machine-1`, or relaunch a scientific job as remediation.
+13. For ChatGPT Web, the canonical private plugin identity is `remote-mcp-v2-web-clean`. The older `remote-mcp-v2-web` identity is legacy direct-MCP and must not be selected as the canonical Web route.
+14. If identity, approved root, approved runtime, plugin/session binding, or authorization is ambiguous, fail closed and report the blocked prerequisite instead of inventing a route.
 
 The machine-readable companion policy is `skills/remote-mcp/managed_execution_policy.json`. Its decisions are governance constraints, not suggestions.
+
+## ChatGPT Web canonical identity and session binding
+
+For ChatGPT Web:
+
+- canonical plugin identity: `remote-mcp-v2-web-clean`;
+- legacy identity: `remote-mcp-v2-web`;
+- canonical display name must be visibly distinct from the legacy display name;
+- the canonical package must be app-backed and must not contain `.mcp.json` or `mcp.json`;
+- a plugin/session/account-link failure is a control-plane attachment failure, not evidence that the gateway or execution node failed;
+- start diagnosis read-only: confirm canonical plugin metadata, app-backed dependency, and an eligible linked account before any execution mutation;
+- an existing conversation can retain stale plugin/tool attachment state after a private plugin release changes; use a fresh conversation for the final smoke test when session freshness matters.
+
+If the canonical plugin cannot be resolved in the current conversation, stop with `PLUGIN_SESSION_BINDING_FAILURE` and repair the ChatGPT plugin/session attachment. Do not fall back to the legacy Web identity or to node pairing.
 
 ## Routing and project placement
 
