@@ -8,7 +8,7 @@ Gate:
 
 Verdict:
 
-`SOURCE-STAGED — STATIC QA REQUIRED — NOT DEPLOYED`
+`PASS — STATIC PREFLIGHT LOCKED / NOT DEPLOYED`
 
 ## Problem being addressed
 
@@ -81,3 +81,30 @@ This gate may become PASS only after:
 ## Scientific boundary
 
 This is infrastructure reliability work. Do not append it to any research `LINEAGE.md`.
+
+
+## Executable static QA lock
+
+GitHub Actions workflow:
+
+- name: `RemoteMCP Node Supervisor Static QA`
+- run id: `37123418080`
+- runner: Windows
+- conclusion: `success`
+
+Observed executable checks:
+
+- PowerShell parse preflight: PASS;
+- Scheduled Task object construction through installer `-PlanOnly`: `REMOTEMCP_NODE_SUPERVISOR_PLAN_ONLY=PASS`;
+- targeted supervisor + starter + public-hygiene tests: `9 passed`.
+
+Frozen source identities:
+
+- `Watch-RemoteMCP-Node.ps1`: `9a9843b61e7a066739c8b62c2375e4f01181f87e`
+- `Install-RemoteMCP-Node-Supervisor.ps1`: `6508b3fd24fcf5846401bea437d0958bb5f6d219`
+- `tests/test_node_supervisor_scripts.py`: `d262aa9ab7175219a3f41bb330fe07a44b01a1b6`
+- `.github/workflows/node-supervisor-static-qa.yml`: `76a847eeda5e8510cc66f96b1b3e230f9d94b681`
+
+Any change to those files after this lock requires static QA again before deployment.
+
+No Scheduled Task was registered, no node was restarted, no gateway was restarted, and no scientific job was resubmitted during this gate.
