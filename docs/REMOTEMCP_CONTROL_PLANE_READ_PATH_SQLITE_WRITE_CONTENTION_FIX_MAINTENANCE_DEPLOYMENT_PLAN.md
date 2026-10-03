@@ -8,7 +8,7 @@ Gate prepared:
 
 Status:
 
-`READY FOR EXPLICIT MAINTENANCE AUTHORIZATION — NOT DEPLOYED`
+`PASS — DEPLOYED AND POST-VERIFIED`
 
 ## Deployment-lock revalidation
 
@@ -91,3 +91,42 @@ If connector-level verification fails after the updater's own local health check
 ## Scientific boundary
 
 This is infrastructure/control-plane maintenance. Do not append it to scientific `LINEAGE.md`.
+
+
+## Final maintenance adjudication
+
+Final production candidate:
+
+`3cb0720d5ed0f4a0bba04b52bbdcb75940f16d29`
+
+This candidate preserves the previously frozen read-path blobs and adds only the migration checksum compatibility required for Windows CRLF/LF materialization equivalence.
+
+Before the successful cutover, the hardened updater passed all of the following on the production host without mutating the live gateway:
+
+- exact-release isolated startup probe;
+- production-runtime SQLite backup probe;
+- migration compatibility through schema version 3;
+- unchanged migration ledger on the backup.
+
+The successful cutover then reported:
+
+- candidate release startup healthy;
+- local OAuth metadata HTTP 200;
+- durable runtime/state/device registries reused;
+- execution nodes not restarted.
+
+Post-cutover connector verification:
+
+- live device listing succeeded;
+- four concurrent read-only device-status calls against the online execution node all succeeded;
+- device identity, key fingerprint, and route generation remained unchanged;
+- a pre-existing routed job remained readable with the same identity and terminal SUCCEEDED state;
+- no scientific task/job was resubmitted or relaunched.
+
+Earlier failed cutovers were fail-safe and rolled back to the prior release. Root cause was raw-byte migration checksum drift caused only by LF versus CRLF materialization, not SQL content drift. The migration verifier remains fail-closed for non-newline content changes.
+
+Adjudication:
+
+`REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_MAINTENANCE_DEPLOYMENT = PASS`
+
+This remains infrastructure/control-plane evidence and is not scientific lineage.
