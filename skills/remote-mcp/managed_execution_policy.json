@@ -1,0 +1,62 @@
+{
+  "schema": "remotemcp.managed-execution-governance.v1",
+  "mode": "fail-closed",
+  "mandatory_preflight_before": [
+    "device_pair_begin",
+    "device_revoke",
+    "device_restart",
+    "project_register_on_device",
+    "project_bind_device",
+    "scientific_job_relaunch"
+  ],
+  "identity": {
+    "existing_approved_role_identity": "preserve",
+    "repair_by_repairing": false,
+    "repair_by_revoke_replace": false,
+    "ambiguity": "block"
+  },
+  "pairing": {
+    "ticket_is_authorization": false,
+    "requires_explicit_dedicated_node_gate": true,
+    "requires_exact_approved_device_role": true,
+    "requires_exact_approved_root": true,
+    "requires_exact_approved_runtime_dir": true,
+    "allowed_secret_transports": [
+      "local-managed-pairing",
+      "dedicated-managed-pairing-action"
+    ],
+    "forbidden_secret_transports": [
+      "run-command",
+      "routed-job",
+      "job-argv",
+      "shell-argument",
+      "task-payload",
+      "repository",
+      "log",
+      "checkpoint",
+      "lineage"
+    ]
+  },
+  "project_root_mismatch": {
+    "decision": "BLOCKED_ON_MANAGED_PROJECT_EXPOSURE_OR_EXPLICIT_DEDICATED_NODE_GATE",
+    "auto_create_node": false,
+    "widen_existing_root": false,
+    "repair_by_pairing": false
+  },
+  "restart": {
+    "connector_session_failure_is_node_failure": false,
+    "gateway_failure_is_node_failure": false,
+    "root_mismatch_is_node_failure": false,
+    "active_jobs_require_explicit_confirmation": true,
+    "verify_same_identity_after_restart": true
+  },
+  "scientific_job": {
+    "observability_loss_allows_relaunch": false,
+    "relaunch_requires_explicit_authorization": true,
+    "preserve_existing_task_job_identity": true
+  },
+  "infrastructure": {
+    "use_scientific_task_as_transport": false,
+    "append_to_scientific_lineage_by_default": false
+  }
+}
