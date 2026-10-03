@@ -50,6 +50,9 @@ def test_public_operational_records_do_not_contain_real_machine_or_runtime_ids()
         "session id": re.compile(r"\bses_[0-9a-f]{32}\b"),
         "owner id": re.compile(r"\bown_[0-9a-f]{32}\b"),
         "user profile path": re.compile(r"\bC:\\Users\\[A-Za-z0-9._-]+",re.I),
+        "private D-drive work path": re.compile(r"\bD:\\(?:WORK|2\.RemoteMCP)(?:\\|\b)",re.I),
+        "ChatGPT app id": re.compile(r"\b(?:plugin_)?asdk_app_[0-9a-f]{16,}\b",re.I),
+        "private plugin id": re.compile(r"\bplugins_[0-9a-f]{16,}\b",re.I),
     }
     hits=[]
     for path in paths:
