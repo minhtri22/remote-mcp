@@ -4,7 +4,7 @@ RemoteMCP ships a package builder so a self-hosted user does not need to hand-au
 
 The package contains connector/plugin metadata and the user's own RemoteMCP integration reference. It does **not** contain OAuth tokens, passwords, pairing secrets, node keys, or project data.
 
-RemoteMCP V2 now has two intentionally separate packaging targets.
+RemoteMCP V2 has two intentionally separate packaging targets.
 
 ## 1. Choose the correct target
 
@@ -85,7 +85,7 @@ If the supplied URL already ends in `/mcp`, it is used as-is.
 
 ## 3. Build a Web app-reference package
 
-First create or obtain an eligible ChatGPT App / Site-backed app and capture its exact app ID.
+First create or obtain an eligible ChatGPT App and capture its exact app ID.
 
 Then build:
 
@@ -127,9 +127,16 @@ This fail-closed separation matters: keeping a direct MCP declaration in the sam
 
 A `web-app-ref` package requires an actual eligible app.
 
-Full custom MCP Apps with write/modify actions use ChatGPT's MCP App / Developer Mode flow and are subject to the plan and workspace eligibility that OpenAI exposes at the time of setup.
+Current account evidence must override generic examples:
 
-For users who do not have that full custom-app path, ChatGPT Sites can host MCP tools for a plugin. Site-hosted plugin support is the plan-independent web-capable route documented by OpenAI, subject to Sites availability and permissions.
+- ChatGPT Sites can host tools implemented by the Site;
+- on the current personal account, the Sites toolchain could not attach the existing RemoteMCP endpoint using its existing OAuth flow;
+- the required connector-eligibility capability was unavailable and Sites enforced an `allowed plugins` boundary;
+- therefore Sites is not currently a bridge for this RemoteMCP deployment.
+
+Do not create a Site merely to obtain an app ID unless the Site runtime first proves it can connect to the existing RemoteMCP endpoint with the required authorization model.
+
+For full custom MCP Apps with write/modify actions, use an eligible ChatGPT managed workspace with full MCP support. Current OpenAI documentation describes full MCP as available to Business, Enterprise, and Edu. Pro can have more limited custom-MCP access; a personal Plus account should not be assumed to have the full app-creation route required by RemoteMCP.
 
 Do not invent an app ID or reuse a plugin ID as an app ID.
 
@@ -223,3 +230,5 @@ Supported inputs:
 - `--version` — plugin package version.
 
 Migration prelock: [REMOTEMCP_V2_WEB_CAPABLE_APP_PACKAGING_MIGRATION_PRELOCK.md](REMOTEMCP_V2_WEB_CAPABLE_APP_PACKAGING_MIGRATION_PRELOCK.md).
+
+Static QA closure: [REMOTEMCP_V2_WEB_CAPABLE_APP_PACKAGING_STATIC_QA_CLOSURE.md](REMOTEMCP_V2_WEB_CAPABLE_APP_PACKAGING_STATIC_QA_CLOSURE.md).
