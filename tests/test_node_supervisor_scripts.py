@@ -19,7 +19,9 @@ def test_node_watchdog_is_runtime_explicit_and_identity_preserving():
     assert "--runtime-dir" in text
     assert "process absence threshold reached" in text
     assert "& $StartScript -RuntimeDir $RuntimeDir -SourceDir $NodeSourceDir" in text
-    assert "multiple exact-runtime node processes detected" in text
+    assert "Get-LogicalNodeRoots" in text
+    assert "multiple independent exact-runtime node roots detected" in text
+    assert "raw_processes" in text
 
     # Supervisor must not kill a live process, pair a replacement identity, or
     # interpret gateway/connector health as a reason to restart the node.
@@ -59,10 +61,35 @@ def test_node_supervisor_installer_is_explicit_per_runtime():
     assert "Scheduled Task persistence unavailable; falling back to per-user Startup" in text
     assert "Register-ScheduledTask" in text
     assert "-ErrorAction Stop" in text
-    assert "Supervisor deployment requires exactly one existing node process" in text
+    assert "Get-LogicalNodeRoots" in text
+    assert "Supervisor deployment requires exactly one logical node root" in text
+    assert "Logical node process group:" in text
 
     lower = text.lower()
     assert "active-runtime.txt" not in lower
     assert "remotemcp.node pair" not in lower
     assert "device_pair_begin" not in lower
     assert "device_revoke" not in lower
+
+
+def test_logical_node_root_algorithm_collapses_parent_child_launcher_chain():
+    # Mirrors the PowerShell helper contract with synthetic process topology.
+    processes = [
+        {"ProcessId": 100, "ParentProcessId": 50},
+        {"ProcessId": 101, "ParentProcessId": 100},
+    ]
+    ids = {p["ProcessId"] for p in processes}
+    roots = [p for p in processes if p["ParentProcessId"] not in ids]
+    assert [p["ProcessId"] for p in roots] == [100]
+
+
+def test_logical_node_root_algorithm_detects_independent_duplicates():
+    processes = [
+        {"ProcessId": 100, "ParentProcessId": 50},
+        {"ProcessId": 101, "ParentProcessId": 100},
+        {"ProcessId": 200, "ParentProcessId": 60},
+        {"ProcessId": 201, "ParentProcessId": 200},
+    ]
+    ids = {p["ProcessId"] for p in processes}
+    roots = [p for p in processes if p["ParentProcessId"] not in ids]
+    assert {p["ProcessId"] for p in roots} == {100, 200}
