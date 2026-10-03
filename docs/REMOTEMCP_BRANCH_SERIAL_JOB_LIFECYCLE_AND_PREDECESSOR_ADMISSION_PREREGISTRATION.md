@@ -328,3 +328,33 @@ No research repository or scientific workload may be used for those qualificatio
 Only after this preregistration is frozen may implementation begin:
 
 `REMOTEMCP_BRANCH_SERIAL_JOB_LIFECYCLE_AND_PREDECESSOR_ADMISSION_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK`
+
+
+## Executable preregistration QA lock
+
+GitHub Actions run:
+
+`37162418075`
+
+Cross-platform result:
+
+- Windows: `15 passed`
+- Ubuntu: `15 passed`
+
+Frozen source identities at the first complete prelock QA:
+
+- `specs/branch_serial_job_lifecycle_prelock.json`: `75e04293f08145e399142aa40813671d13a3ae1b`
+- `tests/test_branch_serial_job_lifecycle_prelock.py`: `7c8f530eb5f5666b2e65317ac1f4f2a3b3d7c2e6`
+- `.github/workflows/branch-serial-job-lifecycle-prelock-qa.yml`: `72d2d977d5c170a6d213a73781e85044f770ff56`
+
+The preregistration QA verifies the machine-readable invariants for per-task serialization, terminal evidence, idempotent operation replay, fail-closed unresolved predecessors, legacy-history preservation, pure-read device status, and swarm-compatible multi-lane execution.
+
+No production runtime, execution node, project, task, durable job, routed job, or scientific workload was mutated by the preregistration implementation itself.
+
+## Gate adjudication
+
+`REMOTEMCP_BRANCH_SERIAL_JOB_LIFECYCLE_AND_PREDECESSOR_ADMISSION_PREREGISTRATION = PASS`
+
+The next valid gate is:
+
+`REMOTEMCP_BRANCH_SERIAL_JOB_LIFECYCLE_AND_PREDECESSOR_ADMISSION_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK`
