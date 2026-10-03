@@ -123,22 +123,22 @@ mcp.json
 
 This fail-closed separation matters: keeping a direct MCP declaration in the same package can preserve the Desktop-only classification.
 
-## 4. ChatGPT plan / app boundary
+## 4. ChatGPT app eligibility boundary
 
-A `web-app-ref` package requires an actual eligible app.
+A `web-app-ref` package requires an actual eligible ChatGPT App that is available to the installing account/workspace.
 
-Current account evidence must override generic examples:
+Do not assume that a generic Site or plugin can bridge an arbitrary external MCP endpoint. The underlying ChatGPT app must already support the required RemoteMCP connection/authentication model and tool surface.
 
-- ChatGPT Sites can host tools implemented by the Site;
-- on the current personal account, the Sites toolchain could not attach the existing RemoteMCP endpoint using its existing OAuth flow;
-- the required connector-eligibility capability was unavailable and Sites enforced an `allowed plugins` boundary;
-- therefore Sites is not currently a bridge for this RemoteMCP deployment.
+Keep all account- and deployment-specific identifiers private:
 
-Do not create a Site merely to obtain an app ID unless the Site runtime first proves it can connect to the existing RemoteMCP endpoint with the required authorization model.
+```text
+<CHATGPT_APP_ID>
+<PRIVATE_PLUGIN_ID>
+<CONNECTED_ACCOUNT_NAME>
+<PRIVATE_MCP_ENDPOINT>
+```
 
-For full custom MCP Apps with write/modify actions, use an eligible ChatGPT managed workspace with full MCP support. Current OpenAI documentation describes full MCP as available to Business, Enterprise, and Edu. Pro can have more limited custom-MCP access; a personal Plus account should not be assumed to have the full app-creation route required by RemoteMCP.
-
-Do not invent an app ID or reuse a plugin ID as an app ID.
+Do not invent an app ID, reuse a plugin ID as an app ID, or commit a real app/plugin identifier to the public repository.
 
 ## 5. Install or update in ChatGPT
 
