@@ -98,7 +98,7 @@ def test_desktop_direct_mcp_archive_preserves_current_behavior(tmp_path):
         plugin = json.loads(z.read("plugin.json"))
         assert plugin["version"] == "1.2.3"
         assert plugin["name"] == "remote-mcp-v2bd"
-        assert plugin["extensions"]["com.openai"]["mcpServers"] == "./mcp.json"
+        assert "mcpServers" not in plugin["extensions"]["com.openai"]
         assert "apps" not in plugin["extensions"]["com.openai"]
 
         skill = z.read("skills/remote-mcp/SKILL.md").decode()
