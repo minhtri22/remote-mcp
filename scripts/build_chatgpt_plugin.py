@@ -71,12 +71,18 @@ def normalize_app_id(value: str) -> str:
     return raw
 
 
-def validate_target_identity(*, plugin_name: str, target: str) -> None:
-    if plugin_name == CANONICAL_WEB_APP_PLUGIN_NAME and target != TARGET_WEB_APP_REF:
-        raise ValueError(
-            f"{CANONICAL_WEB_APP_PLUGIN_NAME} is the canonical ChatGPT Web identity "
-            f"and is frozen as app-backed; use --target {TARGET_WEB_APP_REF}"
-        )
+def validate_target_identity(*, plugin_name: str, target: str, display_name: str) -> None:
+    if plugin_name == CANONICAL_WEB_APP_PLUGIN_NAME:
+        if target != TARGET_WEB_APP_REF:
+            raise ValueError(
+                f"{CANONICAL_WEB_APP_PLUGIN_NAME} is the canonical ChatGPT Web identity "
+                f"and is frozen as app-backed; use --target {TARGET_WEB_APP_REF}"
+            )
+        if display_name != CANONICAL_WEB_DISPLAY_NAME:
+            raise ValueError(
+                f"{CANONICAL_WEB_APP_PLUGIN_NAME} must use canonical display name "
+                f"{CANONICAL_WEB_DISPLAY_NAME!r}"
+            )
     if plugin_name == LEGACY_WEB_DIRECT_PLUGIN_NAME:
         raise ValueError(
             f"{LEGACY_WEB_DIRECT_PLUGIN_NAME} is a legacy direct-MCP identity and "
@@ -159,7 +165,11 @@ def package_files(
 ) -> dict[str, str]:
     if target not in TARGETS:
         raise ValueError(f"unsupported target: {target}")
-    validate_target_identity(plugin_name=plugin_name, target=target)
+    validate_target_identity(
+        plugin_name=plugin_name,
+        target=target,
+        display_name=display_name,
+    )
 
     description = (
         "RemoteMCP V2 connector with durable multi-device routed execution "
