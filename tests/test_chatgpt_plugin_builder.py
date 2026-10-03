@@ -202,8 +202,8 @@ def test_web_app_ref_supports_distinct_clean_plugin_identity(tmp_path):
         tmp_path / "web-plugin.zip",
         target=b.TARGET_WEB_APP_REF,
         app_id="asdk_app_example",
-        plugin_name="remote-mcp-v2-web",
-        display_name="RemoteMCP V2 Web",
+        plugin_name="remote-mcp-v2-web-clean",
+        display_name="RemoteMCP V2 Web (Canonical)",
         version="1.3.0",
     )
 
@@ -211,10 +211,10 @@ def test_web_app_ref_supports_distinct_clean_plugin_identity(tmp_path):
         native = json.loads(z.read(".codex-plugin/plugin.json"))
         portable = json.loads(z.read("plugin.json"))
 
-        assert native["name"] == "remote-mcp-v2-web"
-        assert native["interface"]["displayName"] == "RemoteMCP V2 Web"
-        assert portable["name"] == "remote-mcp-v2-web"
-        assert portable["extensions"]["com.openai"]["interface"]["displayName"] == "RemoteMCP V2 Web"
+        assert native["name"] == "remote-mcp-v2-web-clean"
+        assert native["interface"]["displayName"] == "RemoteMCP V2 Web (Canonical)"
+        assert portable["name"] == "remote-mcp-v2-web-clean"
+        assert portable["extensions"]["com.openai"]["interface"]["displayName"] == "RemoteMCP V2 Web (Canonical)"
         assert ".app.json" in z.namelist()
         assert ".mcp.json" not in z.namelist()
         assert "mcp.json" not in z.namelist()
@@ -259,14 +259,14 @@ def test_web_identity_refuses_desktop_target(tmp_path):
         )
 
 
-def test_web_identity_still_builds_only_app_backed(tmp_path):
+def test_canonical_web_identity_builds_only_app_backed(tmp_path):
     b = _load_builder()
     out = b.build_archive(
         tmp_path / "web-only.zip",
         target=b.TARGET_WEB_APP_REF,
         app_id="asdk_app_example",
-        plugin_name="remote-mcp-v2-web",
-        display_name="RemoteMCP V2 Web",
+        plugin_name=b.CANONICAL_WEB_APP_PLUGIN_NAME,
+        display_name=b.CANONICAL_WEB_DISPLAY_NAME,
         version="9.9.9",
     )
 
@@ -316,3 +316,42 @@ def test_builder_no_longer_embeds_skill_governance_text():
     assert 'SKILL_PATH = REPO_ROOT / "skills" / "remote-mcp" / "SKILL.md"' in builder
     assert "load_skill" in builder
     assert "A pairing ticket is capability material" not in builder
+
+
+def test_canonical_and_legacy_web_display_names_are_distinct():
+    b = _load_builder()
+    assert b.CANONICAL_WEB_APP_PLUGIN_NAME == "remote-mcp-v2-web-clean"
+    assert b.LEGACY_WEB_DIRECT_PLUGIN_NAME == "remote-mcp-v2-web"
+    assert b.CANONICAL_WEB_DISPLAY_NAME != b.LEGACY_WEB_DISPLAY_NAME
+    assert "Canonical" in b.CANONICAL_WEB_DISPLAY_NAME
+    assert "Legacy" in b.LEGACY_WEB_DISPLAY_NAME
+
+
+def test_legacy_web_identity_cannot_be_rebuilt_as_canonical(tmp_path):
+    b = _load_builder()
+    with pytest.raises(ValueError, match="legacy direct-MCP identity"):
+        b.build_archive(
+            tmp_path / "legacy-must-fail.zip",
+            target=b.TARGET_WEB_APP_REF,
+            app_id="asdk_app_example",
+            plugin_name=b.LEGACY_WEB_DIRECT_PLUGIN_NAME,
+            display_name=b.LEGACY_WEB_DISPLAY_NAME,
+            version="9.9.9",
+        )
+
+
+def test_canonical_web_package_has_no_direct_mcp_files(tmp_path):
+    b = _load_builder()
+    out = b.build_archive(
+        tmp_path / "canonical-web.zip",
+        target=b.TARGET_WEB_APP_REF,
+        app_id="asdk_app_example",
+        plugin_name=b.CANONICAL_WEB_APP_PLUGIN_NAME,
+        display_name=b.CANONICAL_WEB_DISPLAY_NAME,
+        version="9.9.9",
+    )
+    with zipfile.ZipFile(out) as z:
+        names = set(z.namelist())
+        assert ".app.json" in names
+        assert ".mcp.json" not in names
+        assert "mcp.json" not in names
