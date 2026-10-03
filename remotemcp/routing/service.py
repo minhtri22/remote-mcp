@@ -49,7 +49,15 @@ class RoutingService:
     async def _loop(self):
         try:
             while not self._stop.is_set():
-                self.devices.sweep_offline()
+                try:
+                    self.devices.sweep_offline()
+                except DurableError as exc:
+                    # The sweep is the sole periodic OFFLINE-state writer.
+                    # A transient SQLite writer collision must not kill the
+                    # background task; effective request-time state remains
+                    # fail-closed and the next cycle retries persistence.
+                    if exc.code!="DB_BUSY":
+                        raise
                 try:await asyncio.wait_for(self._stop.wait(),timeout=5.0)
                 except asyncio.TimeoutError:pass
         except asyncio.CancelledError:
