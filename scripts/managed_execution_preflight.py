@@ -73,6 +73,45 @@ def evaluate(facts: dict[str, Any]) -> dict[str, Any]:
             f"pairing secret transport is forbidden: {secret_transport}",
         )
 
+    if action == "chatgpt-web-session-binding":
+        plugin_name = str(facts.get("plugin_name") or "").strip()
+        canonical_name = "remote-mcp-v2-web-clean"
+        legacy_name = "remote-mcp-v2-web"
+
+        if plugin_name == legacy_name:
+            return _block(
+                "PLUGIN_SESSION_BINDING_FAILURE",
+                "legacy direct-MCP Web identity is not the canonical ChatGPT Web route",
+            )
+
+        if plugin_name and plugin_name != canonical_name:
+            return _block(
+                "PLUGIN_SESSION_BINDING_FAILURE",
+                f"unexpected ChatGPT Web plugin identity: {plugin_name}",
+            )
+
+        required = {
+            "canonical_plugin_available": "canonical private Web plugin is not available in this session",
+            "canonical_plugin_attached": "canonical private Web plugin is not attached to this conversation",
+            "app_backed_dependency_present": "canonical Web plugin is missing its app-backed dependency",
+            "eligible_link_account": "no eligible linked account resolved for the underlying app",
+        }
+        missing = [
+            reason
+            for key, reason in required.items()
+            if facts.get(key) is not True
+        ]
+        if missing:
+            return _block("PLUGIN_SESSION_BINDING_FAILURE", *missing)
+
+        return {
+            "allowed": True,
+            "decision": "ALLOW_CANONICAL_WEB_SESSION_BINDING",
+            "reasons": [
+                "canonical app-backed Web plugin and an eligible linked account are resolved"
+            ],
+        }
+
     if action == "pair":
         if bool(facts.get("existing_approved_identity_for_role")):
             return _block(

@@ -29,6 +29,9 @@ def test_skill_contains_mandatory_identity_pairing_preflight():
         "Do not use a research/scientific task as a transport for infrastructure repair",
         "Loss of job observability is not authorization to resubmit",
         "Connector/OAuth/gateway errors are not evidence that an execution node must be restarted",
+        "PLUGIN_SESSION_BINDING_FAILURE",
+        "remote-mcp-v2-web-clean",
+        "remote-mcp-v2-web",
         "fail closed",
     )
     for text in required:
@@ -49,6 +52,9 @@ def test_machine_readable_policy_matches_skill_contract():
     assert policy["project_root_mismatch"]["auto_create_node"] is False
     assert policy["project_root_mismatch"]["widen_existing_root"] is False
     assert policy["scientific_job"]["observability_loss_allows_relaunch"] is False
+    assert policy["plugin_session_binding"]["canonical_web_plugin_name"] == "remote-mcp-v2-web-clean"
+    assert policy["plugin_session_binding"]["legacy_web_plugin_name"] == "remote-mcp-v2-web"
+    assert policy["plugin_session_binding"]["failure_decision"] == "PLUGIN_SESSION_BINDING_FAILURE"
 
 
 def test_pairing_preserves_existing_approved_identity():
@@ -185,3 +191,59 @@ def test_scientific_job_observability_loss_does_not_authorize_relaunch():
     )
     assert result["allowed"] is False
     assert result["decision"] == "BLOCKED_ON_SCIENTIFIC_JOB_RELAUNCH_AUTHORIZATION"
+
+
+def test_chatgpt_web_session_binding_fails_closed_when_plugin_or_link_missing():
+    p = _load_preflight()
+    base = {
+        "action": "chatgpt-web-session-binding",
+        "plugin_name": "remote-mcp-v2-web-clean",
+        "canonical_plugin_available": True,
+        "canonical_plugin_attached": True,
+        "app_backed_dependency_present": True,
+        "eligible_link_account": True,
+    }
+
+    for missing_key in (
+        "canonical_plugin_available",
+        "canonical_plugin_attached",
+        "app_backed_dependency_present",
+        "eligible_link_account",
+    ):
+        facts = dict(base)
+        facts[missing_key] = False
+        result = p.evaluate(facts)
+        assert result["allowed"] is False
+        assert result["decision"] == "PLUGIN_SESSION_BINDING_FAILURE"
+
+
+def test_legacy_web_identity_is_not_accepted_as_canonical_session():
+    p = _load_preflight()
+    result = p.evaluate(
+        {
+            "action": "chatgpt-web-session-binding",
+            "plugin_name": "remote-mcp-v2-web",
+            "canonical_plugin_available": True,
+            "canonical_plugin_attached": True,
+            "app_backed_dependency_present": True,
+            "eligible_link_account": True,
+        }
+    )
+    assert result["allowed"] is False
+    assert result["decision"] == "PLUGIN_SESSION_BINDING_FAILURE"
+
+
+def test_canonical_web_session_binding_can_pass():
+    p = _load_preflight()
+    result = p.evaluate(
+        {
+            "action": "chatgpt-web-session-binding",
+            "plugin_name": "remote-mcp-v2-web-clean",
+            "canonical_plugin_available": True,
+            "canonical_plugin_attached": True,
+            "app_backed_dependency_present": True,
+            "eligible_link_account": True,
+        }
+    )
+    assert result["allowed"] is True
+    assert result["decision"] == "ALLOW_CANONICAL_WEB_SESSION_BINDING"
