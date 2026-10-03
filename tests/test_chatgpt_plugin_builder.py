@@ -355,3 +355,16 @@ def test_canonical_web_package_has_no_direct_mcp_files(tmp_path):
         assert ".app.json" in names
         assert ".mcp.json" not in names
         assert "mcp.json" not in names
+
+
+def test_canonical_web_identity_rejects_ambiguous_display_name(tmp_path):
+    b = _load_builder()
+    with pytest.raises(ValueError, match="canonical display name"):
+        b.build_archive(
+            tmp_path / "ambiguous-canonical-web.zip",
+            target=b.TARGET_WEB_APP_REF,
+            app_id="asdk_app_example",
+            plugin_name=b.CANONICAL_WEB_APP_PLUGIN_NAME,
+            display_name="RemoteMCP V2 Web",
+            version="9.9.9",
+        )
