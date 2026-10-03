@@ -1,0 +1,119 @@
+name: Gateway 203b startup reproduction
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - diag/gateway-203b-startup-reproduction
+
+jobs:
+  startup-repro:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install gateway dependencies
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check "mcp[cli]<2" uvicorn "httpx==0.28.1" "cryptography==46.0.6"
+
+      - name: Fresh-state startup
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "fresh-root"
+          $runtime = Join-Path $env:RUNNER_TEMP "fresh-runtime"
+          $state = Join-Path $env:RUNNER_TEMP "fresh-oauth-state.json"
+          New-Item -ItemType Directory -Force -Path $root,$runtime | Out-Null
+
+          $env:PUBLIC_URL = "https://diagnostic.example"
+          $env:OWNER_PASSWORD = "diagnostic-password-only"
+          $env:MCP_ROOT = $root
+          $env:MCP_STATE = $state
+          $env:MCP_RUNTIME_DIR = $runtime
+          $env:ALLOWED_REDIRECT_HOSTS = "chatgpt.com,localhost,127.0.0.1"
+          $env:PORT = "18099"
+
+          $out = Join-Path $env:RUNNER_TEMP "fresh.stdout.log"
+          $err = Join-Path $env:RUNNER_TEMP "fresh.stderr.log"
+          $p = Start-Process python -ArgumentList @("server.py") -WorkingDirectory $PWD -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+          try {
+            $ok = $false
+            for ($i=0; $i -lt 40; $i++) {
+              Start-Sleep -Milliseconds 500
+              if ($p.HasExited) { break }
+              try {
+                $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18099/.well-known/oauth-authorization-server" -TimeoutSec 2
+                if ($r.StatusCode -eq 200) { $ok = $true; break }
+              } catch {}
+            }
+            if (-not $ok) {
+              Write-Host "=== fresh stdout ==="
+              if (Test-Path $out) { Get-Content $out }
+              Write-Host "=== fresh stderr ==="
+              if (Test-Path $err) { Get-Content $err }
+              throw "Fresh-state startup failed"
+            }
+            Write-Host "FRESH_STATE_STARTUP=PASS"
+          } finally {
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Synthetic 721a to 203b state-compatibility startup
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $old = Join-Path $env:RUNNER_TEMP "old-721a"
+          git worktree add --detach $old 721a6911a73c74d38cfe48624030dde8ee96d017
+          if ($LASTEXITCODE -ne 0) { throw "git worktree add failed" }
+
+          $root = Join-Path $env:RUNNER_TEMP "compat-root"
+          $runtime = Join-Path $env:RUNNER_TEMP "compat-runtime"
+          $state = Join-Path $env:RUNNER_TEMP "compat-oauth-state.json"
+          New-Item -ItemType Directory -Force -Path $root,$runtime | Out-Null
+
+          $env:PUBLIC_URL = "https://diagnostic.example"
+          $env:OWNER_PASSWORD = "diagnostic-password-only"
+          $env:MCP_ROOT = $root
+          $env:MCP_STATE = $state
+          $env:MCP_RUNTIME_DIR = $runtime
+          $env:ALLOWED_REDIRECT_HOSTS = "chatgpt.com,localhost,127.0.0.1"
+
+          function Start-And-Probe([string]$Source,[int]$Port,[string]$Label) {
+            $env:PORT = [string]$Port
+            $out = Join-Path $env:RUNNER_TEMP ($Label + ".stdout.log")
+            $err = Join-Path $env:RUNNER_TEMP ($Label + ".stderr.log")
+            $p = Start-Process python -ArgumentList @("server.py") -WorkingDirectory $Source -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+            try {
+              $ok = $false
+              for ($i=0; $i -lt 40; $i++) {
+                Start-Sleep -Milliseconds 500
+                if ($p.HasExited) { break }
+                try {
+                  $r = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:{0}/.well-known/oauth-authorization-server" -f $Port) -TimeoutSec 2
+                  if ($r.StatusCode -eq 200) { $ok = $true; break }
+                } catch {}
+              }
+              if (-not $ok) {
+                Write-Host ("=== {0} stdout ===" -f $Label)
+                if (Test-Path $out) { Get-Content $out }
+                Write-Host ("=== {0} stderr ===" -f $Label)
+                if (Test-Path $err) { Get-Content $err }
+                throw ($Label + " startup failed")
+              }
+              Write-Host ($Label + "=PASS")
+            } finally {
+              if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+              Start-Sleep -Seconds 1
+            }
+          }
+
+          Start-And-Probe -Source $old -Port 18100 -Label "OLD_721A_STARTUP"
+          Start-And-Probe -Source $PWD -Port 18101 -Label "UPGRADE_203B_STARTUP"
+          Write-Host "SYNTHETIC_UPGRADE_STATE_COMPATIBILITY=PASS"
