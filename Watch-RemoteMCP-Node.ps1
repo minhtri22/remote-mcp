@@ -2,6 +2,8 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$RuntimeDir,
     [string]$SourceDir = $PSScriptRoot,
+    [Parameter(Mandatory=$true)]
+    [string]$NodeSourceDir,
     [int]$IntervalSeconds = 15,
     [int]$MissingProcessThreshold = 2,
     [int]$PostStartGraceSeconds = 3
@@ -49,8 +51,12 @@ function Get-NodeProcess([string]$Runtime) {
 
 $RuntimeDir = (Resolve-Path $RuntimeDir).Path
 $SourceDir = (Resolve-Path $SourceDir).Path
+$NodeSourceDir = (Resolve-Path $NodeSourceDir).Path
 if (-not (Test-Path $StartScript)) {
     throw "RemoteMCP node starter not found: $StartScript"
+}
+if (-not (Test-Path (Join-Path $NodeSourceDir "remotemcp\node\__main__.py"))) {
+    throw "RemoteMCP node source not found under: $NodeSourceDir"
 }
 
 $Expected = Read-Identity -Runtime $RuntimeDir
@@ -83,7 +89,12 @@ while ($true) {
 
     $existing = @(Get-NodeProcess -Runtime $RuntimeDir)
 
-    if ($existing.Count -gt 0) {
+    if ($existing.Count -gt 1) {
+        Log $WatchdogLog ("safety stop: multiple exact-runtime node processes detected count={0}" -f $existing.Count)
+        exit 4
+    }
+
+    if ($existing.Count -eq 1) {
         if ($missing -gt 0) {
             Log $WatchdogLog ("node process recovered without supervisor start; consecutive_missing={0}" -f $missing)
         }
@@ -96,7 +107,7 @@ while ($true) {
             try {
                 Assert-IdentityUnchanged
                 Log $WatchdogLog "process absence threshold reached; invoking state-preserving node start"
-                & $StartScript -RuntimeDir $RuntimeDir -SourceDir $SourceDir *>> $WatchdogLog
+                & $StartScript -RuntimeDir $RuntimeDir -SourceDir $NodeSourceDir *>> $WatchdogLog
                 Start-Sleep -Seconds $grace
                 Assert-IdentityUnchanged
 

@@ -8,6 +8,7 @@ def test_node_watchdog_is_runtime_explicit_and_identity_preserving():
 
     assert "[Parameter(Mandatory=$true)]" in text
     assert "[string]$RuntimeDir" in text
+    assert "[string]$NodeSourceDir" in text
     assert "device.json" in text
     assert "device-ed25519.pem" in text
     assert "device_id" in text
@@ -17,7 +18,8 @@ def test_node_watchdog_is_runtime_explicit_and_identity_preserving():
     assert "Get-CimInstance Win32_Process" in text
     assert "--runtime-dir" in text
     assert "process absence threshold reached" in text
-    assert "& $StartScript -RuntimeDir $RuntimeDir -SourceDir $SourceDir" in text
+    assert "& $StartScript -RuntimeDir $RuntimeDir -SourceDir $NodeSourceDir" in text
+    assert "multiple exact-runtime node processes detected" in text
 
     # Supervisor must not kill a live process, pair a replacement identity, or
     # interpret gateway/connector health as a reason to restart the node.
@@ -38,6 +40,7 @@ def test_node_supervisor_installer_is_explicit_per_runtime():
 
     assert "[Parameter(Mandatory=$true)]" in text
     assert "[string]$RuntimeDir" in text
+    assert "[string]$NodeSourceDir" in text
     assert "device.json" in text
     assert "device-ed25519.pem" in text
     assert "New-ScheduledTaskAction" in text
@@ -50,6 +53,13 @@ def test_node_supervisor_installer_is_explicit_per_runtime():
     assert "StartNow" in text
     assert "PlanOnly" in text
     assert "REMOTEMCP_NODE_SUPERVISOR_PLAN_ONLY=PASS" in text
+    assert "REMOTEMCP_NODE_SUPERVISOR_INSTALL=PASS" in text
+    assert "PersistenceMode" in text
+    assert "Install-StartupPersistence" in text
+    assert "Scheduled Task persistence unavailable; falling back to per-user Startup" in text
+    assert "Register-ScheduledTask" in text
+    assert "-ErrorAction Stop" in text
+    assert "Supervisor deployment requires exactly one existing node process" in text
 
     lower = text.lower()
     assert "active-runtime.txt" not in lower
