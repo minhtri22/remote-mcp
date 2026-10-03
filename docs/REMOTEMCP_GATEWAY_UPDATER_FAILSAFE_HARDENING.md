@@ -8,7 +8,7 @@ REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_MAINTENANCE_DEPLOY
 
 Status:
 
-SOURCE-STAGED — WINDOWS QA REQUIRED — NOT DEPLOYED
+PASS — FAIL-SAFE HARDENING LOCKED / NOT DEPLOYED
 
 ## Trigger
 
@@ -61,3 +61,25 @@ Do not retry the maintenance cutover until:
 - the exact hardened updater blob is frozen.
 
 The deployment target remains the previously QA-locked read-path commit. Hardening the updater does not change the target gateway source identity.
+
+
+## Windows executable QA lock
+
+GitHub Actions run: 37131354393
+
+Observed:
+
+- PowerShell parse preflight: PASS
+- isolated exact-release startup probe through updater -PreflightOnly: REMOTEMCP_GATEWAY_RELEASE_PROBE=PASS
+- preflight-only early exit before live mutation: REMOTEMCP_GATEWAY_UPDATE_PREFLIGHT_ONLY=PASS
+- targeted recovery/public-hygiene tests: 8 passed
+
+Frozen blobs:
+
+- Update-RemoteMCP-Gateway.ps1: 9df4c087da6611e55f231fd8149bbf24de6fe0c1
+- tests/test_gateway_recovery_scripts.py: 93bcb38d45c6064375addae7e6748371596532f9
+- .github/workflows/gateway-updater-failsafe-qa.yml: 3b74724af5b356aec2252dd34cff28deeb703823
+
+Any change to the hardened updater, its targeted tests, or its QA workflow requires executable QA again before maintenance retry.
+
+No production gateway, execution node, device identity, task, or scientific job was mutated by this hardening QA.
