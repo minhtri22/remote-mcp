@@ -28,6 +28,20 @@ class DeviceRepository:
             (self.owner_account_id,),
         )
 
+    def effective_state(self,row,at_ms:int|None=None)->str:
+        """Return routing state without mutating SQLite.
+
+        OFFLINE freshness is computed from last_seen_at_ms so request-time reads
+        fail closed even before the background persistence sweep runs.
+        """
+        state=str(row["state"])
+        if state!="ONLINE":
+            return state
+        t=now_ms() if at_ms is None else int(at_ms)
+        if int(row["last_seen_at_ms"]) < t-self.offline_ms:
+            return "OFFLINE"
+        return "ONLINE"
+
     @staticmethod
     def _event(con,device_id,event_type,payload=None,command_id=None):
         con.execute(
@@ -67,6 +81,11 @@ class DeviceRepository:
         return con.execute("SELECT * FROM devices WHERE device_id=?",(device_id,)).fetchone()
 
     def sweep_offline(self)->int:
+        """Persist effective OFFLINE state.
+
+        This is intentionally a writer and is owned by the routing background
+        loop. Request-time status/online checks must not call it.
+        """
         t=now_ms(); cutoff=t-self.offline_ms
         changed=0
         with self.db.transaction() as con:
@@ -81,11 +100,11 @@ class DeviceRepository:
         return changed
 
     def require_online(self,device_id:str):
-        self.sweep_offline()
         row=self.get(device_id)
-        if row["state"]=="REVOKED":
+        state=self.effective_state(row)
+        if state=="REVOKED":
             raise DurableError("DEVICE_REVOKED","device is revoked")
-        if row["state"]!="ONLINE":
+        if state!="ONLINE":
             raise DurableError("DEVICE_OFFLINE","device is offline")
         return row
 
@@ -118,8 +137,8 @@ class DeviceRepository:
             return con.execute("SELECT * FROM devices WHERE device_id=?",(device_id,)).fetchone()
 
     def status(self,device_id:str)->dict:
-        self.sweep_offline()
         row=self.get(device_id)
+        state=self.effective_state(row)
         bound=self.db.query_one("SELECT COUNT(*) AS n FROM project_device_bindings WHERE device_id=?",(device_id,))
         active=self.db.query_one(
             "SELECT COUNT(*) AS n FROM device_commands WHERE device_id=? AND state IN ('QUEUED','LEASED')",
@@ -138,7 +157,7 @@ class DeviceRepository:
         except Exception:
             capabilities={}
         return {
-            "device_id":row["device_id"],"device_name":row["device_name"],"state":row["state"],
+            "device_id":row["device_id"],"device_name":row["device_name"],"state":state,
             "route_generation":int(row["route_generation"]),"last_seen_at_ms":int(row["last_seen_at_ms"]),
             "key_fingerprint_sha256":row["key_fingerprint_sha256"],
             "hostname":platform.get("hostname"),
