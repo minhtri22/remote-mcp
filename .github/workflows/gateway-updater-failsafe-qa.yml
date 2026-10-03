@@ -59,6 +59,34 @@ jobs:
           }
           $cfg | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 (Join-Path $base "gateway-config.json")
 
+          $env:REMOTEMCP_SYNTH_RUNTIME = $runtime
+          @'
+import hashlib, os
+from pathlib import Path
+
+from remotemcp.durable.db import Database
+
+runtime = Path(os.environ["REMOTEMCP_SYNTH_RUNTIME"])
+db = Database(runtime)
+db.bootstrap(target_version=3)
+
+def crlf_hash(path: Path) -> str:
+    text = path.read_bytes().decode("utf-8")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.replace("\n", "\r\n").encode("utf-8")).hexdigest()
+
+with db.transaction() as con:
+    for version, path in (
+        (1, db.migration_path),
+        (2, db.migration_v2_path),
+        (3, db.migration_v3_path),
+    ):
+        con.execute(
+            "UPDATE schema_migrations SET checksum_sha256=? WHERE version=?",
+            (crlf_hash(path), version),
+        )
+'@ | python -
+
           .\Update-RemoteMCP-Gateway.ps1 -SourceRepo $PWD -Ref HEAD -SkipFetch -PreflightOnly
 
       - name: Targeted recovery and public-hygiene QA
