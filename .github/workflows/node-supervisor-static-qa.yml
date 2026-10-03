@@ -1,0 +1,32 @@
+name: RemoteMCP Node Supervisor Static QA
+
+on:
+  pull_request:
+    paths:
+      - "Watch-RemoteMCP-Node.ps1"
+      - "Install-RemoteMCP-Node-Supervisor.ps1"
+      - "tests/test_node_supervisor_scripts.py"
+      - "tests/test_start_node_script.py"
+      - "tests/test_public_repo_hygiene.py"
+      - ".github/workflows/node-supervisor-static-qa.yml"
+      - "docs/REMOTEMCP_MACHINE1_SELF_HEALING_NODE_SUPERVISOR_STATIC_PREFLIGHT_AND_DEPLOYMENT_PLAN.md"
+      - "docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_MAINTENANCE_DEPLOYMENT_PLAN.md"
+  workflow_dispatch:
+
+jobs:
+  static-qa:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: PowerShell parse preflight
+        shell: powershell
+        run: |
+          [scriptblock]::Create((Get-Content -Raw .\Watch-RemoteMCP-Node.ps1)) | Out-Null
+          [scriptblock]::Create((Get-Content -Raw .\Install-RemoteMCP-Node-Supervisor.ps1)) | Out-Null
+      - name: Targeted supervisor and hygiene QA
+        run: python -m pytest -q tests/test_node_supervisor_scripts.py tests/test_start_node_script.py tests/test_public_repo_hygiene.py
