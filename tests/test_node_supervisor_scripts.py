@@ -48,6 +48,8 @@ def test_node_supervisor_installer_is_explicit_per_runtime():
     assert "-MultipleInstances IgnoreNew" in text
     assert "RemoteMCP-Node-Supervisor-" in text
     assert "StartNow" in text
+    assert "PlanOnly" in text
+    assert "REMOTEMCP_NODE_SUPERVISOR_PLAN_ONLY=PASS" in text
 
     lower = text.lower()
     assert "active-runtime.txt" not in lower
