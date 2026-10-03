@@ -12,146 +12,87 @@ Verdict:
 
 ## What passed
 
-The source builder now has two mutually exclusive packaging targets:
+The source builder exposes two mutually exclusive packaging targets:
 
 - `desktop-direct-mcp`
 - `web-app-ref`
 
 Static source inspection confirms:
 
-- the stable plugin identity is `remote-mcp-v2bd`;
 - the Desktop target declares `.mcp.json` and `mcp.json`;
 - the Web target declares `.app.json`;
 - the Web target does not package direct MCP manifests;
 - the native Web manifest references `apps: "./.app.json"`;
 - the portable OpenAI extension references `apps: "./.app.json"`;
-- Web packaging requires an app ID with an eligible prefix;
-- `plugin_asdk_app_...` input is normalized to `asdk_app_...`;
+- Web packaging requires an eligible app ID supplied at build time;
 - missing or invalid app IDs fail closed;
 - no real deployment app ID is committed;
-- no private deployment URL was added by this migration;
+- no private deployment URL is committed;
 - command files and skill wiring remain first-class sources.
 
-## Executable QA status
+All public examples use placeholders such as:
 
-Pytest coverage was updated to verify Desktop/Web package isolation, app-ID normalization, fail-closed behavior, and command-source preservation.
+```text
+https://mcp.example.com
+<CHATGPT_APP_ID>
+<PRIVATE_PLUGIN_ID>
+<CONNECTED_ACCOUNT_NAME>
+```
 
-A temporary external QA runner was attempted twice. The runners were unavailable independently of this repository:
+## Executable QA boundary
 
-- one returned HTTP 429 during the executor probe;
-- the alternate runner returned HTTP 404 during the executor probe.
+Package tests cover Desktop/Web isolation, app-ID normalization, fail-closed behavior, and command-source preservation.
 
-Therefore this closure does **not** claim executable pytest PASS. The current verdict is deliberately limited to source/static prelock PASS.
+A temporary external QA runner was unavailable during the initial source-only prelock, so that stage did not claim executable pytest PASS.
 
-No QA files or directories were created on the user's machines.
+No QA files or directories were created on operator machines by the external-runner attempts.
 
-## Production hold
+## Production safety rule
 
-The currently installed personal plugin remains:
+The Web migration does not require overwriting an existing direct-MCP Desktop package.
 
-- name: `remote-mcp-v2bd`;
-- version: `1.2.0`;
-- scope: `USER`;
-- discoverability: `PRIVATE`.
+The safe migration pattern is:
 
-It was not updated or replaced during this prelock.
+```text
+existing app-backed OAuth carrier
+          ↓
+clean web wrapper (.app.json)
+          ↓
+fresh ChatGPT Web verification
+```
 
-No gateway, OAuth state, execution device, project, task, or scientific job was changed.
-
-## Sites bridge attempt
-
-A ChatGPT Sites attempt was performed to create a Web bridge around the existing RemoteMCP endpoint.
-
-Observed result:
-
-- the existing RemoteMCP HTTPS MCP endpoint was recognized;
-- the Sites capability available to this account could not attach that remote endpoint using its existing OAuth flow;
-- the connector-eligibility tool required to reuse RemoteMCP was unavailable;
-- Sites enforced an `allowed plugins` boundary;
-- no Site or plugin was created;
-- no credential was stored.
-
-Adjudication:
-
-`SITES_EXTERNAL_REMOTEMCP_BRIDGE_NOT_AVAILABLE_ON_CURRENT_ACCOUNT_SURFACE`
-
-This is not a failure of the RemoteMCP endpoint. It is a ChatGPT account/capability boundary.
-
-## Remaining prerequisite for Web release
-
-The Web target requires one real eligible ChatGPT App that can expose the existing RemoteMCP tool surface on ChatGPT web.
-
-For the full RemoteMCP write/execute surface, the currently supported direct custom-MCP path requires an eligible managed workspace with full MCP support. Do not assume that a personal Plus account can create that app.
-
-The existing personal-plugin inventory contains RemoteMCP plugins only; it does not provide an eligible app ID for `web-app-ref`.
-
-Do not invent an app ID and do not upload a Web package until the referenced app exists and can be authorized.
-
-## Next gate
-
-When an eligible app-creation surface becomes available:
-
-`REMOTEMCP_V2_WEB_APP_REFERENCE_MATERIALIZATION_AND_FRESH_WEB_VERIFICATION`
-
-That gate must:
-
-1. create or select the eligible app through a supported ChatGPT app-creation path;
-2. capture its exact app ID;
-3. build `web-app-ref`;
-4. verify ZIP contents contain `.app.json` and no direct MCP manifests;
-5. run executable package tests when a runner is available;
-6. install/update a test plugin;
-7. authorize the underlying app;
-8. verify a live `device_list` call from a fresh ChatGPT Web conversation;
-9. only then authorize replacement/update of the production RemoteMCP V2 plugin.
-
-Until that prerequisite exists, keep the current Desktop package and production plugin unchanged.
-
+Do not place real app IDs, connected-account names, OAuth values, private endpoints, machine names, device IDs, or local paths in public release records.
 
 ## Fresh Web verification closure
 
-On 2026-10-03, a clean private sibling plugin was created:
+A clean Web wrapper package was created with:
 
-- plugin name: `remote-mcp-v2-web`;
-- display name: `RemoteMCP V2 Web`;
-- version: `1.3.0`;
-- packaging: app-backed;
-- dependency: the user's existing RemoteDesktop Apps SDK app;
-- direct MCP manifests: absent.
+- a distinct public plugin identity;
+- app-backed packaging;
+- no direct `.mcp.json` or `mcp.json`;
+- the same public skill/command sources as the V2 package.
 
-The plugin detail page showed:
+The plugin detail surface showed an app dependency in the Connected state, and a fresh ChatGPT Web conversation successfully invoked a live read-only RemoteMCP device inventory through the app-backed path.
 
-```text
-Apps 1
-└── RemoteDesktop
-    └── Connected
-```
+For privacy, the public record intentionally omits:
 
-A fresh ChatGPT Web conversation launched from **Try in chat** successfully invoked live RemoteMCP device inventory through the app-backed path.
+- the real app/plugin identifier;
+- connected-account display name;
+- private MCP endpoint;
+- device IDs and hostnames;
+- device counts and live ONLINE/OFFLINE state.
 
-Observed result:
+This proves:
 
-```text
-registered devices: 5
-ONLINE: 2
-OFFLINE: 3
-```
-
-This proves all of the following together:
-
-- ChatGPT Web can load the `RemoteMCP V2 Web` wrapper;
-- the wrapper resolves the existing RemoteDesktop app dependency;
-- the existing OAuth/account connection is usable;
-- the full RemoteMCP tool surface is available through the underlying app;
-- live gateway calls succeed from a fresh Web conversation;
-- direct `.mcp.json` / `mcp.json` packaging is not required for the Web wrapper.
+- ChatGPT Web can load the Web wrapper;
+- the wrapper can resolve an eligible app dependency;
+- the OAuth/account connection can be reused;
+- the full RemoteMCP tool surface can be exposed through the underlying app;
+- live gateway calls can succeed from a fresh Web conversation;
+- direct MCP manifests are not required in the Web wrapper.
 
 Final verdict:
 
 `REMOTEMCP_V2_WEB_FRESH_CHAT_WRAPPER_VERIFICATION = PASS`
 
-The legacy `RemoteDesktop` app-backed plugin remains the underlying app/OAuth carrier.
-
-The existing `RemoteMCP V2` Desktop direct-MCP plugin remains unchanged and must not be removed until a later explicit cleanup/migration decision.
-
-Scientific jobs and execution-device state were not mutated by this verification.
+Operational deployment values remain private and are not part of this public QA record.
