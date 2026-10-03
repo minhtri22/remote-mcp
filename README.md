@@ -53,6 +53,8 @@ V2-BD routed multi-device tools:
 
 - [User guide — one machine, multiple machines, multiple projects](docs/USER_GUIDE.md)
 - [ChatGPT private-plugin package setup](docs/CHATGPT_PLUGIN_SETUP.md)
+  - Desktop: `desktop-direct-mcp` keeps direct MCP manifests and is expected to be Desktop only.
+  - Web: `web-app-ref` contains `.app.json`, contains no direct MCP manifest, and requires an existing eligible ChatGPT App / Site-backed app ID.
 - [Gateway timeout recovery and watchdog](docs/GATEWAY_RECOVERY.md)
 
 ### ChatGPT operator commands
