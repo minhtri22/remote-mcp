@@ -156,6 +156,29 @@ class DeviceRepository:
             capabilities=json.loads(row["capabilities_json"] or "{}")
         except Exception:
             capabilities={}
+        reported_active_node_jobs=capabilities.get("_remotemcp_active_node_jobs")
+        observed_at_ms=capabilities.get("_remotemcp_active_node_jobs_observed_at_ms")
+        try:
+            reported_active_node_jobs=int(reported_active_node_jobs)
+            if reported_active_node_jobs<0:
+                raise ValueError()
+        except Exception:
+            reported_active_node_jobs=None
+        try:
+            observed_at_ms=int(observed_at_ms)
+        except Exception:
+            observed_at_ms=None
+        age_ms=(
+            max(0,now_ms()-observed_at_ms)
+            if observed_at_ms is not None else None
+        )
+        capacity_fresh=bool(
+            state=="ONLINE"
+            and reported_active_node_jobs is not None
+            and age_ms is not None
+            and age_ms<=self.offline_ms
+        )
+        registry_jobs=int(jobs["n"])
         return {
             "device_id":row["device_id"],"device_name":row["device_name"],"state":state,
             "route_generation":int(row["route_generation"]),"last_seen_at_ms":int(row["last_seen_at_ms"]),
@@ -164,5 +187,17 @@ class DeviceRepository:
             "platform":platform,
             "capabilities":capabilities,
             "bound_projects":int(bound["n"]),"active_commands":int(active["n"]),
-            "active_routed_jobs":int(jobs["n"]),
+            # Compatibility inventory only.  Do not use this central registry
+            # count as an execution-capacity/resource-contention signal.
+            "active_routed_jobs":registry_jobs,
+            "registry_nonterminal_routed_jobs":registry_jobs,
+            "active_routed_jobs_is_capacity_signal":False,
+            "authoritative_active_node_jobs":reported_active_node_jobs,
+            "authoritative_active_node_jobs_observed_at_ms":observed_at_ms,
+            "authoritative_active_node_jobs_age_ms":age_ms,
+            "capacity_signal_fresh":capacity_fresh,
+            "capacity_signal_source":(
+                "SIGNED_NODE_HEARTBEAT"
+                if reported_active_node_jobs is not None else None
+            ),
         }
