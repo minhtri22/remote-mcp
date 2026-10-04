@@ -24,8 +24,10 @@ def test_path_escape_recovery_preserves_proxy_and_original_argv(make_gateway,tmp
             ),
         )
         agent=await g.multi.agent_register("agent-op","agent","install",[])
-        task=await g.routing.task_create_or_local(
-            "task-op",project["project_id"],"task"
+        task=await drive(
+            g,node,g.routing.task_create_or_local(
+                "task-op",project["project_id"],"task"
+            )
         )
         claim=await drive(
             g,node,
@@ -173,8 +175,10 @@ def test_path_escape_recovery_rejects_non_path_escape_failure(make_gateway,tmp_p
             ),
         )
         agent=await g.multi.agent_register("agent-op","agent","install",[])
-        task=await g.routing.task_create_or_local(
-            "task-op",project["project_id"],"task"
+        task=await drive(
+            g,node,g.routing.task_create_or_local(
+                "task-op",project["project_id"],"task"
+            )
         )
         claim=await drive(
             g,node,
