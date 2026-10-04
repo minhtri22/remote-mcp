@@ -725,6 +725,24 @@ async def task_job_recover_path_escape(
 
 
 @mcp.tool()
+async def task_job_recover_expired_submit(
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    proxy_job_id: str,
+    expected_original_argv_sha256: str,
+) -> dict:
+    """Retry the same routed submit only when its original command expired before first delivery."""
+    return await routing_service.task_job_recover_expired_submit(
+        task_id,
+        lease_token,
+        lease_epoch,
+        proxy_job_id,
+        expected_original_argv_sha256,
+    )
+
+
+@mcp.tool()
 async def task_job_artifact_status(
     task_id: str,
     proxy_job_id: str,
