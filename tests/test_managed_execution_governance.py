@@ -35,6 +35,9 @@ def test_skill_contains_mandatory_identity_pairing_preflight():
         "fail closed",
         "task_job_recovery_status",
         "task_job_recover_path_escape",
+        "task_job_submit_failure_status",
+        "task_job_recover_preproxy_submit",
+        "task_job_adopt_legacy_submit_intent",
         "task_job_submit_with_evidence",
         "task_job_artifact_status",
         "task_job_artifact_read",
@@ -65,6 +68,18 @@ def test_machine_readable_policy_matches_skill_contract():
     assert recovery["preserve_original_argv"] is True
     assert recovery["replacement_proxy_forbidden"] is True
     assert recovery["sql_or_node_db_repair_forbidden"] is True
+    preproxy=policy["scientific_job"]["preproxy_submit_recovery"]
+    assert preproxy["enabled"] is True
+    assert preproxy["status_tool"] == "task_job_submit_failure_status"
+    assert preproxy["recovery_tool"] == "task_job_recover_preproxy_submit"
+    assert preproxy["legacy_intent_adoption_tool"] == "task_job_adopt_legacy_submit_intent"
+    assert preproxy["frozen_intent_before_admission"] is True
+    assert preproxy["preserve_original_operation_id"] is True
+    assert preproxy["second_scientific_one_shot_forbidden"] is True
+    assert preproxy["legacy_adoption_requires_exact_historical_request_hash"] is True
+    order=policy["scientific_job"]["execution_lifecycle_recovery_order"]
+    assert order[0] == "task_job_submit_failure_status"
+    assert order[-1] == "task_job_artifact_read"
     readback=policy["scientific_job"]["postrun_evidence_readback"]
     assert readback["enabled"] is True
     assert readback["declare_before_execution"] is True
