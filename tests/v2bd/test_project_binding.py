@@ -19,7 +19,7 @@ def test_same_relative_path_on_two_devices_and_rebind_guard(make_gateway,tmp_pat
         assert p1["node_root_rel"]==p2["node_root_rel"]=="repo"
         assert p1["root_rel"]!=p2["root_rel"]
         assert p1["device_id"]!=p2["device_id"]
-        task=await g.routing.task_create_or_local("t1",p1["project_id"],"active")
+        task=await drive(g,n1,g.routing.task_create_or_local("t1",p1["project_id"],"active"))
         with pytest.raises(DurableError) as exc:
             await drive(g,n2,g.routing.project_bind_device("rebind",p1["project_id"],d2["device_id"]))
         assert exc.value.code=="PROJECT_DEVICE_MIGRATION_FORBIDDEN"
