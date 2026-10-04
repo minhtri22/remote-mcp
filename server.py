@@ -566,9 +566,10 @@ async def task_job_submit(
     lease_epoch: int,
     argv: list[str],
     cwd: str = ".",
+    evidence_paths: list[str] = [],
 ) -> dict:
     return await routing_service.task_job_submit_or_local(
-        operation_id, task_id, lease_token, lease_epoch, argv, cwd
+        operation_id, task_id, lease_token, lease_epoch, argv, cwd, evidence_paths
     )
 
 
@@ -705,6 +706,33 @@ async def task_job_recover_path_escape(
         proxy_job_id,
         expected_original_argv_sha256,
         acknowledge_cwd_semantics_preserved,
+    )
+
+
+@mcp.tool()
+async def task_job_artifact_status(
+    task_id: str,
+    proxy_job_id: str,
+    path: str,
+) -> dict:
+    """Check terminal scientific artifact readback without rerunning the job."""
+    return await routing_service.task_job_artifact_status(
+        task_id, proxy_job_id, path
+    )
+
+
+@mcp.tool()
+async def task_job_artifact_read(
+    task_id: str,
+    proxy_job_id: str,
+    path: str,
+    expected_sha256: str,
+    offset: int = 0,
+    limit: int = 120000,
+) -> dict:
+    """Read an exact evidence file declared before routed job execution, pinned by SHA-256."""
+    return await routing_service.task_job_artifact_read(
+        task_id, proxy_job_id, path, expected_sha256, offset, limit
     )
 
 
