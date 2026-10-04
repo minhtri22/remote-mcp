@@ -35,6 +35,7 @@ def test_skill_contains_mandatory_identity_pairing_preflight():
         "fail closed",
         "task_job_recovery_status",
         "task_job_recover_path_escape",
+        "task_job_submit_with_evidence",
         "task_job_artifact_status",
         "task_job_artifact_read",
         "evidence_paths",
@@ -68,6 +69,8 @@ def test_machine_readable_policy_matches_skill_contract():
     assert readback["enabled"] is True
     assert readback["declare_before_execution"] is True
     assert readback["declaration_field"] == "evidence_paths"
+    assert readback["submit_tool"] == "task_job_submit_with_evidence"
+    assert readback["locked_submit_tool_preserved"] == "task_job_submit"
     assert readback["exact_files_only"] is True
     assert readback["require_authoritative_terminal_job"] is True
     assert readback["scientific_rerun_on_readback_failure"] is False
