@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import subprocess
 import sys
@@ -109,12 +110,21 @@ class NodeService:
                     now=loop.time()
                     if now-last_hb>=self.config.heartbeat_seconds:
                         capacity=self.jobs.capacity_snapshot()
-                        await self.client.heartbeat(
-                            capacity["active_node_jobs"],
-                            capacity["unresolved_node_jobs"],
-                            capacity["capacity_reconciliation_complete"],
-                            capacity["candidate_nonterminal_routed_jobs"],
-                        )
+                        hb_params=inspect.signature(self.client.heartbeat).parameters
+                        if "unresolved_node_jobs" in hb_params:
+                            await self.client.heartbeat(
+                                capacity["active_node_jobs"],
+                                capacity["unresolved_node_jobs"],
+                                capacity["capacity_reconciliation_complete"],
+                                capacity["candidate_nonterminal_routed_jobs"],
+                            )
+                        else:
+                            # Compatibility for older/custom node clients.
+                            # Their heartbeat is accepted for liveness only;
+                            # the gateway will not treat it as resolved capacity.
+                            await self.client.heartbeat(
+                                capacity["active_node_jobs"]
+                            )
                         last_hb=now
                     envelope=await self.client.poll()
                     if envelope is not None:
