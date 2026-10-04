@@ -147,6 +147,17 @@ class NodeJobs:
             )
         return row,state
 
+    @staticmethod
+    def _sha256_file(path:Path)->str:
+        h=hashlib.sha256()
+        with path.open("rb") as fh:
+            while True:
+                chunk=fh.read(1024*1024)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+
     def artifact_stat(self,proxy_job_id:str,path:str)->dict:
         row,state=self._require_terminal_artifact_job(proxy_job_id)
         declaration,target=self._artifact_target(proxy_job_id,path)
@@ -157,7 +168,8 @@ class NodeJobs:
                 proxy_job_id=proxy_job_id,
                 path=path,
             )
-        raw=target.read_bytes()
+        size=target.stat().st_size
+        digest=self._sha256_file(target)
         return {
             "proxy_job_id":proxy_job_id,
             "node_job_id":row["node_job_id"],
@@ -167,8 +179,8 @@ class NodeJobs:
             "path":path,
             "resolved_path":str(target),
             "declaration_scope":declaration.get("scope"),
-            "size_bytes":len(raw),
-            "sha256":hashlib.sha256(raw).hexdigest(),
+            "size_bytes":size,
+            "sha256":digest,
             "terminal_evidence_preserved":True,
             "scientific_rerun_required":False,
         }
@@ -185,8 +197,8 @@ class NodeJobs:
                 proxy_job_id=proxy_job_id,
                 path=path,
             )
-        raw=target.read_bytes()
-        actual=hashlib.sha256(raw).hexdigest()
+        size=target.stat().st_size
+        actual=self._sha256_file(target)
         expected=str(expected_sha256 or "").lower()
         if len(expected)!=64 or expected!=actual:
             raise DurableError(
@@ -199,7 +211,9 @@ class NodeJobs:
             )
         offset=max(0,int(offset))
         limit=max(1,min(int(limit),120000))
-        chunk=raw[offset:offset+limit]
+        with target.open("rb") as fh:
+            fh.seek(offset)
+            chunk=fh.read(limit)
         try:
             content=chunk.decode("utf-8")
             encoding="utf-8"
@@ -216,10 +230,10 @@ class NodeJobs:
             "resolved_path":str(target),
             "declaration_scope":declaration.get("scope"),
             "sha256":actual,
-            "size_bytes":len(raw),
+            "size_bytes":size,
             "offset":offset,
             "returned_bytes":len(chunk),
-            "eof":offset+len(chunk)>=len(raw),
+            "eof":offset+len(chunk)>=size,
             "encoding":encoding,
             "content":content,
             "data_b64":base64.b64encode(chunk).decode("ascii"),
