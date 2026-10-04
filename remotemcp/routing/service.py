@@ -466,6 +466,58 @@ class RoutingService:
     def device_status(self,device_id:str)->dict:
         return self.devices.status(device_id)
 
+    def device_capacity_status(self,device_id:str)->dict:
+        """Return the signed node-heartbeat capacity truth.
+
+        Central routed-job inventory is intentionally reported separately and
+        must never be substituted for node-local active workload.
+        """
+        status=self.devices.status(device_id)
+        reported=status.get("authoritative_active_node_jobs")
+        fresh=bool(status.get("capacity_signal_fresh"))
+        if status["state"]!="ONLINE":
+            resolved=False
+            reason="DEVICE_OFFLINE"
+        elif reported is None:
+            resolved=False
+            reason="NODE_HEARTBEAT_CAPACITY_UNAVAILABLE"
+        elif not fresh:
+            resolved=False
+            reason="NODE_HEARTBEAT_CAPACITY_STALE"
+        else:
+            resolved=True
+            reason="AUTHORITATIVE_NODE_HEARTBEAT"
+        active=int(reported) if resolved else None
+        if not resolved:
+            recommendation="RECHECK_NODE_CAPACITY"
+        elif active==0:
+            recommendation="NO_ACTIVE_NODE_JOBS_RECHECK_CPU_RAM_AND_OTHER_RESOURCE_GATES"
+        else:
+            recommendation="ACTIVE_NODE_WORKLOAD_PRESENT_RECHECK_CPU_RAM_BEFORE_ONE_SHOT"
+        return self._with_routing(
+            {
+                "device_id":device_id,
+                "device_name":status.get("device_name"),
+                "device_state":status["state"],
+                "capacity_resolved":resolved,
+                "capacity_reason":reason,
+                "authoritative_active_node_jobs":active,
+                "reported_active_node_jobs":reported,
+                "capacity_signal_source":status.get("capacity_signal_source"),
+                "capacity_signal_fresh":fresh,
+                "capacity_signal_age_ms":status.get(
+                    "authoritative_active_node_jobs_age_ms"
+                ),
+                "registry_nonterminal_routed_jobs":int(
+                    status.get("registry_nonterminal_routed_jobs",0)
+                ),
+                "registry_count_is_capacity_signal":False,
+                "resource_gate_rule":"USE_AUTHORITATIVE_NODE_COUNT_ONLY",
+                "recommendation":recommendation,
+            },
+            device_id,
+        )
+
     async def device_revoke(self,operation_id:str,device_id:str,reason:str="")->dict:
         op,created=self._reserve(operation_id,"DEVICE_REVOKE",{"device_id":device_id,"reason":reason})
         replay=self._operation_replay(op)
@@ -488,13 +540,27 @@ class RoutingService:
         status=self.devices.status(device_id)
         if status["state"]!="ONLINE":
             raise DurableError("DEVICE_OFFLINE","device is offline")
-        active_jobs=int(status.get("active_routed_jobs",0))
+        capacity=self.device_capacity_status(device_id)
+        if not capacity["capacity_resolved"]:
+            raise DurableError(
+                "DEVICE_CAPACITY_UNRESOLVED",
+                "authoritative node workload is unavailable; restart fails closed",
+                device_id=device_id,
+                capacity_reason=capacity["capacity_reason"],
+                registry_nonterminal_routed_jobs=capacity[
+                    "registry_nonterminal_routed_jobs"
+                ],
+            )
+        active_jobs=int(capacity["authoritative_active_node_jobs"])
         if active_jobs>0 and not bool(allow_active_jobs):
             raise DurableError(
                 "DEVICE_BUSY",
-                "device has active routed jobs; restart requires explicit allow_active_jobs=true",
+                "device has authoritative active node jobs; restart requires explicit allow_active_jobs=true",
                 device_id=device_id,
-                active_routed_jobs=active_jobs,
+                authoritative_active_node_jobs=active_jobs,
+                registry_nonterminal_routed_jobs=capacity[
+                    "registry_nonterminal_routed_jobs"
+                ],
             )
         args={
             "device_id":device_id,
@@ -517,7 +583,10 @@ class RoutingService:
             )
             result={
                 **result,
-                "active_routed_jobs_at_request":active_jobs,
+                "authoritative_active_node_jobs_at_request":active_jobs,
+                "registry_nonterminal_routed_jobs_at_request":capacity[
+                    "registry_nonterminal_routed_jobs"
+                ],
                 "same_identity_expected":True,
             }
             result=self._with_routing(result,device_id)
@@ -1632,12 +1701,44 @@ class RoutingService:
     def heartbeat_http(self,device_row,payload:dict)->dict:
         capabilities=payload.get("capabilities")
         platform=payload.get("platform")
-        if isinstance(capabilities,dict) or isinstance(platform,dict):
+        active_node_jobs=payload.get("active_node_jobs")
+        observed_at_ms=now_ms()
+        if isinstance(active_node_jobs,bool):
+            raise DurableError("INVALID_ARGUMENT","active_node_jobs must be a non-negative integer")
+        if active_node_jobs is not None:
+            try:
+                active_node_jobs=int(active_node_jobs)
+            except Exception as exc:
+                raise DurableError(
+                    "INVALID_ARGUMENT",
+                    "active_node_jobs must be a non-negative integer",
+                ) from exc
+            if active_node_jobs<0 or active_node_jobs>1000000:
+                raise DurableError(
+                    "INVALID_ARGUMENT",
+                    "active_node_jobs is outside the accepted range",
+                )
+        if (
+            isinstance(capabilities,dict)
+            or isinstance(platform,dict)
+            or active_node_jobs is not None
+        ):
             with self.db.transaction() as con:
-                if isinstance(capabilities,dict):
+                if isinstance(capabilities,dict) or active_node_jobs is not None:
+                    try:
+                        merged=json.loads(device_row["capabilities_json"] or "{}")
+                        if not isinstance(merged,dict):
+                            merged={}
+                    except Exception:
+                        merged={}
+                    if isinstance(capabilities,dict):
+                        merged.update(capabilities)
+                    if active_node_jobs is not None:
+                        merged["_remotemcp_active_node_jobs"]=active_node_jobs
+                        merged["_remotemcp_active_node_jobs_observed_at_ms"]=observed_at_ms
                     con.execute(
                         "UPDATE devices SET capabilities_json=? WHERE device_id=?",
-                        (json.dumps(capabilities,sort_keys=True),device_row["device_id"]),
+                        (json.dumps(merged,sort_keys=True),device_row["device_id"]),
                     )
                 if isinstance(platform,dict):
                     con.execute(
@@ -1645,7 +1746,7 @@ class RoutingService:
                         (json.dumps(platform,sort_keys=True),device_row["device_id"]),
                     )
         return {
-            "server_time_ms":now_ms(),
+            "server_time_ms":observed_at_ms,
             "device_id":device_row["device_id"],
             "state":"ONLINE",
             "route_generation":int(device_row["route_generation"]),
