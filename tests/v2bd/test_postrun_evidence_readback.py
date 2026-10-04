@@ -169,6 +169,7 @@ def test_legacy_terminal_job_without_manifest_fails_closed_without_rerun(make_ga
         status=await g.routing.task_job_artifact_status(
             task["task_id"],job["proxy_job_id"],str(artifact)
         )
+        assert status["state"]=="SUCCEEDED"
         assert status["readable"] is False
         assert status["readback_state"]=="POSTRUN_EVIDENCE_PATH_UNDECLARED"
         assert status["scientific_rerun_required"] is False
