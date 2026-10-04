@@ -44,7 +44,7 @@ def test_gateway_recovery_scripts_are_out_of_band_and_state_preserving():
     assert "REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=PASS" in update
     assert "REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS" in update
     assert "src.backup(dst)" in update
-    assert "Database(runtime_dir).bootstrap(target_version=4)" in update
+    assert "db.bootstrap(target_version=4)" in update
     assert "REMOTEMCP_LEGACY_ROUTED_JOB_INVENTORY=PASS" in update
     assert "REMOTEMCP_SCHEMA_V4_BACKUP_PROBE=PASS" in update
     assert "schema v4 was not appended exactly once" in update
