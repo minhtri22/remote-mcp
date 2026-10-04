@@ -89,7 +89,13 @@ class RoutingService:
         if isinstance(exc,DurableError) and exc.code=="DEVICE_COMMAND_PENDING":
             return
         code=getattr(exc,"code","INVALID_ARGUMENT")
-        self.durable.operations.fail(operation_id,code,{"error":str(exc)},False)
+        retryable=bool(
+            isinstance(exc,DurableError)
+            and exc.code=="DEVICE_COMMAND_EXPIRED"
+        )
+        self.durable.operations.fail(
+            operation_id,code,{"error":str(exc)},retryable
+        )
 
     def guard_local_job_id(self,job_id:str)->None:
         if str(job_id).startswith("rjob_"):
@@ -947,7 +953,9 @@ class RoutingService:
             self.durable.operations.succeed(operation_id,result)
             return {**result,"lease_token":lease["lease_token"]}
         except DurableError as exc:
-            if exc.code=="DEVICE_COMMAND_PENDING":
+            if exc.code in {"DEVICE_COMMAND_PENDING","DEVICE_COMMAND_EXPIRED"}:
+                if exc.code=="DEVICE_COMMAND_EXPIRED":
+                    self._fail_final(operation_id,exc)
                 raise
             with self.db.transaction() as con:
                 con.execute("DELETE FROM path_leases WHERE task_id=?",(task_id,))
