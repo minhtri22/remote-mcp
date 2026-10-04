@@ -8,7 +8,7 @@ Gate:
 
 Status:
 
-`IMPLEMENTED — EXECUTABLE QA PENDING — PRODUCTION CUTOVER NOT AUTHORIZED`
+`IMPLEMENTATION PASS — PRODUCTION BACKUP RUN STILL REQUIRED — CUTOVER NOT AUTHORIZED`
 
 ## Bound implementation
 
@@ -100,3 +100,42 @@ No execution node restart belongs to this gate.
 ## Scientific boundary
 
 This is infrastructure/control-plane maintenance and must not be appended to scientific lineage.
+
+
+## Executable implementation QA lock
+
+GitHub Actions run:
+
+`37167076194`
+
+Observed on Windows:
+
+- PowerShell parse preflight: PASS
+- isolated exact-release startup probe: `REMOTEMCP_GATEWAY_RELEASE_PROBE=PASS`
+- synthetic production-v3 SQLite backup inventory: `REMOTEMCP_LEGACY_ROUTED_JOB_INVENTORY=PASS`
+- schema-v4 migration on backup only: `REMOTEMCP_SCHEMA_V4_BACKUP_PROBE=PASS`
+- migration compatibility marker: `REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS`
+- production-state backup probe marker: `REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=PASS`
+- preflight-only no-cutover marker: `REMOTEMCP_GATEWAY_UPDATE_PREFLIGHT_ONLY=PASS`
+- live synthetic runtime.db SHA256 before/after preflight: unchanged
+- targeted recovery/inventory/public-hygiene tests: `10 passed`
+
+The immediately preceding QA run executed the full updater probe successfully but failed one static source-string assertion because the test expected `Database(runtime_dir).bootstrap(...)` while the implementation used an equivalent `db.bootstrap(...)` call. Only that static assertion was corrected; runtime probe logic was unchanged.
+
+Frozen implementation blobs:
+
+- `Update-RemoteMCP-Gateway.ps1`: `064af81999ffa0e354e01dbbf153f5f4de0b65a7`
+- `scripts/audit_legacy_routed_jobs.py`: `469af63390bbf313dda3279cd2f17c1ba671c5df`
+- `tests/test_gateway_recovery_scripts.py`: `ef47d91dcee93e16c8c64a02edc093615873aef5`
+- `tests/test_legacy_routed_job_inventory.py`: `309884e2a6b6a568a7af6fd04673c33ee9efc316`
+- `.github/workflows/gateway-updater-failsafe-qa.yml`: `a112a9793d3493cb059515453e3b8fb106534d95`
+
+## Blocker implementation adjudication
+
+`BLOCKED_ON_FULL_PRODUCTION_LEGACY_ROUTED_JOB_INVENTORY_AND_SCHEMA_V4_BACKUP_PROBE_IMPLEMENTATION = PASS`
+
+The blocker is removed at the source/QA level.
+
+The parent compatibility gate remains not-yet-PASS until this exact preflight is executed against a consistent backup of the actual production runtime DB and the resulting full legacy inventory is adjudicated.
+
+No production database or gateway process was modified by this implementation QA.
