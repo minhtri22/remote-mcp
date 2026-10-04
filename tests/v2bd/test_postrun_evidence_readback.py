@@ -85,7 +85,7 @@ def test_declared_external_artifact_readback_after_terminal(make_gateway,tmp_pat
         assert status["readback_state"]=="READY"
         assert status["sha256"]==expected
         assert status["scientific_rerun_required"] is False
-        assert status["scientific_rerun_forbidden"] is True
+        assert status["automatic_scientific_rerun_for_readback_forbidden"] is True
 
         first=await drive(
             g,node,g.routing.task_job_artifact_read(
@@ -175,7 +175,7 @@ def test_legacy_terminal_job_without_manifest_fails_closed_without_rerun(make_ga
         assert status["readable"] is False
         assert status["readback_state"]=="POSTRUN_EVIDENCE_PATH_UNDECLARED"
         assert status["scientific_rerun_required"] is False
-        assert status["scientific_rerun_forbidden"] is True
+        assert status["automatic_scientific_rerun_for_readback_forbidden"] is True
 
         with pytest.raises(DurableError) as exc:
             await drive(
@@ -238,7 +238,7 @@ def test_declared_artifact_missing_is_readback_failure_not_science_failure(make_
         assert status["readable"] is False
         assert status["readback_state"]=="POSTRUN_EVIDENCE_NOT_FOUND"
         assert status["scientific_rerun_required"] is False
-        assert status["scientific_rerun_forbidden"] is True
+        assert status["automatic_scientific_rerun_for_readback_forbidden"] is True
 
         await node.jobs.durable.stop()
 
