@@ -85,7 +85,9 @@
       "arbitrary_filesystem_read_forbidden": true,
       "undeclared_legacy_decision": "POSTRUN_EVIDENCE_PATH_UNDECLARED",
       "missing_declared_file_decision": "POSTRUN_EVIDENCE_NOT_FOUND",
-      "sql_or_node_db_repair_forbidden": true
+      "sql_or_node_db_repair_forbidden": true,
+      "submit_tool": "task_job_submit_with_evidence",
+      "locked_submit_tool_preserved": "task_job_submit"
     }
   },
   "infrastructure": {
