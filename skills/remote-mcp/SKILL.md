@@ -172,3 +172,19 @@ When a dedicated node must be paired on the same host as the gateway, use `devic
 - if a crash occurs after central consume, replay is allowed only when the exact local key fingerprint matches the central paired device;
 - pairing does not start the node process; start/supervision remains a separate lifecycle action.
 
+
+
+### Authoritative resource capacity
+
+Do not use `device_list.active_routed_jobs` or the central routed-job registry count as a resource-contention gate. Those values are inventory/observability state and may contain stale or historical nonterminal rows.
+
+Before a fresh one-shot, resource-sensitive execution, or node restart:
+
+1. call `device_capacity_status(device_id)`;
+2. require `capacity_resolved=true`;
+3. use only `authoritative_active_node_jobs`, which comes from the signed node heartbeat;
+4. if the authoritative count is positive, recheck CPU/RAM and identify whether the live workload materially contends with the planned run;
+5. if the authoritative count is zero, continue the remaining CPU/RAM/disk/model-cache resource gates;
+6. if the capacity signal is stale, unavailable, or the device is offline, treat capacity as unresolved and fail closed.
+
+A large `registry_nonterminal_routed_jobs` value by itself must never block a scientific transition. It is an inventory/audit signal, not a capacity signal.

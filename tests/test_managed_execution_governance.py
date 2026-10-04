@@ -42,6 +42,7 @@ def test_skill_contains_mandatory_identity_pairing_preflight():
         "task_job_artifact_status",
         "task_job_artifact_read",
         "device_pair_local_dedicated_node",
+        "device_capacity_status",
         "evidence_paths",
     )
     for text in required:
@@ -101,6 +102,13 @@ def test_machine_readable_policy_matches_skill_contract():
     assert readback["arbitrary_filesystem_read_forbidden"] is True
     assert policy["plugin_session_binding"]["canonical_web_plugin_name"] == "remote-mcp-v2-web-clean"
     assert policy["plugin_session_binding"]["legacy_web_plugin_name"] == "remote-mcp-v2-web"
+    capacity=policy["resource_capacity_governance"]
+    assert capacity["authoritative_tool"] == "device_capacity_status"
+    assert capacity["authoritative_signal"] == "signed_node_heartbeat.active_node_jobs"
+    assert capacity["registry_nonterminal_routed_jobs_is_inventory_only"] is True
+    assert capacity["device_list_active_routed_jobs_is_capacity_signal"] is False
+    assert capacity["device_restart_must_use_authoritative_capacity"] is True
+    assert capacity["registry_count_must_not_block_science_by_itself"] is True
     assert policy["plugin_session_binding"]["failure_decision"] == "PLUGIN_SESSION_BINDING_FAILURE"
 
 
