@@ -80,6 +80,18 @@ When a scientific task/job may already exist:
 - do not submit a replacement run because status retrieval failed;
 - infrastructure diagnostics and maintenance records do not belong in scientific `LINEAGE.md` unless the scientific protocol explicitly says otherwise.
 
+### Pre-execution routed-submit recovery
+
+If a routed scientific job is still `QUEUED` with `node_job_id=null`, do not create a second proxy/job as the first response.
+
+1. Call `task_job_recovery_status(task_id, proxy_job_id)`.
+2. Recovery is automatically eligible only for the narrow case where the original `JOB_SUBMIT` failed with `PATH_ESCAPE` before node-job creation, the routed row is still pre-execution `QUEUED`, there is no terminal evidence, and the original task/proxy identity is intact.
+3. The status response returns the frozen original argv SHA-256. Inspect the executor/entrypoint first and independently establish that changing cwd to the managed task root `.` does not change scientific semantics.
+4. Only after that check, call `task_job_recover_path_escape` with the returned argv hash and `acknowledge_cwd_semantics_preserved=true`.
+5. The recovery tool must reuse the same `proxy_job_id` and exact original argv. It first probes the bound node for the exact proxy; if a mapping already exists it repairs observability instead of submitting. If authoritative absence is proven, it issues one idempotent same-proxy recovery submit with cwd `.`.
+6. If status is not eligible, the argv hash does not match, the node probe is ambiguous, the device is offline, or cwd semantics cannot be proven equivalent, fail closed. Do not repair with SQL, node-database edits, raw node internals, a replacement proxy, or a second scientific one-shot.
+7. After recovery returns a `node_job_id`, track only that same proxy through `task_job_get`, `task_job_logs`, and `task_job_result`. Do not launch another recovery or replacement run.
+
 ## Operator commands
 
 - `/status`: show a compact gateway/device health summary.
