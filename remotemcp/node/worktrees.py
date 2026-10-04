@@ -4,6 +4,7 @@ from pathlib import Path
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
+from remotemcp.workspace_layout import classify_task_worktree_rel, project_workspace_rel
 from remotemcp.multiagent.worktrees import WorktreeManager
 
 
@@ -24,10 +25,17 @@ class NodeWorktrees:
         else:
             branch=str(payload["branch_name"])
             worktree_rel=str(payload["worktree_rel"])
+            layout=classify_task_worktree_rel(project_id,task_id,worktree_rel)
             project_root=self.projects.path(project_id)
             base_ref=str(payload.get("base_ref") or "HEAD")
             base_commit=self.manager.resolve_base(project_root,base_ref)
-            task={"worktree_rel":worktree_rel,"branch_name":branch,"base_commit":base_commit}
+            task={
+                "task_id":task_id,
+                "project_id":project_id,
+                "worktree_rel":worktree_rel,
+                "branch_name":branch,
+                "base_commit":base_commit,
+            }
             wt=self.manager.provision(project_root,task)
             worktree_rel=wt.relative_to(self.root).as_posix()
         with self.db.transaction() as con:
@@ -43,7 +51,11 @@ class NodeWorktrees:
                     "VALUES(?,?,?,?,?,'ACTIVE',?,?)",
                     (task_id,project_id,generation,worktree_rel,branch,t,t),
                 )
-        return {"task_id":task_id,"project_id":project_id,"worktree_rel":worktree_rel,"branch_name":branch,"state":"ACTIVE"}
+        result={"task_id":task_id,"project_id":project_id,"worktree_rel":worktree_rel,"branch_name":branch,"state":"ACTIVE"}
+        if project["project_kind"]=="GIT":
+            result["workspace_rel"]=project_workspace_rel(project_id)
+            result["worktree_layout"]=layout
+        return result
 
     def task(self,task_id:str):
         row=self.db.query_one("SELECT * FROM node_tasks WHERE task_id=?",(task_id,))
@@ -67,4 +79,10 @@ class NodeWorktrees:
         clean=True
         if project["project_kind"]=="GIT":
             clean=self.manager.clean(root)
-        return {"task_id":task_id,"project_id":task["project_id"],"worktree_rel":task["worktree_rel"],"branch_name":task["branch_name"],"clean":clean}
+        result={"task_id":task_id,"project_id":task["project_id"],"worktree_rel":task["worktree_rel"],"branch_name":task["branch_name"],"clean":clean}
+        if project["project_kind"]=="GIT":
+            result["workspace_rel"]=project_workspace_rel(task["project_id"])
+            result["worktree_layout"]=classify_task_worktree_rel(
+                str(task["project_id"]),str(task["task_id"]),str(task["worktree_rel"])
+            )
+        return result
