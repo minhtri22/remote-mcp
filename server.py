@@ -680,6 +680,35 @@ async def task_search(
 
 
 @mcp.tool()
+def task_job_recovery_status(
+    task_id: str,
+    proxy_job_id: str,
+) -> dict:
+    """Classify whether an existing routed submit can be safely recovered without creating a replacement proxy."""
+    return routing_service.task_job_recovery_status(task_id, proxy_job_id)
+
+
+@mcp.tool()
+async def task_job_recover_path_escape(
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    proxy_job_id: str,
+    expected_original_argv_sha256: str,
+    acknowledge_cwd_semantics_preserved: bool = False,
+) -> dict:
+    """Recover a pre-execution PATH_ESCAPE submit on the same proxy using the exact original argv and managed task-root cwd."""
+    return await routing_service.task_job_recover_path_escape(
+        task_id,
+        lease_token,
+        lease_epoch,
+        proxy_job_id,
+        expected_original_argv_sha256,
+        acknowledge_cwd_semantics_preserved,
+    )
+
+
+@mcp.tool()
 async def task_job_get(
     task_id: str,
     proxy_job_id: str,
