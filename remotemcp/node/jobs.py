@@ -351,6 +351,39 @@ class NodeJobs:
                 (state,t,1 if terminal else 0,t,proxy_job_id),
             )
 
+    def capacity_snapshot(self)->dict:
+        """Reconcile node-routed rows against durable job truth before counting.
+
+        Any row that cannot be reconciled is reported separately so callers can
+        fail closed rather than treating a stale routed-row count as capacity.
+        """
+        terminal={"SUCCEEDED","FAILED","CANCELLED","LOST"}
+        candidates=self.db.query_all(
+            "SELECT * FROM node_routed_jobs "
+            "WHERE state NOT IN ('SUCCEEDED','FAILED','CANCELLED','LOST')"
+        )
+        active=0
+        unresolved=0
+        reconciled_terminal=0
+        for row in candidates:
+            try:
+                state=self.durable.job_get(row["node_job_id"])["state"]
+            except DurableError:
+                unresolved+=1
+                continue
+            self._update(row["proxy_job_id"],state)
+            if state in terminal:
+                reconciled_terminal+=1
+            else:
+                active+=1
+        return {
+            "active_node_jobs":active,
+            "unresolved_node_jobs":unresolved,
+            "candidate_nonterminal_routed_jobs":len(candidates),
+            "reconciled_terminal_rows":reconciled_terminal,
+            "capacity_reconciliation_complete":unresolved==0,
+        }
+
     def reconcile_all(self):
         for row in self.db.query_all("SELECT * FROM node_routed_jobs"):
             try:
