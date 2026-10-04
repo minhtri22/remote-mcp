@@ -80,6 +80,14 @@ Rules:
 
 Use the `workspace_rel` and `worktrees_root_rel` returned by project status as the authoritative placement for future work.
 
+Legacy cleanup ownership is decentralized, not global:
+
+- the agent working a research branch owns cleanup/migration of the worktrees created for that branch;
+- a global/audit agent may inventory worktrees read-only, but must not move, remove, prune, or migrate another agent's project/branch worktree;
+- before closing a branch/task, the owning agent must reconcile every worktree it created: migrate it into the project's managed workspace if still needed, remove it when terminal/clean and no longer needed, or preserve and report it when active, dirty, or containing unpushed work;
+- ownership must match the exact project/task/branch identity; never infer ownership from a similar directory name;
+- cross-project or cross-branch cleanup is forbidden unless the user explicitly reassigns ownership.
+
 ## Pairing and dedicated-node rules
 
 Before `device_pair_begin`, prove all of the following:
