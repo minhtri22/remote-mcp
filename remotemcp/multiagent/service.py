@@ -8,6 +8,7 @@ from pathlib import Path
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
 from remotemcp.durable.operations import OperationState
+from remotemcp.workspace_layout import task_worktree_rel
 from .admission import TaskJobAdmissionRepository
 from .agents import AgentRepository
 from .cas import CasService
@@ -130,7 +131,7 @@ class MultiAgentService:
         if project["project_kind"]=="GIT":
             task_id=result["task_id"]
             branch=f"remotemcp/task/{task_id}"
-            worktree_rel=f".remote-worktrees/{project_id}/{task_id}"
+            worktree_rel=task_worktree_rel(project_id,task_id)
             with self.db.transaction() as con:
                 con.execute("UPDATE tasks SET branch_name=?,worktree_rel=? WHERE task_id=?",(branch,worktree_rel,task_id))
             result=self.tasks.status(task_id)
