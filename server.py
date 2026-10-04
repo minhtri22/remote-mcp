@@ -696,6 +696,55 @@ async def task_search(
 
 
 @mcp.tool()
+def task_job_submit_failure_status(
+    task_id: str,
+    operation_id: str,
+) -> dict:
+    """Classify a routed submit across admission, proxy, node, and terminal phases without launching replacement science."""
+    return routing_service.task_job_submit_failure_status(task_id, operation_id)
+
+
+@mcp.tool()
+def task_job_adopt_legacy_submit_intent(
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    operation_id: str,
+    argv: list[str],
+    cwd: str = ".",
+    evidence_paths: list[str] = [],
+) -> dict:
+    """Adopt an older pre-proxy submit only when supplied argv/cwd reproduce the exact historical request hash."""
+    return routing_service.task_job_adopt_legacy_submit_intent(
+        task_id,
+        lease_token,
+        lease_epoch,
+        operation_id,
+        argv,
+        cwd,
+        evidence_paths,
+    )
+
+
+@mcp.tool()
+async def task_job_recover_preproxy_submit(
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    operation_id: str,
+    expected_original_argv_sha256: str,
+) -> dict:
+    """Resume the same logical routed submit after a recoverable pre-proxy admission/dispatcher failure."""
+    return await routing_service.task_job_recover_preproxy_submit(
+        task_id,
+        lease_token,
+        lease_epoch,
+        operation_id,
+        expected_original_argv_sha256,
+    )
+
+
+@mcp.tool()
 def task_job_recovery_status(
     task_id: str,
     proxy_job_id: str,
