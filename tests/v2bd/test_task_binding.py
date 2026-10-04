@@ -196,3 +196,47 @@ def test_routed_task_create_invalid_base_fails_before_ready_task(make_gateway,tm
         )["n"]
         assert after==before
     asyncio.run(run())
+
+
+
+def test_routed_claim_repairs_legacy_null_base_commit(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-legacy-base"
+        root.mkdir()
+        init_git_repo(root/"repo","NODE")
+        node,dev=await pair_node(g,root,tmp_path/"rt-legacy-base","node-legacy-base")
+        p=await drive(
+            g,node,g.routing.project_register_on_device(
+                "p-legacy-base",dev["device_id"],"repo",4
+            )
+        )
+        task=await drive(
+            g,node,g.routing.task_create_or_local(
+                "t-legacy-base",p["project_id"],"legacy task","HEAD"
+            )
+        )
+        expected=task["base_commit"]
+        assert expected
+        with g.durable.db.transaction() as con:
+            con.execute(
+                "UPDATE tasks SET base_commit=NULL WHERE task_id=?",
+                (task["task_id"],),
+            )
+
+        agent=await g.multi.agent_register(
+            "a-legacy-base","agent","install-legacy-base",[]
+        )
+        await drive(
+            g,node,g.routing.task_claim_or_local(
+                "c-legacy-base",task["task_id"],agent["agent_id"],agent["session_id"]
+            )
+        )
+        repaired=g.routing.task_status_or_local(task["task_id"])
+        assert repaired["base_commit"]==expected
+        head=subprocess.run(
+            ["git","-C",str(node.worktrees.execution_root(task["task_id"])),"rev-parse","HEAD"],
+            check=True,capture_output=True,text=True,
+        ).stdout.strip()
+        assert head==expected
+    asyncio.run(run())
