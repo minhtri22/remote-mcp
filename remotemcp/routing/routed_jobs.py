@@ -48,9 +48,14 @@ class RoutedJobRepository:
             con.execute(f"UPDATE routed_jobs SET {','.join(fields)} WHERE proxy_job_id=?",tuple(vals))
         return self.get(proxy_job_id)
 
+    def list_task_rows(self,task_id:str):
+        return self.db.query_all(
+            "SELECT * FROM routed_jobs WHERE task_id=? ORDER BY created_at_ms,proxy_job_id",
+            (task_id,),
+        )
+
     def list_task(self,task_id:str)->list[dict]:
-        rows=self.db.query_all("SELECT * FROM routed_jobs WHERE task_id=? ORDER BY created_at_ms,proxy_job_id",(task_id,))
-        return [self.as_dict(r) for r in rows]
+        return [self.as_dict(r) for r in self.list_task_rows(task_id)]
 
     @staticmethod
     def as_dict(row,device_state=None):
