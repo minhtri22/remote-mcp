@@ -171,3 +171,12 @@ Before a fresh one-shot, resource-sensitive execution, or node restart:
 7. if the heartbeat is from an older node, unreconciled, stale, unavailable, contains unresolved rows, or the device is offline, treat capacity as unresolved and fail closed.
 
 A large `registry_nonterminal_routed_jobs` value by itself must never block a scientific transition. It is an inventory/audit signal, not a capacity signal. Likewise, an unreconciled node-routed count must never be presented as authoritative capacity.
+
+
+### Managed task base pinning and claim recovery
+
+For a device-bound Git project, `task_create` must not return a READY task with a null `base_commit`. Resolve the requested `base_ref` on the bound device first. A branch that exists on `origin` but is not yet present in the local canonical repository may be fetched as an exact remote-tracking ref and then pinned to its immutable commit. Worktree materialization must use that pinned commit and must not silently re-resolve a moving branch.
+
+Legacy routed tasks with `base_commit=null` are infrastructure state, not scientific failures. On the next managed claim, resolve and pin the exact base on the bound device before creating the worktree. Do not bypass a failed/pending managed claim by switching to deterministic local execution.
+
+`DEVICE_COMMAND_PENDING` and `DEVICE_COMMAND_EXPIRED` during project/task machinery are recoverable control-plane conditions. Retry the same operation identity. An expired routed command is requeued using the same command id/request hash; do not create a replacement scientific execution or change the scientific contract. Control-plane materialization commands have dispatch priority over observation backlog.
