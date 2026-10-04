@@ -54,7 +54,23 @@
   "scientific_job": {
     "observability_loss_allows_relaunch": false,
     "relaunch_requires_explicit_authorization": true,
-    "preserve_existing_task_job_identity": true
+    "preserve_existing_task_job_identity": true,
+    "preexecution_routed_submit_recovery": {
+      "enabled": true,
+      "supported_original_error_codes": [
+        "PATH_ESCAPE"
+      ],
+      "require_same_proxy_job_id": true,
+      "preserve_original_argv": true,
+      "require_original_argv_sha256_acknowledgement": true,
+      "recovery_cwd": ".",
+      "require_cwd_semantics_acknowledgement": true,
+      "authoritative_node_proxy_probe_before_submit": true,
+      "replacement_proxy_forbidden": true,
+      "second_scientific_one_shot_forbidden": true,
+      "sql_or_node_db_repair_forbidden": true,
+      "ambiguous_or_offline_decision": "block"
+    }
   },
   "infrastructure": {
     "use_scientific_task_as_transport": false,
