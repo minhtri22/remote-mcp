@@ -1041,14 +1041,13 @@ class RoutingService:
         args={
             "task_id":task_id,
             "proxy_job_id":proxy_job_id,
-            "lease_epoch":int(lease_epoch),
             "original_command_id":command["command_id"],
             "original_argv_sha256":argv_sha256,
             "recovery_cwd":".",
         }
         op,created=self._reserve(
             recovery_operation_id,"TASK_JOB_RECOVER_PATH_ESCAPE",args,
-            agent_id=lease["agent_id"],project_id=binding["project_id"],task_id=task_id,
+            agent_id="",project_id=binding["project_id"],task_id=task_id,
         )
         replay=self._operation_replay(op)
         if replay is not None:
