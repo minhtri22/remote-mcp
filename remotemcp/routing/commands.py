@@ -54,6 +54,26 @@ class CommandRepository:
             if old:
                 if old["request_hash"]!=rh:
                     raise DurableError("COMMAND_CONFLICT","operation step already has different routed command")
+                if (
+                    old["state"]=="CANCELLED"
+                    and old["error_code"]=="DEVICE_COMMAND_EXPIRED"
+                ):
+                    con.execute(
+                        "UPDATE device_commands SET state='QUEUED',result_json=NULL,error_code=NULL,error_json=NULL,"
+                        "lease_expires_at_ms=NULL,finished_at_ms=NULL,command_expires_at_ms=?,updated_at_ms=? "
+                        "WHERE command_id=? AND state='CANCELLED' AND error_code='DEVICE_COMMAND_EXPIRED'",
+                        (int(expires_at_ms),t,old["command_id"]),
+                    )
+                    revived=con.execute(
+                        "SELECT * FROM device_commands WHERE command_id=?",
+                        (old["command_id"],),
+                    ).fetchone()
+                    self.devices._event(
+                        con,device_id,"COMMAND_REQUEUED",
+                        {"command_type":command_type,"reason":"DEVICE_COMMAND_EXPIRED"},
+                        old["command_id"],
+                    )
+                    return revived,True
                 return old,False
         command_id="cmd_"+secrets.token_hex(16)
         con.execute(
@@ -100,7 +120,16 @@ class CommandRepository:
             )
             row=con.execute(
                 "SELECT * FROM device_commands WHERE device_id=? AND route_generation=? AND state='QUEUED' "
-                "AND command_expires_at_ms>? ORDER BY created_at_ms,command_id LIMIT 1",
+                "AND command_expires_at_ms>? "
+                "ORDER BY CASE command_type "
+                "WHEN 'NODE_RESTART' THEN 0 "
+                "WHEN 'JOB_CANCEL' THEN 0 "
+                "WHEN 'TASK_BASE_RESOLVE' THEN 1 "
+                "WHEN 'TASK_WORKTREE_ENSURE' THEN 1 "
+                "WHEN 'PROJECT_PROBE' THEN 1 "
+                "WHEN 'PROJECT_BIND' THEN 1 "
+                "WHEN 'JOB_SUBMIT' THEN 2 "
+                "ELSE 3 END, created_at_ms,command_id LIMIT 1",
                 (device_id,int(route_generation),t),
             ).fetchone()
             if row is None:
