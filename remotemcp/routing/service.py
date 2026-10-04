@@ -14,7 +14,7 @@ from .commands import CommandRepository
 from .config import RoutingConfig
 from .devices import DeviceRepository
 from .pairing import PairingService
-from .routed_jobs import RoutedJobRepository
+from .routed_jobs import RoutedJobRepository,TERMINAL
 
 
 class RoutingService:
@@ -682,12 +682,469 @@ class RoutingService:
             raise DurableError("FORBIDDEN","routed job does not belong to task/device")
         return binding,row
 
+    def _original_routed_submit(self,row):
+        command=self.db.query_one(
+            "SELECT * FROM device_commands WHERE operation_id=? AND command_type='JOB_SUBMIT' "
+            "ORDER BY operation_step,created_at_ms,command_id LIMIT 1",
+            (row["operation_id"],),
+        )
+        if command is None:
+            return None,None
+        return command,json.loads(command["payload_json"])
+
+    async def _refresh_exact_routed_job_if_online(self,binding,row):
+        if row["last_known_state"] in TERMINAL:
+            return row
+        if self.devices.status(binding["device_id"])["state"]!="ONLINE":
+            return row
+        remote,_=await self._route_step(
+            binding["device_id"],"JOB_GET",{"proxy_job_id":row["proxy_job_id"]},
+            project_id=binding["project_id"],task_id=row["task_id"],
+        )
+        return self.routed_jobs.update(
+            row["proxy_job_id"],
+            node_job_id=remote.get("node_job_id"),
+            state=remote.get("state"),
+        )
+
+    async def _ensure_routed_terminal_evidence(self,binding,row):
+        if row["last_known_state"] not in TERMINAL:
+            raise DurableError(
+                "PREDECESSOR_JOB_NOT_TERMINAL",
+                "routed job is still non-terminal",
+                predecessor_job_id=row["proxy_job_id"],
+                predecessor_state=row["last_known_state"],
+            )
+        if not row["terminal_result_json"]:
+            if self.devices.status(binding["device_id"])["state"]!="ONLINE":
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "terminal routed job lacks cached evidence while device is offline",
+                    predecessor_job_id=row["proxy_job_id"],
+                )
+            try:
+                result,_=await self._route_step(
+                    binding["device_id"],"JOB_RESULT",
+                    {"proxy_job_id":row["proxy_job_id"]},
+                    project_id=binding["project_id"],task_id=row["task_id"],
+                )
+            except Exception as exc:
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "could not obtain authoritative routed terminal evidence",
+                    predecessor_job_id=row["proxy_job_id"],
+                ) from exc
+            if not result.get("terminal") or result.get("state") not in TERMINAL:
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "routed terminal evidence is incomplete",
+                    predecessor_job_id=row["proxy_job_id"],
+                )
+            row=self.routed_jobs.update(
+                row["proxy_job_id"],
+                node_job_id=result.get("node_job_id"),
+                state=result.get("state"),
+                terminal_result=result,
+            )
+        return row
+
+    def _routed_submit_recovery_status(
+        self,task_id:str,proxy_job_id:str
+    )->tuple[dict,dict,dict|None,dict]:
+        binding,row=self._task_proxy(task_id,proxy_job_id)
+        command=self.db.query_one(
+            "SELECT * FROM device_commands WHERE operation_id=? AND command_type='JOB_SUBMIT' "
+            "ORDER BY operation_step,created_at_ms,command_id LIMIT 1",
+            (row["operation_id"],),
+        )
+        device_state=self.devices.status(binding["device_id"])["state"]
+        out={
+            **self.routed_jobs.as_dict(row,device_state),
+            "recoverable":False,
+            "recovery_kind":None,
+            "recovery_reason":None,
+            "same_proxy_identity_required":True,
+            "replacement_job_forbidden":True,
+        }
+        if command is None:
+            out["recovery_reason"]="ORIGINAL_SUBMIT_COMMAND_MISSING"
+            return binding,row,None,out
+        payload=json.loads(command["payload_json"])
+        argv=payload.get("argv")
+        argv_sha256=None
+        if isinstance(argv,list):
+            argv_sha256=hashlib.sha256(
+                json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+            ).hexdigest()
+        out["original_submit"]={
+            "command_id":command["command_id"],
+            "state":command["state"],
+            "error_code":command["error_code"],
+            "delivery_attempt":int(command["delivery_attempt"]),
+            "cwd":payload.get("cwd","."),
+            "argv_sha256":argv_sha256,
+            "evidence_paths":list(payload.get("evidence_paths") or []),
+        }
+        if row["node_job_id"] is not None:
+            out["recovery_reason"]="NODE_JOB_ALREADY_MAPPED"
+        elif row["terminal_result_json"] or row["last_known_state"] in TERMINAL:
+            out["recovery_reason"]="ROUTED_JOB_ALREADY_TERMINAL"
+        elif row["last_known_state"]!="QUEUED":
+            out["recovery_reason"]="ROUTED_JOB_NOT_PREEXECUTION_QUEUED"
+        elif command["state"]!="FAILED":
+            out["recovery_reason"]="ORIGINAL_SUBMIT_NOT_FAILED"
+        elif command["error_code"]!="PATH_ESCAPE":
+            out["recovery_reason"]="UNSUPPORTED_PREEXECUTION_FAILURE"
+        elif command["result_json"] is not None:
+            out["recovery_reason"]="ORIGINAL_SUBMIT_HAS_RESULT"
+        elif not isinstance(argv,list) or not argv or not all(
+            isinstance(x,str) and x for x in argv
+        ):
+            out["recovery_reason"]="ORIGINAL_ARGV_INVALID"
+        elif payload.get("proxy_job_id")!=proxy_job_id or payload.get("task_id")!=task_id:
+            out["recovery_reason"]="ORIGINAL_SUBMIT_IDENTITY_MISMATCH"
+        else:
+            out["recoverable"]=True
+            out["recovery_kind"]="PATH_ESCAPE_TO_MANAGED_TASK_ROOT"
+            out["recovery_reason"]="ELIGIBLE"
+            out["required_recovery_cwd"]="."
+            out["requires_cwd_semantics_acknowledgement"]=True
+        return binding,row,command,out
+
+    def task_job_recovery_status(self,task_id:str,proxy_job_id:str)->dict:
+        binding,_,_,out=self._routed_submit_recovery_status(task_id,proxy_job_id)
+        return self._with_routing(
+            out,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+            binding_generation=int(binding["binding_generation"]),
+        )
+
+    async def task_job_recover_path_escape(
+        self,task_id:str,lease_token:str,lease_epoch:int,proxy_job_id:str,
+        expected_original_argv_sha256:str,
+        acknowledge_cwd_semantics_preserved:bool=False,
+    )->dict:
+        binding,row,command,status=self._routed_submit_recovery_status(
+            task_id,proxy_job_id
+        )
+        lease=self.multi.leases.validate(task_id,lease_token,lease_epoch)
+        self.devices.require_online(binding["device_id"])
+        if not acknowledge_cwd_semantics_preserved:
+            raise DurableError(
+                "RECOVERY_ACK_REQUIRED",
+                "PATH_ESCAPE recovery changes cwd to the managed task root; "
+                "caller must confirm cwd does not change execution semantics",
+                proxy_job_id=proxy_job_id,
+            )
+        if command is None:
+            raise DurableError(
+                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
+                "original routed submit command is unavailable",
+                proxy_job_id=proxy_job_id,
+                reason=status.get("recovery_reason"),
+            )
+        argv_sha256=status["original_submit"]["argv_sha256"]
+        if str(expected_original_argv_sha256)!=str(argv_sha256):
+            raise DurableError(
+                "COMMAND_CONFLICT",
+                "original argv hash acknowledgement does not match frozen submit payload",
+                proxy_job_id=proxy_job_id,
+                expected_argv_sha256=argv_sha256,
+            )
+        recovery_operation_id=f"routed-preexec-path-recovery:{proxy_job_id}"
+        existing_recovery=self.durable.operations.get(recovery_operation_id)
+        if existing_recovery is not None:
+            replay=self._operation_replay(existing_recovery)
+            if replay is not None:
+                replay=self._with_routing(
+                    replay,binding["device_id"],project_id=binding["project_id"],
+                    task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+                return {**replay,"replayed":True}
+        elif not status["recoverable"]:
+            raise DurableError(
+                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
+                "routed submit is not eligible for guarded PATH_ESCAPE recovery",
+                proxy_job_id=proxy_job_id,
+                reason=status.get("recovery_reason"),
+            )
+        args={
+            "task_id":task_id,
+            "proxy_job_id":proxy_job_id,
+            "original_command_id":command["command_id"],
+            "original_argv_sha256":argv_sha256,
+            "recovery_cwd":".",
+        }
+        op,created=self._reserve(
+            recovery_operation_id,"TASK_JOB_RECOVER_PATH_ESCAPE",args,
+            agent_id="",project_id=binding["project_id"],task_id=task_id,
+        )
+        replay=self._operation_replay(op)
+        if replay is not None:
+            replay=self._with_routing(
+                replay,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+            return {**replay,"replayed":True}
+        if created:
+            self.durable.operations.mark_executing(recovery_operation_id)
+        try:
+            try:
+                remote,_=await self._route_step(
+                    binding["device_id"],"JOB_GET",
+                    {"proxy_job_id":proxy_job_id},
+                    project_id=binding["project_id"],task_id=task_id,
+                )
+            except DurableError as exc:
+                if exc.code!="NOT_FOUND":
+                    raise DurableError(
+                        "PREEXECUTION_RECOVERY_UNRESOLVED",
+                        "could not prove authoritative absence of the proxy on the bound node",
+                        proxy_job_id=proxy_job_id,
+                        cause=exc.code,
+                    ) from exc
+            else:
+                row=self.routed_jobs.update(
+                    proxy_job_id,node_job_id=remote.get("node_job_id"),
+                    state=remote.get("state"),
+                )
+                response={
+                    **self.routed_jobs.as_dict(row,"ONLINE"),
+                    "recovery_kind":"MAPPING_REPAIRED_FROM_AUTHORITATIVE_NODE",
+                    "same_proxy_identity_preserved":True,
+                    "argv_sha256":argv_sha256,
+                    "cwd_changed":False,
+                }
+                response=self._with_routing(
+                    response,binding["device_id"],project_id=binding["project_id"],
+                    task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+                self.durable.operations.succeed(recovery_operation_id,response)
+                return response
+            original_payload=json.loads(command["payload_json"])
+            payload={
+                "proxy_job_id":proxy_job_id,
+                "task_id":task_id,
+                "argv":list(original_payload["argv"]),
+                "cwd":".",
+                "evidence_paths":list(original_payload.get("evidence_paths") or []),
+            }
+            remote,_=await self._route_step(
+                binding["device_id"],"JOB_SUBMIT",payload,
+                operation_id=recovery_operation_id,operation_step=0,
+                project_id=binding["project_id"],task_id=task_id,
+                expires_at_ms=min(
+                    int(lease["expires_at_ms"]),
+                    now_ms()+self.config.mutation_ttl_seconds*1000,
+                ),
+            )
+            row=self.routed_jobs.update(
+                proxy_job_id,node_job_id=remote.get("node_job_id"),
+                state=remote.get("state"),
+            )
+            response={
+                **self.routed_jobs.as_dict(row,"ONLINE"),
+                "recovery_kind":"PATH_ESCAPE_TO_MANAGED_TASK_ROOT",
+                "same_proxy_identity_preserved":True,
+                "original_command_id":command["command_id"],
+                "argv_sha256":argv_sha256,
+                "original_cwd":original_payload.get("cwd","."),
+                "recovery_cwd":".",
+            }
+            response=self._with_routing(
+                response,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+            self.durable.operations.succeed(recovery_operation_id,response)
+            return response
+        except Exception as exc:
+            self._fail_final(recovery_operation_id,exc)
+            raise
+
+    async def task_job_artifact_status(
+        self,task_id:str,proxy_job_id:str,path:str
+    )->dict:
+        binding,row=self._task_proxy(task_id,proxy_job_id)
+        state=self.devices.status(binding["device_id"])["state"]
+        try:
+            row=await self._refresh_exact_routed_job_if_online(binding,row)
+        except DurableError as exc:
+            base={
+                **self.routed_jobs.as_dict(row,state),
+                "path":path,
+                "declared_evidence_paths":[],
+                "readable":False,
+                "readback_state":"POSTRUN_EVIDENCE_JOB_STATE_UNRESOLVED",
+                "message":str(exc),
+                "scientific_rerun_required":False,
+                "automatic_scientific_rerun_for_readback_forbidden":True,
+            }
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+        command,payload=self._original_routed_submit(row)
+        declared=list((payload or {}).get("evidence_paths") or [])
+        base={
+            **self.routed_jobs.as_dict(row,state),
+            "path":path,
+            "declared_evidence_paths":declared,
+            "readable":False,
+            "readback_state":"UNKNOWN",
+            "scientific_rerun_required":False,
+            "automatic_scientific_rerun_for_readback_forbidden":True,
+        }
+        if row["last_known_state"] not in TERMINAL:
+            base["readback_state"]="POSTRUN_EVIDENCE_JOB_NOT_TERMINAL"
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+        if not row["terminal_result_json"]:
+            if state!="ONLINE":
+                base["readback_state"]="POSTRUN_EVIDENCE_TERMINAL_RESULT_UNRESOLVED"
+                base["message"]=(
+                    "terminal job is cached but authoritative terminal result "
+                    "is unavailable while device is offline"
+                )
+                return self._with_routing(
+                    base,binding["device_id"],project_id=binding["project_id"],
+                    task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+            try:
+                row=await self._ensure_routed_terminal_evidence(binding,row)
+                base.update(self.routed_jobs.as_dict(row,state))
+            except DurableError as exc:
+                base["readback_state"]="POSTRUN_EVIDENCE_TERMINAL_RESULT_UNRESOLVED"
+                base["message"]=str(exc)
+                return self._with_routing(
+                    base,binding["device_id"],project_id=binding["project_id"],
+                    task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+        if command is None:
+            base["readback_state"]="ORIGINAL_SUBMIT_COMMAND_MISSING"
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+        if not declared:
+            base["readback_state"]="POSTRUN_EVIDENCE_PATH_UNDECLARED"
+            base["message"]=(
+                "legacy job has no predeclared evidence manifest; "
+                "do not rerun science to repair readback"
+            )
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+        if state!="ONLINE":
+            base["readback_state"]="POSTRUN_EVIDENCE_DEVICE_OFFLINE"
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+        try:
+            result,_=await self._route_step(
+                binding["device_id"],"JOB_ARTIFACT_STAT",
+                {"proxy_job_id":proxy_job_id,"path":path},
+                project_id=binding["project_id"],task_id=task_id,
+            )
+        except DurableError as exc:
+            base["readback_state"]=exc.code
+            base["message"]=str(exc)
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],
+                task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+        result={
+            **base,**result,
+            "readable":True,
+            "readback_state":"READY",
+            "scientific_rerun_required":False,
+            "automatic_scientific_rerun_for_readback_forbidden":True,
+        }
+        return self._with_routing(
+            result,binding["device_id"],project_id=binding["project_id"],
+            task_id=task_id,
+            binding_generation=int(binding["binding_generation"]),
+        )
+
+    async def task_job_artifact_read(
+        self,task_id:str,proxy_job_id:str,path:str,expected_sha256:str,
+        offset:int=0,limit:int=120000,
+    )->dict:
+        binding,row=self._task_proxy(task_id,proxy_job_id)
+        command,payload=self._original_routed_submit(row)
+        if command is None:
+            raise DurableError(
+                "POSTRUN_EVIDENCE_PATH_UNDECLARED",
+                "original routed submit command is unavailable",
+                proxy_job_id=proxy_job_id,
+            )
+        if not list((payload or {}).get("evidence_paths") or []):
+            raise DurableError(
+                "POSTRUN_EVIDENCE_PATH_UNDECLARED",
+                "legacy job has no predeclared evidence manifest; "
+                "scientific execution must not be rerun",
+                proxy_job_id=proxy_job_id,
+            )
+        row=await self._refresh_exact_routed_job_if_online(binding,row)
+        if row["last_known_state"] not in TERMINAL:
+            raise DurableError(
+                "POSTRUN_EVIDENCE_JOB_NOT_TERMINAL",
+                "post-run artifact read requires authoritative terminal job state",
+                proxy_job_id=proxy_job_id,
+                state=row["last_known_state"],
+            )
+        if not row["terminal_result_json"]:
+            row=await self._ensure_routed_terminal_evidence(binding,row)
+        self.devices.require_online(binding["device_id"])
+        result,_=await self._route_step(
+            binding["device_id"],"JOB_ARTIFACT_READ",
+            {
+                "proxy_job_id":proxy_job_id,
+                "path":path,
+                "expected_sha256":str(expected_sha256).lower(),
+                "offset":int(offset),
+                "limit":int(limit),
+            },
+            project_id=binding["project_id"],task_id=task_id,
+        )
+        result={
+            **result,
+            "readback_state":"READ_OK",
+            "scientific_rerun_required":False,
+            "automatic_scientific_rerun_for_readback_forbidden":True,
+        }
+        return self._with_routing(
+            result,binding["device_id"],project_id=binding["project_id"],
+            task_id=task_id,
+            binding_generation=int(binding["binding_generation"]),
+        )
+
     async def task_job_submit_or_local(
         self,operation_id:str,task_id:str,lease_token:str,lease_epoch:int,
-        argv:list[str],cwd:str="."
+        argv:list[str],cwd:str=".",evidence_paths:list[str]|None=None
     )->dict:
+        evidence_paths=list(evidence_paths or [])
         binding=self.bindings.task_binding(task_id)
         if binding is None:
+            if evidence_paths:
+                raise DurableError(
+                    "INVALID_ARGUMENT",
+                    "evidence_paths are currently supported only for routed task jobs",
+                )
             return await self.multi.task_job_submit(
                 operation_id,task_id,lease_token,lease_epoch,argv,cwd
             )
@@ -697,6 +1154,8 @@ class RoutingService:
             "task_id":task_id,"lease_epoch":int(lease_epoch),
             "argv":argv,"cwd":cwd,
         }
+        if evidence_paths:
+            args["evidence_paths"]=evidence_paths
         op,created=self._reserve(
             operation_id,"TASK_JOB_SUBMIT",args,agent_id=lease["agent_id"],
             project_id=binding["project_id"],task_id=task_id,
@@ -721,6 +1180,8 @@ class RoutingService:
                 "proxy_job_id":proxy["proxy_job_id"],
                 "task_id":task_id,"argv":argv,"cwd":cwd,
             }
+            if evidence_paths:
+                payload["evidence_paths"]=evidence_paths
             cmd,_=self.commands.create_in_tx(
                 con,binding["device_id"],"JOB_SUBMIT",payload,
                 route_generation=int(dev["route_generation"]),

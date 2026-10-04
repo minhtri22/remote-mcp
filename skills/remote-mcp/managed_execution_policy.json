@@ -1,0 +1,119 @@
+{
+  "schema": "remotemcp.managed-execution-governance.v1",
+  "mode": "fail-closed",
+  "mandatory_preflight_before": [
+    "chatgpt_web_session_binding",
+    "device_pair_begin",
+    "device_revoke",
+    "device_restart",
+    "project_register_on_device",
+    "project_bind_device",
+    "scientific_job_relaunch"
+  ],
+  "identity": {
+    "existing_approved_role_identity": "preserve",
+    "repair_by_repairing": false,
+    "repair_by_revoke_replace": false,
+    "ambiguity": "block"
+  },
+  "pairing": {
+    "ticket_is_authorization": false,
+    "requires_explicit_dedicated_node_gate": true,
+    "requires_exact_approved_device_role": true,
+    "requires_exact_approved_root": true,
+    "requires_exact_approved_runtime_dir": true,
+    "allowed_secret_transports": [
+      "local-managed-pairing",
+      "dedicated-managed-pairing-action"
+    ],
+    "forbidden_secret_transports": [
+      "run-command",
+      "routed-job",
+      "job-argv",
+      "shell-argument",
+      "task-payload",
+      "repository",
+      "log",
+      "checkpoint",
+      "lineage"
+    ]
+  },
+  "project_root_mismatch": {
+    "decision": "BLOCKED_ON_MANAGED_PROJECT_EXPOSURE_OR_EXPLICIT_DEDICATED_NODE_GATE",
+    "auto_create_node": false,
+    "widen_existing_root": false,
+    "repair_by_pairing": false
+  },
+  "restart": {
+    "connector_session_failure_is_node_failure": false,
+    "gateway_failure_is_node_failure": false,
+    "root_mismatch_is_node_failure": false,
+    "active_jobs_require_explicit_confirmation": true,
+    "verify_same_identity_after_restart": true
+  },
+  "scientific_job": {
+    "observability_loss_allows_relaunch": false,
+    "relaunch_requires_explicit_authorization": true,
+    "preserve_existing_task_job_identity": true,
+    "preexecution_routed_submit_recovery": {
+      "enabled": true,
+      "supported_original_error_codes": [
+        "PATH_ESCAPE"
+      ],
+      "require_same_proxy_job_id": true,
+      "preserve_original_argv": true,
+      "require_original_argv_sha256_acknowledgement": true,
+      "recovery_cwd": ".",
+      "require_cwd_semantics_acknowledgement": true,
+      "authoritative_node_proxy_probe_before_submit": true,
+      "replacement_proxy_forbidden": true,
+      "second_scientific_one_shot_forbidden": true,
+      "sql_or_node_db_repair_forbidden": true,
+      "ambiguous_or_offline_decision": "block"
+    },
+    "postrun_evidence_readback": {
+      "enabled": true,
+      "declare_before_execution": true,
+      "declaration_field": "evidence_paths",
+      "exact_files_only": true,
+      "require_authoritative_terminal_job": true,
+      "readback_status_tool": "task_job_artifact_status",
+      "readback_tool": "task_job_artifact_read",
+      "read_requires_stat_pinned_sha256": true,
+      "same_proxy_job_id_required": true,
+      "scientific_rerun_on_readback_failure": false,
+      "arbitrary_filesystem_read_forbidden": true,
+      "undeclared_legacy_decision": "POSTRUN_EVIDENCE_PATH_UNDECLARED",
+      "missing_declared_file_decision": "POSTRUN_EVIDENCE_NOT_FOUND",
+      "sql_or_node_db_repair_forbidden": true,
+      "submit_tool": "task_job_submit_with_evidence",
+      "locked_submit_tool_preserved": "task_job_submit"
+    }
+  },
+  "infrastructure": {
+    "use_scientific_task_as_transport": false,
+    "append_to_scientific_lineage_by_default": false
+  },
+  "plugin_session_binding": {
+    "canonical_web_plugin_name": "remote-mcp-v2-web-clean",
+    "legacy_web_plugin_name": "remote-mcp-v2-web",
+    "canonical_web_transport": "app-backed",
+    "legacy_web_transport": "direct-mcp",
+    "canonical_display_must_differ_from_legacy": true,
+    "canonical_package_forbidden_files": [
+      ".mcp.json",
+      "mcp.json"
+    ],
+    "failure_decision": "PLUGIN_SESSION_BINDING_FAILURE",
+    "node_repair_actions_forbidden": [
+      "pair",
+      "re-pair",
+      "revoke-replace",
+      "node-restart",
+      "root-widening",
+      "replacement-project-register",
+      "scientific-job-relaunch"
+    ],
+    "fresh_conversation_required_for_final_session_smoke_after_release_change": true
+  }
+}
