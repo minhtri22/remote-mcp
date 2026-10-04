@@ -1,0 +1,130 @@
+{
+  "schema": "remotemcp.branch-serial-job-lifecycle-prelock.v1",
+  "gate": "REMOTEMCP_BRANCH_SERIAL_JOB_LIFECYCLE_AND_PREDECESSOR_ADMISSION_PREREGISTRATION",
+  "status": "FROZEN",
+  "scope": "specification_only",
+  "execution_model": {
+    "project": "multi_lane",
+    "serialization_key": "task_id",
+    "git_lane": "task_id + branch_name + worktree_rel",
+    "non_git_lane": "task_id",
+    "agent_id_is_serialization_key": false,
+    "device_id_is_serialization_key": false,
+    "project_id_is_serialization_key": false,
+    "different_task_lanes_may_run_concurrently": true,
+    "project_max_active_tasks_remains_concurrency_limit": true,
+    "same_lane_policy": "SERIAL",
+    "same_lane_parallelism_in_scope": false
+  },
+  "ownership": {
+    "lane_owner": "current_task_lease",
+    "exactly_one_active_lease_owner_per_task": true,
+    "takeover_preserves_lane_history_and_sequence": true,
+    "lease_expiry_does_not_terminalize_running_job": true
+  },
+  "terminal_contract": {
+    "terminal_states": [
+      "SUCCEEDED",
+      "FAILED",
+      "CANCELLED",
+      "LOST"
+    ],
+    "nonterminal_states": [
+      "QUEUED",
+      "STARTING",
+      "RUNNING",
+      "CANCELLING"
+    ],
+    "predecessor_success_required": false,
+    "predecessor_terminal_required": true,
+    "predecessor_terminal_evidence_required": true,
+    "manual_agent_end_job_allowed": false,
+    "terminal_authority": "durable_runtime_and_reconciler"
+  },
+  "terminal_evidence": {
+    "routed": "authoritative node JOB_RESULT or equivalent durable terminal reconciliation cached centrally",
+    "local": "authoritative gateway-local durable terminal record/event",
+    "lost": "reconciler-produced LOST evidence with reason",
+    "cache_only_terminal_without_authoritative_evidence_is_sufficient": false
+  },
+  "admission_order": [
+    "validate request shape",
+    "validate current task lease",
+    "detect exact operation_id replay and resume/replay it before new-successor admission",
+    "resolve task_id execution lane",
+    "reconcile all legacy/current nonterminal predecessor candidates for that lane",
+    "require predecessor terminal state plus terminal evidence",
+    "atomically reserve exactly one new admission slot for the task lane",
+    "dispatch or resume the durable job through the existing local/routed transport",
+    "bind durable job identity to the admission",
+    "release the lane for a successor only after authoritative terminal evidence is persisted"
+  ],
+  "race_contract": {
+    "two_new_submits_same_task_must_not_both_admit": true,
+    "operation_replay_must_not_self_block": true,
+    "crash_during_admission_must_reconcile_same_operation_not_launch_successor": true,
+    "required_atomicity": "single control-plane lane admission authority"
+  },
+  "errors": {
+    "predecessor_active": "PREDECESSOR_JOB_NOT_TERMINAL",
+    "predecessor_unresolved": "PREDECESSOR_STATE_UNRESOLVED",
+    "concurrent_admission": "TASK_JOB_ADMISSION_CONFLICT",
+    "lane_recovery_ambiguous": "TASK_JOB_LANE_STATE_MISMATCH"
+  },
+  "routed_reconciliation": {
+    "central_nonterminal_with_node_job_id": "refresh from bound node when ONLINE",
+    "central_nonterminal_without_node_job_id": "reconcile originating routed command/operation before decision",
+    "device_offline_or_unreachable": "fail_closed",
+    "unresolved_history_must_not_be_auto_lost": true,
+    "no_replacement_job_on_unresolved_predecessor": true
+  },
+  "local_reconciliation": {
+    "authority": "gateway-local durable service",
+    "refresh_before_successor_admission": true
+  },
+  "legacy_rollout": {
+    "perform_predeployment_read_only_audit": true,
+    "reconcile_stale_nonterminal_rows_before_enforcement": true,
+    "auto_cancel_legacy_jobs": false,
+    "delete_job_history": false,
+    "rewrite_terminal_history": false,
+    "unresolved_legacy_row_blocks_same_lane_new_submit": true
+  },
+  "active_count_semantics": {
+    "device_status_read_path_remains_pure_read": true,
+    "request_time_device_status_reconciliation_forbidden": true,
+    "active_routed_jobs_should_reflect_reconciled_nonterminal_routed_admissions": true,
+    "heartbeat_active_node_jobs_is_diagnostic_not_terminal_authority": true
+  },
+  "swarm_compatibility": {
+    "supported": true,
+    "parallelism_unit": "task_lane",
+    "serialization_unit": "task_lane",
+    "multiple_agents_may_own_distinct_task_lanes_concurrently": true,
+    "same_project_parallel_lanes_subject_to_max_active_tasks": true,
+    "parent_child_swarm_groups_in_scope": false,
+    "join_barrier_in_scope": false,
+    "same_lane_parallel_jobs_in_scope": false
+  },
+  "public_api": {
+    "existing_task_job_submit_signature_preserved": true,
+    "new_manual_end_job_api": false,
+    "optional_observability_fields_may_be_added": [
+      "lane_sequence",
+      "predecessor_job_id",
+      "admission_state"
+    ]
+  },
+  "explicitly_forbidden_in_preregistration": [
+    "runtime implementation",
+    "production deployment",
+    "job cancellation",
+    "job deletion",
+    "manual terminal-state mutation",
+    "node restart",
+    "pairing or re-pairing",
+    "project or task migration",
+    "scientific job relaunch"
+  ],
+  "next_gate": "REMOTEMCP_BRANCH_SERIAL_JOB_LIFECYCLE_AND_PREDECESSOR_ADMISSION_IMPLEMENTATION_STATIC_PREFLIGHT_AND_EXECUTION_LOCK"
+}
