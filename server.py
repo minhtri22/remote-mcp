@@ -566,8 +566,23 @@ async def task_job_submit(
     lease_epoch: int,
     argv: list[str],
     cwd: str = ".",
-    evidence_paths: list[str] = [],
 ) -> dict:
+    return await routing_service.task_job_submit_or_local(
+        operation_id, task_id, lease_token, lease_epoch, argv, cwd
+    )
+
+
+@mcp.tool()
+async def task_job_submit_with_evidence(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    argv: list[str],
+    evidence_paths: list[str],
+    cwd: str = ".",
+) -> dict:
+    """Submit a routed job with exact evidence files declared before execution."""
     return await routing_service.task_job_submit_or_local(
         operation_id, task_id, lease_token, lease_epoch, argv, cwd, evidence_paths
     )
