@@ -4,6 +4,7 @@
   "mandatory_preflight_before": [
     "chatgpt_web_session_binding",
     "device_pair_begin",
+    "device_pair_local_dedicated_node",
     "device_revoke",
     "device_restart",
     "project_register_on_device",
@@ -36,7 +37,24 @@
       "log",
       "checkpoint",
       "lineage"
-    ]
+    ],
+    "secure_local_dedicated_node_action": {
+      "enabled": true,
+      "tool": "device_pair_local_dedicated_node",
+      "local_host_only": true,
+      "pairing_code_tool_argument_forbidden": true,
+      "pairing_code_shell_argument_forbidden": true,
+      "exact_pairing_id_required": true,
+      "exact_device_name_required": true,
+      "exact_node_root_required": true,
+      "exact_runtime_dir_required": true,
+      "explicit_scope_acknowledgement_required": true,
+      "preserve_existing_identity": true,
+      "replace_existing_paired_identity": false,
+      "node_process_start_is_separate_action": true,
+      "replay_after_partial_consume": "recover_only_if_exact_local_key_matches_central_paired_device",
+      "result_must_not_include_pairing_secret": true
+    }
   },
   "project_root_mismatch": {
     "decision": "BLOCKED_ON_MANAGED_PROJECT_EXPOSURE_OR_EXPLICIT_DEDICATED_NODE_GATE",

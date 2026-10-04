@@ -617,6 +617,26 @@ async def device_pair_begin(
 
 
 @mcp.tool()
+def device_pair_local_dedicated_node(
+    operation_id: str,
+    pairing_id: str,
+    device_name: str,
+    node_root: str,
+    runtime_dir: str,
+    acknowledge_dedicated_node_scope: bool = False,
+) -> dict:
+    """Pair a node runtime on the gateway host without exposing the pairing secret to shell/job arguments."""
+    return routing_service.device_pair_local_dedicated_node(
+        operation_id,
+        pairing_id,
+        device_name,
+        node_root,
+        runtime_dir,
+        acknowledge_dedicated_node_scope,
+    )
+
+
+@mcp.tool()
 def device_list() -> dict:
     return routing_service.device_list()
 

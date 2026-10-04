@@ -180,6 +180,54 @@ class PairingService:
         include=row["used_at_ms"] is None and int(row["expires_at_ms"])>now_ms()
         return {**self._response(row,include_code=include),"replayed":not created}
 
+    def consume_local_identity(
+        self,
+        pairing_id:str,
+        device_name:str,
+        *,
+        public_key_b64:str,
+        timestamp_ms:int,
+        nonce:str,
+        signature_b64:str,
+        platform:dict|None=None,
+        capabilities:dict|None=None,
+    )->dict:
+        """Consume an active pairing without exposing its secret to callers.
+
+        This is intentionally for a privileged local managed-pairing action.
+        The one-time pairing code is derived inside the gateway process and is
+        never accepted as a tool argument, shell argument, task payload, log,
+        checkpoint, or repository artifact.
+        """
+        row=self.db.query_one(
+            "SELECT * FROM device_pairings WHERE pairing_id=?",
+            (str(pairing_id),),
+        )
+        if row is None or row["owner_account_id"]!=self.owner_account_id:
+            raise DurableError("DEVICE_PAIRING_INVALID","unknown pairing")
+        if str(device_name)!=str(row["requested_name"]):
+            raise DurableError("DEVICE_PAIRING_INVALID","device_name mismatch")
+        if row["used_at_ms"] is not None:
+            raise DurableError("DEVICE_PAIRING_INVALID","pairing already used")
+        if int(row["expires_at_ms"])<=now_ms():
+            raise DurableError("DEVICE_PAIRING_EXPIRED","pairing expired")
+        code=self._code(
+            str(row["pairing_id"]),
+            str(row["requested_name"]),
+            str(row["code_nonce"]),
+        )
+        return self.consume({
+            "pairing_id":str(row["pairing_id"]),
+            "pairing_code":code,
+            "device_name":str(device_name),
+            "public_key_b64":str(public_key_b64),
+            "timestamp_ms":int(timestamp_ms),
+            "nonce":str(nonce),
+            "signature_b64":str(signature_b64),
+            "platform":dict(platform or {}),
+            "capabilities":dict(capabilities or {}),
+        })
+
     def consume(self,payload:dict)->dict:
         try:
             pairing_id=str(payload["pairing_id"]); code=str(payload["pairing_code"])

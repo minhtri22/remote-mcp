@@ -4,9 +4,15 @@ import asyncio
 import hashlib
 import json
 import secrets
+from pathlib import Path
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import OperationState, now_ms
+from remotemcp.node.client import node_platform
+from remotemcp.node.config import NodeConfig
+from remotemcp.node.db import NodeDatabase
+from remotemcp.node.identity import NodeIdentity
+from remotemcp.node.signing import sign_pair
 from remotemcp.workspace_layout import enforce_agent_git_worktree_policy, task_worktree_rel
 
 from .auth import SignedRequestVerifier
@@ -188,6 +194,271 @@ class RoutingService:
 
     async def device_pair_begin(self,operation_id:str,device_name:str)->dict:
         return self.pairing.begin(operation_id,device_name)
+
+    @staticmethod
+    def _dedicated_local_path(value:str,label:str)->Path:
+        raw=str(value or "").strip()
+        if not raw or any(ch in raw for ch in ("\x00","\r","\n")):
+            raise DurableError("INVALID_ARGUMENT",f"{label} must be a non-empty absolute path")
+        path=Path(raw).expanduser()
+        if not path.is_absolute():
+            raise DurableError("INVALID_ARGUMENT",f"{label} must be absolute")
+        path=path.resolve()
+        anchor_path=Path(path.anchor).resolve()
+        if path==anchor_path:
+            raise DurableError(
+                "DEDICATED_NODE_SCOPE_INVALID",
+                f"{label} cannot be a filesystem root",
+                path=str(path),
+            )
+        return path
+
+    def _local_pairing_result(
+        self,
+        *,
+        pairing_id:str,
+        device_name:str,
+        node_root:Path,
+        runtime_dir:Path,
+        device_id:str,
+        recovered:bool,
+    )->dict:
+        status=self.devices.status(device_id)
+        return {
+            "pairing_id":str(pairing_id),
+            "device_id":status["device_id"],
+            "device_name":status["device_name"],
+            "device_state":status["state"],
+            "route_generation":int(status["route_generation"]),
+            "key_fingerprint_sha256":status["key_fingerprint_sha256"],
+            "node_root":str(node_root),
+            "runtime_dir":str(runtime_dir),
+            "secure_local_pairing":True,
+            "local_host_only":True,
+            "pairing_secret_exposed":False,
+            "node_process_started":False,
+            "recovered_existing_pairing":bool(recovered),
+        }
+
+    def device_pair_local_dedicated_node(
+        self,
+        operation_id:str,
+        pairing_id:str,
+        device_name:str,
+        node_root:str,
+        runtime_dir:str,
+        acknowledge_dedicated_node_scope:bool=False,
+    )->dict:
+        """Consume a one-time pairing entirely inside the gateway host process.
+
+        The pairing code never crosses the MCP tool boundary and never enters
+        shell/job arguments.  This action only materializes the paired local
+        node identity; starting/supervising the node remains a separate action.
+        """
+        if not bool(acknowledge_dedicated_node_scope):
+            raise DurableError(
+                "DEDICATED_NODE_SCOPE_ACK_REQUIRED",
+                "explicit dedicated-node scope acknowledgement is required",
+            )
+        name=str(device_name or "").strip()
+        if not name or len(name)>128 or any(c in name for c in "\r\n"):
+            raise DurableError("INVALID_ARGUMENT","invalid device_name")
+        pair_id=str(pairing_id or "").strip()
+        if not pair_id:
+            raise DurableError("INVALID_ARGUMENT","pairing_id is required")
+        root=self._dedicated_local_path(node_root,"node_root")
+        runtime=self._dedicated_local_path(runtime_dir,"runtime_dir")
+        if root==runtime:
+            raise DurableError(
+                "DEDICATED_NODE_SCOPE_INVALID",
+                "node_root and runtime_dir must be distinct",
+            )
+
+        args={
+            "pairing_id":pair_id,
+            "device_name":name,
+            "node_root":str(root),
+            "runtime_dir":str(runtime),
+            "acknowledge_dedicated_node_scope":True,
+        }
+        op,created=self._reserve(
+            operation_id,
+            "DEVICE_PAIR_LOCAL_DEDICATED_NODE",
+            args,
+        )
+        if op["state"]==OperationState.SUCCEEDED.value:
+            saved=self.durable.operations.replay_result(op) or {}
+            return {**saved,"replayed":True}
+        if op["state"]==OperationState.FAILED_FINAL.value:
+            raise DurableError(
+                op["error_code"] or "INVALID_ARGUMENT",
+                "previous local pairing operation failed",
+            )
+        if created or op["state"] in {
+            OperationState.RESERVED.value,
+            OperationState.FAILED_RETRYABLE.value,
+        }:
+            self.durable.operations.mark_executing(operation_id)
+
+        row=self.db.query_one(
+            "SELECT * FROM device_pairings WHERE pairing_id=?",
+            (pair_id,),
+        )
+        if row is None or row["owner_account_id"]!=self.owner_account_id:
+            self.durable.operations.fail(
+                operation_id,
+                "DEVICE_PAIRING_INVALID",
+                {"pairing_id":pair_id},
+                False,
+            )
+            raise DurableError("DEVICE_PAIRING_INVALID","unknown pairing")
+        if str(row["requested_name"])!=name:
+            self.durable.operations.fail(
+                operation_id,
+                "DEVICE_PAIRING_INVALID",
+                {"pairing_id":pair_id,"reason":"device_name mismatch"},
+                False,
+            )
+            raise DurableError("DEVICE_PAIRING_INVALID","device_name mismatch")
+
+        cfg=NodeConfig.create(self.config.public_origin,root,runtime)
+        node_db=NodeDatabase(cfg.runtime_dir)
+        node_db.bootstrap()
+
+        # If the central pairing was already consumed, only recover when the
+        # exact local private/public identity that consumed it still exists.
+        if row["used_at_ms"] is not None:
+            paired_id=row["paired_device_id"]
+            if not paired_id:
+                self.durable.operations.mark_in_doubt(
+                    operation_id,{"pairing_id":pair_id,"reason":"used pairing lacks device id"}
+                )
+                raise DurableError(
+                    "OPERATION_IN_DOUBT",
+                    "pairing is used but paired device identity is unavailable",
+                )
+            if not (runtime/"device-ed25519.pem").exists():
+                self.durable.operations.mark_in_doubt(
+                    operation_id,
+                    {"pairing_id":pair_id,"device_id":paired_id,"reason":"local key missing"},
+                )
+                raise DurableError(
+                    "OPERATION_IN_DOUBT",
+                    "pairing was consumed but the local node private key is missing",
+                )
+            ident=NodeIdentity(cfg.runtime_dir,node_db)
+            central=self.devices.get(str(paired_id))
+            if (
+                str(central["public_key_b64"])!=ident.public_key_b64
+                or str(central["key_fingerprint_sha256"])!=ident.fingerprint
+            ):
+                self.durable.operations.fail(
+                    operation_id,
+                    "NODE_IDENTITY_MISMATCH",
+                    {"pairing_id":pair_id,"device_id":str(paired_id)},
+                    False,
+                )
+                raise DurableError(
+                    "NODE_IDENTITY_MISMATCH",
+                    "consumed pairing belongs to a different local node identity",
+                )
+            response={
+                "device_id":central["device_id"],
+                "device_name":central["device_name"],
+                "origin":self.config.public_origin,
+                "route_generation":int(central["route_generation"]),
+                "state":self.devices.effective_state(central),
+                "public_key_b64":central["public_key_b64"],
+                "key_fingerprint_sha256":central["key_fingerprint_sha256"],
+                "paired_at_ms":int(central["paired_at_ms"]),
+            }
+            if ident.paired:
+                if (
+                    str(ident.device.get("device_id"))!=str(paired_id)
+                    or str(ident.device.get("device_name"))!=name
+                    or str(ident.device.get("origin")).rstrip("/")!=cfg.origin.rstrip("/")
+                    or Path(str(ident.device.get("root"))).resolve()!=cfg.root
+                ):
+                    self.durable.operations.fail(
+                        operation_id,
+                        "NODE_IDENTITY_MISMATCH",
+                        {"pairing_id":pair_id,"device_id":str(paired_id)},
+                        False,
+                    )
+                    raise DurableError(
+                        "NODE_IDENTITY_MISMATCH",
+                        "existing local paired identity has a different scope",
+                    )
+            else:
+                ident.persist_paired(
+                    response,
+                    origin=cfg.origin,
+                    root=cfg.root,
+                    device_name=name,
+                )
+            result=self._local_pairing_result(
+                pairing_id=pair_id,
+                device_name=name,
+                node_root=root,
+                runtime_dir=runtime,
+                device_id=str(paired_id),
+                recovered=True,
+            )
+            self.durable.operations.succeed(operation_id,result)
+            return result
+
+        if int(row["expires_at_ms"])<=now_ms():
+            self.durable.operations.fail(
+                operation_id,
+                "DEVICE_PAIRING_EXPIRED",
+                {"pairing_id":pair_id},
+                False,
+            )
+            raise DurableError("DEVICE_PAIRING_EXPIRED","pairing expired")
+
+        ident=NodeIdentity(cfg.runtime_dir,node_db)
+        if ident.paired:
+            self.durable.operations.fail(
+                operation_id,
+                "NODE_IDENTITY_MISMATCH",
+                {"pairing_id":pair_id,"reason":"runtime already paired"},
+                False,
+            )
+            raise DurableError(
+                "NODE_IDENTITY_MISMATCH",
+                "runtime_dir already contains a paired node identity",
+            )
+
+        timestamp,nonce,signature=sign_pair(ident,pair_id,name)
+        response=self.pairing.consume_local_identity(
+            pair_id,
+            name,
+            public_key_b64=ident.public_key_b64,
+            timestamp_ms=timestamp,
+            nonce=nonce,
+            signature_b64=signature,
+            platform=node_platform(),
+            capabilities={
+                "outbound_node":True,
+                "managed_local_pairing":True,
+            },
+        )
+        ident.persist_paired(
+            response,
+            origin=cfg.origin,
+            root=cfg.root,
+            device_name=name,
+        )
+        result=self._local_pairing_result(
+            pairing_id=pair_id,
+            device_name=name,
+            node_root=root,
+            runtime_dir=runtime,
+            device_id=str(response["device_id"]),
+            recovered=False,
+        )
+        self.durable.operations.succeed(operation_id,result)
+        return result
 
     def device_list(self)->dict:
         return {"devices":[self.devices.status(r["device_id"]) for r in self.devices.list()]}
