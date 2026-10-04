@@ -117,9 +117,18 @@ function Invoke-ProductionRuntimeMigrationProbe {
         return
     }
 
+    $AuditScript = Join-Path $SourceDir "scripts\audit_legacy_routed_jobs.py"
+    if (-not (Test-Path $AuditScript)) {
+        throw "Candidate release is missing legacy routed-job inventory utility: $AuditScript"
+    }
+
     $ProbeBase = Join-Path $env:TEMP ("remotemcp-production-state-probe-" + [guid]::NewGuid().ToString("N"))
     $ProbeRuntime = Join-Path $ProbeBase "runtime"
     $ProbeDb = Join-Path $ProbeRuntime "runtime.db"
+    $InventoryOut = Join-Path $Base (
+        "gateway-preflight-legacy-routed-jobs-" + $ReleaseShort + "-" +
+        (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".json"
+    )
     New-Item -ItemType Directory -Force -Path $ProbeRuntime | Out-Null
 
     try {
@@ -141,8 +150,18 @@ finally:
             throw "Could not create consistent SQLite backup for production-state preflight"
         }
 
+        & $PythonExe $AuditScript --db $ProbeDb --output $InventoryOut
+        if ($LASTEXITCODE -ne 0) {
+            throw "Full legacy routed-job inventory failed against production-state backup"
+        }
+        Write-Host "REMOTEMCP_LEGACY_ROUTED_JOB_INVENTORY=PASS"
+        Write-Host ("Legacy inventory report: {0}" -f $InventoryOut)
+
         $ProbeCode = @'
-import sqlite3, sys
+import hashlib
+import json
+import sqlite3
+import sys
 from pathlib import Path
 
 source_dir = Path(sys.argv[1]).resolve()
@@ -152,37 +171,126 @@ sys.path.insert(0, str(source_dir))
 from remotemcp.durable.db import Database
 
 db_path = runtime_dir / "runtime.db"
-con = sqlite3.connect(db_path)
+legacy_tables = (
+    "operations",
+    "jobs",
+    "tasks",
+    "devices",
+    "project_device_bindings",
+    "task_device_bindings",
+    "device_commands",
+    "routed_jobs",
+)
+
+def connect():
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    return con
+
+def table_exists(con, name):
+    return con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone() is not None
+
+def table_fingerprint(con, name):
+    if not table_exists(con, name):
+        return None
+    cols = [r["name"] for r in con.execute(f"PRAGMA table_info({name})")]
+    h = hashlib.sha256()
+    h.update(json.dumps(cols, separators=(",", ":")).encode())
+    for row in con.execute(f"SELECT * FROM {name} ORDER BY rowid"):
+        payload = [row[c] for c in cols]
+        h.update(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=False,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        )
+        h.update(b"\n")
+    return h.hexdigest()
+
+con = connect()
 try:
+    integrity_before = con.execute("PRAGMA integrity_check").fetchone()[0]
+    if integrity_before != "ok":
+        raise SystemExit("production-state backup failed integrity_check before migration")
     before = con.execute(
         "SELECT version, applied_at_ms, checksum_sha256 "
         "FROM schema_migrations ORDER BY version"
     ).fetchall()
+    before_tuples = [tuple(r) for r in before]
+    versions = [int(r["version"]) for r in before]
+    if versions not in ([1, 2, 3], [1, 2, 3, 4]):
+        raise SystemExit(f"unexpected production migration ledger before v4 probe: {versions}")
+    before_fp = {name: table_fingerprint(con, name) for name in legacy_tables}
+    admission_existed_before = table_exists(con, "task_job_admissions")
 finally:
     con.close()
 
-Database(runtime_dir).bootstrap(target_version=3)
+db = Database(runtime_dir)
+db.bootstrap(target_version=4)
 
-con = sqlite3.connect(db_path)
+con = connect()
 try:
+    integrity_after = con.execute("PRAGMA integrity_check").fetchone()[0]
+    if integrity_after != "ok":
+        raise SystemExit("production-state backup failed integrity_check after migration")
     after = con.execute(
         "SELECT version, applied_at_ms, checksum_sha256 "
         "FROM schema_migrations ORDER BY version"
     ).fetchall()
+    after_tuples = [tuple(r) for r in after]
+
+    if before_tuples[:3] != after_tuples[:3]:
+        raise SystemExit("existing migration ledger entries changed during v4 compatibility probe")
+
+    if versions == [1, 2, 3]:
+        if [int(r["version"]) for r in after] != [1, 2, 3, 4]:
+            raise SystemExit("schema v4 was not appended exactly once")
+        expected_v4 = hashlib.sha256(db.migration_v4_path.read_bytes()).hexdigest()
+        if after_tuples[3][2] != expected_v4:
+            raise SystemExit("schema v4 checksum does not match candidate migration")
+    elif after_tuples != before_tuples:
+        raise SystemExit("existing schema-v4 migration ledger changed during compatibility probe")
+
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(task_job_admissions)")}
+    required_cols = {
+        "admission_id","task_id","sequence","operation_id","execution_kind",
+        "predecessor_job_id","job_id","state","terminal_state",
+        "terminal_evidence_json","created_at_ms","updated_at_ms","terminal_at_ms",
+    }
+    if not required_cols.issubset(cols):
+        raise SystemExit("schema v4 task_job_admissions columns are incomplete")
+
+    indexes = {r["name"] for r in con.execute("PRAGMA index_list(task_job_admissions)")}
+    if "uq_task_job_admissions_one_active_lane" not in indexes:
+        raise SystemExit("schema v4 active-lane unique index is missing")
+
+    if not admission_existed_before:
+        count = con.execute("SELECT COUNT(*) FROM task_job_admissions").fetchone()[0]
+        if int(count) != 0:
+            raise SystemExit("schema v4 migration unexpectedly backfilled admission rows")
+
+    after_fp = {name: table_fingerprint(con, name) for name in legacy_tables}
+    if before_fp != after_fp:
+        changed = [name for name in legacy_tables if before_fp.get(name) != after_fp.get(name)]
+        raise SystemExit("legacy production tables changed during v4 migration probe: " + ",".join(changed))
 finally:
     con.close()
 
-if before != after:
-    raise SystemExit("migration ledger changed during compatibility probe")
-
 print("REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS")
+print("REMOTEMCP_SCHEMA_V4_BACKUP_PROBE=PASS")
 '@
         $ProbeScript = Join-Path $ProbeBase "probe_migration_compat.py"
         [IO.File]::WriteAllText($ProbeScript,$ProbeCode,(New-Object Text.UTF8Encoding($false)))
         & $PythonExe $ProbeScript $SourceDir $ProbeRuntime
         if ($LASTEXITCODE -ne 0) {
             throw (
-                "Candidate migration compatibility failed against a consistent backup of production runtime.db " +
+                "Candidate schema-v4 compatibility failed against a consistent backup of production runtime.db " +
                 "for release " + $ReleaseShort
             )
         }
