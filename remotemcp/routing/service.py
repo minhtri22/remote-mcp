@@ -7,7 +7,7 @@ import secrets
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import OperationState, now_ms
-from remotemcp.workspace_layout import task_worktree_rel
+from remotemcp.workspace_layout import enforce_agent_git_worktree_policy, task_worktree_rel
 
 from .auth import SignedRequestVerifier
 from .bindings import BindingRepository
@@ -1139,6 +1139,7 @@ class RoutingService:
         argv:list[str],cwd:str=".",evidence_paths:list[str]|None=None
     )->dict:
         evidence_paths=list(evidence_paths or [])
+        enforce_agent_git_worktree_policy(argv)
         binding=self.bindings.task_binding(task_id)
         if binding is None:
             if evidence_paths:
