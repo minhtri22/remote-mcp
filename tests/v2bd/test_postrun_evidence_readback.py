@@ -35,8 +35,10 @@ def test_declared_external_artifact_readback_after_terminal(make_gateway,tmp_pat
             ),
         )
         agent=await g.multi.agent_register("agent-op","agent","install",[])
-        task=await g.routing.task_create_or_local(
-            "task-op",project["project_id"],"task"
+        task=await drive(
+            g,node,g.routing.task_create_or_local(
+                "task-op",project["project_id"],"task"
+            )
         )
         claim=await drive(
             g,node,g.routing.task_claim_or_local(
@@ -138,8 +140,10 @@ def test_legacy_terminal_job_without_manifest_fails_closed_without_rerun(make_ga
             ),
         )
         agent=await g.multi.agent_register("agent-op","agent","install",[])
-        task=await g.routing.task_create_or_local(
-            "task-op",project["project_id"],"task"
+        task=await drive(
+            g,node,g.routing.task_create_or_local(
+                "task-op",project["project_id"],"task"
+            )
         )
         claim=await drive(
             g,node,g.routing.task_claim_or_local(
@@ -206,8 +210,10 @@ def test_declared_artifact_missing_is_readback_failure_not_science_failure(make_
             ),
         )
         agent=await g.multi.agent_register("agent-op","agent","install",[])
-        task=await g.routing.task_create_or_local(
-            "task-op",project["project_id"],"task"
+        task=await drive(
+            g,node,g.routing.task_create_or_local(
+                "task-op",project["project_id"],"task"
+            )
         )
         claim=await drive(
             g,node,g.routing.task_claim_or_local(
