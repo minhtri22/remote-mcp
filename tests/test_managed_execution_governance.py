@@ -35,6 +35,10 @@ def test_skill_contains_mandatory_identity_pairing_preflight():
         "fail closed",
         "task_job_recovery_status",
         "task_job_recover_path_escape",
+        "task_job_submit_with_evidence",
+        "task_job_artifact_status",
+        "task_job_artifact_read",
+        "evidence_paths",
     )
     for text in required:
         assert text in skill
@@ -61,6 +65,16 @@ def test_machine_readable_policy_matches_skill_contract():
     assert recovery["preserve_original_argv"] is True
     assert recovery["replacement_proxy_forbidden"] is True
     assert recovery["sql_or_node_db_repair_forbidden"] is True
+    readback=policy["scientific_job"]["postrun_evidence_readback"]
+    assert readback["enabled"] is True
+    assert readback["declare_before_execution"] is True
+    assert readback["declaration_field"] == "evidence_paths"
+    assert readback["submit_tool"] == "task_job_submit_with_evidence"
+    assert readback["locked_submit_tool_preserved"] == "task_job_submit"
+    assert readback["exact_files_only"] is True
+    assert readback["require_authoritative_terminal_job"] is True
+    assert readback["scientific_rerun_on_readback_failure"] is False
+    assert readback["arbitrary_filesystem_read_forbidden"] is True
     assert policy["plugin_session_binding"]["canonical_web_plugin_name"] == "remote-mcp-v2-web-clean"
     assert policy["plugin_session_binding"]["legacy_web_plugin_name"] == "remote-mcp-v2-web"
     assert policy["plugin_session_binding"]["failure_decision"] == "PLUGIN_SESSION_BINDING_FAILURE"

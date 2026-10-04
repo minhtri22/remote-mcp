@@ -34,7 +34,12 @@ def test_path_escape_recovery_preserves_proxy_and_original_argv(make_gateway,tmp
             ),
         )
 
-        argv=[sys.executable,"-c","print('SCIENCE_EXECUTED')"]
+        artifact=tmp_path/"recovery-evidence.json"
+        code=(
+            "from pathlib import Path;"
+            f"Path({str(artifact)!r}).write_text('RECOVERED',encoding='utf-8')"
+        )
+        argv=[sys.executable,"-c",code]
         with pytest.raises(DurableError) as exc:
             await drive(
                 g,node,
@@ -45,6 +50,7 @@ def test_path_escape_recovery_preserves_proxy_and_original_argv(make_gateway,tmp
                     claim["lease_epoch"],
                     argv,
                     "../../../../outside-task-root",
+                    [str(artifact)],
                 ),
             )
         assert exc.value.code=="PATH_ESCAPE"
@@ -138,6 +144,14 @@ def test_path_escape_recovery_preserves_proxy_and_original_argv(make_gateway,tmp
         post=g.routing.task_job_recovery_status(task["task_id"],proxy)
         assert post["recoverable"] is False
         assert post["recovery_reason"]=="NODE_JOB_ALREADY_MAPPED"
+
+        artifact_status=await drive(
+            g,node,g.routing.task_job_artifact_status(
+                task["task_id"],proxy,str(artifact)
+            )
+        )
+        assert artifact_status["readable"] is True
+        assert artifact_status["readback_state"]=="READY"
 
         await node.jobs.durable.stop()
 
