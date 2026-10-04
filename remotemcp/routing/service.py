@@ -1105,14 +1105,6 @@ class RoutingService:
                 operation_id=operation_id,
                 expected_argv_sha256=intent["argv_sha256"],
             )
-        if not status["preproxy_recoverable"]:
-            raise DurableError(
-                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
-                "submit is not eligible for pre-proxy recovery",
-                operation_id=operation_id,
-                phase=status["phase"],
-                error_code=status.get("error_code"),
-            )
         if (
             intent["device_id"]!=binding["device_id"]
             or int(intent["binding_generation"])!=int(binding["binding_generation"])
@@ -1121,6 +1113,64 @@ class RoutingService:
                 "PROJECT_DEVICE_BINDING_CONFLICT",
                 "task/device binding changed since the frozen submit intent",
                 operation_id=operation_id,
+            )
+
+        recovery_operation_id=(
+            "rpr_"+hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:40]
+        )
+        existing_recovery=self.durable.operations.get(recovery_operation_id)
+        if existing_recovery is not None:
+            replay=self._operation_replay(existing_recovery)
+            if replay is not None:
+                replay=self._with_routing(
+                    replay,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+                return {**replay,"replayed":True}
+            existing_proxy=self.routed_jobs.by_operation(operation_id)
+            if existing_proxy is not None:
+                cmd=self._submit_command_for_operation(operation_id)
+                if cmd is None:
+                    raise DurableError(
+                        "PREEXECUTION_RECOVERY_UNRESOLVED",
+                        "recovery proxy exists without its original submit command",
+                        operation_id=operation_id,
+                        proxy_job_id=existing_proxy["proxy_job_id"],
+                    )
+                try:
+                    terminal=await self.commands.wait(cmd["command_id"])
+                    result=self.commands.result_value(terminal)
+                    row=self.routed_jobs.update(
+                        existing_proxy["proxy_job_id"],
+                        node_job_id=result.get("node_job_id"),
+                        state=result.get("state","QUEUED"),
+                    )
+                    response={
+                        **self.routed_jobs.as_dict(
+                            row,self.devices.get(binding["device_id"])["state"]
+                        ),
+                        "recovery_kind":"PREPROXY_SAME_LOGICAL_SUBMIT",
+                        "original_operation_id":operation_id,
+                        "same_logical_submit_preserved":True,
+                        "argv_sha256":intent["argv_sha256"],
+                        "scientific_execution_was_started_before_recovery":False,
+                    }
+                    response=self._with_routing(
+                        response,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                        binding_generation=int(binding["binding_generation"]),
+                    )
+                    self.durable.operations.succeed(recovery_operation_id,response)
+                    return response
+                except Exception as exc:
+                    self._fail_final(recovery_operation_id,exc)
+                    raise
+        elif not status["preproxy_recoverable"]:
+            raise DurableError(
+                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
+                "submit is not eligible for pre-proxy recovery",
+                operation_id=operation_id,
+                phase=status["phase"],
+                error_code=status.get("error_code"),
             )
 
         # Reconcile every earlier routed predecessor first.  If one is still
@@ -1154,9 +1204,6 @@ class RoutingService:
                 operation_id=operation_id,
             )
 
-        recovery_operation_id=(
-            "rpr_"+hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:40]
-        )
         recovery_args={
             "task_id":task_id,
             "original_operation_id":operation_id,
@@ -1168,13 +1215,6 @@ class RoutingService:
             recovery_operation_id,"TASK_JOB_RECOVER_PREPROXY",recovery_args,
             agent_id="",project_id=binding["project_id"],task_id=task_id,
         )
-        replay=self._operation_replay(recovery_op)
-        if replay is not None:
-            replay=self._with_routing(
-                replay,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
-                binding_generation=int(binding["binding_generation"]),
-            )
-            return {**replay,"replayed":True}
         if created:
             self.durable.operations.mark_executing(recovery_operation_id)
 
