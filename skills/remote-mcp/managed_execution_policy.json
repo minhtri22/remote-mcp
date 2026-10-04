@@ -185,9 +185,12 @@
   },
   "resource_capacity_governance": {
     "authoritative_tool": "device_capacity_status",
-    "authoritative_signal": "signed_node_heartbeat.active_node_jobs",
+    "authoritative_signal": "signed_node_heartbeat.reconciled_durable_job_state",
     "registry_nonterminal_routed_jobs_is_inventory_only": true,
     "device_list_active_routed_jobs_is_capacity_signal": false,
+    "node_must_reconcile_nonterminal_routed_rows_before_heartbeat": true,
+    "unresolved_node_rows_make_capacity_unresolved": true,
+    "old_or_unreconciled_node_heartbeat_decision": "unresolved_fail_closed",
     "offline_or_stale_capacity_decision": "unresolved_fail_closed",
     "active_node_jobs_positive_decision": "recheck_cpu_ram_and_scientific_contention_before_fresh_one_shot",
     "active_node_jobs_zero_decision": "continue_other_resource_gates",
