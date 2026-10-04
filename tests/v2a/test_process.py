@@ -27,8 +27,14 @@ def test_current_process_fingerprint_and_pid_reuse_rejection():
 
 def test_safe_environment_and_default_project_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("OWNER_PASSWORD","should-not-leak")
+    monkeypatch.setenv("LOCALAPPDATA",str(tmp_path/"LocalAppData"))
+    monkeypatch.setenv("APPDATA",str(tmp_path/"RoamingAppData"))
+    monkeypatch.setenv("PROGRAMDATA",str(tmp_path/"ProgramData"))
     env=safe_child_env(tmp_path)
     assert env["HOME"]==str(tmp_path.resolve())
+    assert env["LOCALAPPDATA"]==str(tmp_path/"LocalAppData")
+    assert env["APPDATA"]==str(tmp_path/"RoamingAppData")
+    assert env["PROGRAMDATA"]==str(tmp_path/"ProgramData")
     assert "OWNER_PASSWORD" not in env
     for name in ("ollama","llama-cli","llama-server","llama-bench","cmake","ctest","ninja","uv","ffmpeg"):
         assert name in DEFAULT_DURABLE_ALLOWED_CMDS
