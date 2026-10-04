@@ -14,7 +14,7 @@ from .commands import CommandRepository
 from .config import RoutingConfig
 from .devices import DeviceRepository
 from .pairing import PairingService
-from .routed_jobs import RoutedJobRepository
+from .routed_jobs import RoutedJobRepository,TERMINAL
 
 
 class RoutingService:
@@ -683,6 +683,119 @@ class RoutingService:
             raise DurableError("FORBIDDEN","routed job does not belong to task/device")
         return binding,row
 
+    def _sync_routed_admission(self,row):
+        admission=self.job_admissions.by_operation(row["operation_id"])
+        if admission is None:
+            return
+        if admission["job_id"] is None:
+            self.job_admissions.bind(row["operation_id"],row["proxy_job_id"])
+        if row["last_known_state"] in TERMINAL and row["terminal_result_json"]:
+            evidence=json.loads(row["terminal_result_json"])
+            self.job_admissions.terminalize(
+                row["operation_id"],row["last_known_state"],evidence,
+            )
+
+    async def _ensure_routed_terminal_evidence(self,binding,row):
+        if row["last_known_state"] not in TERMINAL:
+            raise DurableError(
+                "PREDECESSOR_JOB_NOT_TERMINAL",
+                "routed predecessor is still non-terminal",
+                predecessor_job_id=row["proxy_job_id"],
+                predecessor_state=row["last_known_state"],
+            )
+        if not row["terminal_result_json"]:
+            if self.devices.status(binding["device_id"])["state"]!="ONLINE":
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "terminal routed predecessor lacks cached evidence while device is offline",
+                    predecessor_job_id=row["proxy_job_id"],
+                )
+            try:
+                result,_=await self._route_step(
+                    binding["device_id"],"JOB_RESULT",
+                    {"proxy_job_id":row["proxy_job_id"]},
+                    project_id=binding["project_id"],task_id=row["task_id"],
+                )
+            except Exception as exc:
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "could not obtain authoritative routed predecessor terminal evidence",
+                    predecessor_job_id=row["proxy_job_id"],
+                ) from exc
+            if not result.get("terminal") or result.get("state") not in TERMINAL:
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "routed predecessor terminal evidence is incomplete",
+                    predecessor_job_id=row["proxy_job_id"],
+                )
+            row=self.routed_jobs.update(
+                row["proxy_job_id"],
+                node_job_id=result.get("node_job_id"),
+                state=result.get("state"),
+                terminal_result=result,
+            )
+        self._sync_routed_admission(row)
+        return row
+
+    async def _reconcile_routed_lane(
+        self,binding,task_id:str,current_operation_id:str|None=None
+    ):
+        state=self.devices.status(binding["device_id"])["state"]
+        rows=self.routed_jobs.list_task_rows(task_id)
+        for row in rows:
+            if current_operation_id and row["operation_id"]==current_operation_id:
+                continue
+            if row["last_known_state"] in TERMINAL:
+                continue
+            if state!="ONLINE":
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "cannot reconcile non-terminal routed predecessor while device is offline",
+                    predecessor_job_id=row["proxy_job_id"],
+                )
+            try:
+                remote,_=await self._route_step(
+                    binding["device_id"],"JOB_GET",
+                    {"proxy_job_id":row["proxy_job_id"]},
+                    project_id=binding["project_id"],task_id=task_id,
+                )
+            except Exception as exc:
+                raise DurableError(
+                    "PREDECESSOR_STATE_UNRESOLVED",
+                    "routed predecessor could not be resolved from the bound node",
+                    predecessor_job_id=row["proxy_job_id"],
+                ) from exc
+            row=self.routed_jobs.update(
+                row["proxy_job_id"],
+                node_job_id=remote.get("node_job_id"),
+                state=remote.get("state"),
+            )
+            if row["last_known_state"] not in TERMINAL:
+                raise DurableError(
+                    "PREDECESSOR_JOB_NOT_TERMINAL",
+                    "task lane predecessor is still non-terminal",
+                    predecessor_job_id=row["proxy_job_id"],
+                    predecessor_state=row["last_known_state"],
+                )
+            await self._ensure_routed_terminal_evidence(binding,row)
+
+        rows=[
+            r for r in self.routed_jobs.list_task_rows(task_id)
+            if not current_operation_id or r["operation_id"]!=current_operation_id
+        ]
+        if rows:
+            latest=rows[-1]
+            if latest["last_known_state"] not in TERMINAL:
+                raise DurableError(
+                    "PREDECESSOR_JOB_NOT_TERMINAL",
+                    "latest task lane predecessor is non-terminal",
+                    predecessor_job_id=latest["proxy_job_id"],
+                    predecessor_state=latest["last_known_state"],
+                )
+            latest=await self._ensure_routed_terminal_evidence(binding,latest)
+            return latest["proxy_job_id"]
+        return None
+
     async def task_job_submit_or_local(
         self,operation_id:str,task_id:str,lease_token:str,lease_epoch:int,
         argv:list[str],cwd:str="."
@@ -711,6 +824,31 @@ class RoutingService:
             return {**replay,"replayed":True}
         if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
             self._operation_replay(op)
+
+        existing_admission=self.job_admissions.by_operation(operation_id)
+        existing_proxy=self.routed_jobs.by_operation(operation_id)
+        if existing_admission is None and existing_proxy is None:
+            try:
+                predecessor=await self._reconcile_routed_lane(binding,task_id)
+                self.job_admissions.reserve(
+                    task_id,operation_id,"ROUTED",
+                    predecessor_job_id=predecessor,
+                )
+            except DurableError as exc:
+                self._fail_final(operation_id,exc)
+                raise
+        elif existing_admission is not None:
+            if (
+                existing_admission["task_id"]!=task_id or
+                existing_admission["execution_kind"]!="ROUTED"
+            ):
+                exc=DurableError(
+                    "TASK_JOB_LANE_STATE_MISMATCH",
+                    "operation replay targets a different routed task lane",
+                )
+                self._fail_final(operation_id,exc)
+                raise exc
+
         self.devices.require_online(binding["device_id"])
         if created:
             self.durable.operations.mark_executing(operation_id)
@@ -732,6 +870,8 @@ class RoutingService:
                     now_ms()+self.config.mutation_ttl_seconds*1000,
                 ),
             )
+        if self.job_admissions.by_operation(operation_id) is not None:
+            self.job_admissions.bind(operation_id,proxy["proxy_job_id"])
         try:
             terminal=await self.commands.wait(cmd["command_id"])
             result=self.commands.result_value(terminal)
@@ -752,6 +892,8 @@ class RoutingService:
             return response
         except DurableError as exc:
             if exc.code!="DEVICE_COMMAND_PENDING":
+                if self.routed_jobs.by_operation(operation_id) is None:
+                    self.job_admissions.abort_if_unbound(operation_id,exc.code)
                 self._fail_final(operation_id,exc)
             raise
 
@@ -826,10 +968,13 @@ class RoutingService:
                     state=result.get("state"),
                 )
             if result.get("terminal"):
-                self.routed_jobs.update(
+                row=self.routed_jobs.update(
                     proxy_job_id,node_job_id=result.get("node_job_id"),
                     state=result.get("state"),terminal_result=result,
                 )
+                self._sync_routed_admission(row)
+        if row["terminal_result_json"]:
+            self._sync_routed_admission(row)
         return self._with_routing(
             result,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
             binding_generation=int(binding["binding_generation"]),
