@@ -911,7 +911,7 @@ class RoutingService:
             binding_generation=int(binding["binding_generation"]),
         )
 
-    def _routed_submit_recovery_status(self,task_id:str,proxy_job_id:str)->tuple[dict,dict,dict|None]:
+    def _routed_submit_recovery_status(self,task_id:str,proxy_job_id:str)->tuple[dict,dict,dict|None,dict]:
         binding,row=self._task_proxy(task_id,proxy_job_id)
         command=self.db.query_one(
             "SELECT * FROM device_commands WHERE operation_id=? AND command_type='JOB_SUBMIT' "
