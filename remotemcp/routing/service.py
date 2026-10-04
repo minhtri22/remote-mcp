@@ -21,7 +21,7 @@ class RoutingService:
     def __init__(self,config:RoutingConfig,durable,multiagent):
         self.config=config; self.durable=durable; self.multi=multiagent
         self.db=durable.db
-        self.db.bootstrap(target_version=3)
+        self.db.bootstrap(target_version=4)
         self.owner_account_id=multiagent.identity.owner_account_id
         with self.db.transaction() as con:
             self.multi.agents.ensure_owner(con)
@@ -31,6 +31,7 @@ class RoutingService:
         self.commands=CommandRepository(config,self.db,self.devices)
         self.bindings=BindingRepository(self.db,self.devices)
         self.routed_jobs=RoutedJobRepository(self.db)
+        self.job_admissions=multiagent.job_admissions
         self._stop=asyncio.Event();self._task=None
 
     async def start(self):
