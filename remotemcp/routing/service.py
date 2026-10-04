@@ -481,12 +481,18 @@ class RoutingService:
         elif reported is None:
             resolved=False
             reason="NODE_HEARTBEAT_CAPACITY_UNAVAILABLE"
+        elif not bool(status.get("capacity_reconciliation_complete")):
+            resolved=False
+            reason="NODE_HEARTBEAT_CAPACITY_UNRECONCILED"
+        elif status.get("authoritative_unresolved_node_jobs") not in (0,):
+            resolved=False
+            reason="NODE_HEARTBEAT_CAPACITY_UNRESOLVED_ROWS"
         elif not fresh:
             resolved=False
             reason="NODE_HEARTBEAT_CAPACITY_STALE"
         else:
             resolved=True
-            reason="AUTHORITATIVE_NODE_HEARTBEAT"
+            reason="AUTHORITATIVE_NODE_HEARTBEAT_RECONCILED_DURABLE_STATE"
         active=int(reported) if resolved else None
         if not resolved:
             recommendation="RECHECK_NODE_CAPACITY"
@@ -505,6 +511,15 @@ class RoutingService:
                 "reported_active_node_jobs":reported,
                 "capacity_signal_source":status.get("capacity_signal_source"),
                 "capacity_signal_fresh":fresh,
+                "capacity_reconciliation_complete":bool(
+                    status.get("capacity_reconciliation_complete")
+                ),
+                "authoritative_unresolved_node_jobs":status.get(
+                    "authoritative_unresolved_node_jobs"
+                ),
+                "candidate_nonterminal_routed_jobs":status.get(
+                    "candidate_nonterminal_routed_jobs"
+                ),
                 "capacity_signal_age_ms":status.get(
                     "authoritative_active_node_jobs_age_ms"
                 ),
