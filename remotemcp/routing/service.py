@@ -769,20 +769,58 @@ class RoutingService:
         worktree_rel=task_worktree_rel(project_id,task_id) if project["project_kind"]=="GIT" else None
         t=now_ms()
         try:
+            base_commit=None
+            if project["project_kind"]=="GIT":
+                resolved,_=await self._route_step(
+                    binding["device_id"],
+                    "TASK_BASE_RESOLVE",
+                    {
+                        "project_id":project_id,
+                        "binding_generation":int(binding["binding_generation"]),
+                        "base_ref":base_ref,
+                    },
+                    operation_id=operation_id,
+                    operation_step=0,
+                    project_id=project_id,
+                )
+                base_commit=str(resolved.get("base_commit") or "").strip()
+                if not base_commit:
+                    raise DurableError(
+                        "TASK_BASE_REF_UNRESOLVED",
+                        "remote task base resolver returned no commit",
+                        base_ref=base_ref,
+                    )
             with self.db.transaction() as con:
                 old=con.execute("SELECT * FROM tasks WHERE task_id=?",(task_id,)).fetchone()
                 if old is None:
                     con.execute(
                         "INSERT INTO tasks(task_id,project_id,title,state,base_ref,base_commit,branch_name,worktree_rel,created_at_ms,updated_at_ms) "
-                        "VALUES(?,?,?,'READY',?,NULL,?,?,?,?)",
-                        (task_id,project_id,title,base_ref,branch,worktree_rel,t,t),
+                        "VALUES(?,?,?,'READY',?,?,?,?,?,?)",
+                        (task_id,project_id,title,base_ref,base_commit,branch,worktree_rel,t,t),
                     )
-                    self.multi.tasks._event(con,task_id,operation_id,None,None,"TASK_CREATED",{"title":title})
+                    self.multi.tasks._event(
+                        con,task_id,operation_id,None,None,"TASK_CREATED",
+                        {"title":title,"base_ref":base_ref,"base_commit":base_commit},
+                    )
                     self.multi.tasks._event(con,task_id,operation_id,None,None,"TASK_READY",{})
                     self.bindings.inherit_task(con,task_id,project_id)
                 else:
                     if old["project_id"]!=project_id or old["title"]!=title or old["base_ref"]!=base_ref:
                         raise DurableError("OPERATION_CONFLICT","deterministic task identity conflicts")
+                    old_commit=old["base_commit"]
+                    if old_commit is None and base_commit is not None:
+                        con.execute(
+                            "UPDATE tasks SET base_commit=?,updated_at_ms=? WHERE task_id=? AND base_commit IS NULL",
+                            (base_commit,now_ms(),task_id),
+                        )
+                    elif old_commit!=base_commit:
+                        raise DurableError(
+                            "TASK_BASE_COMMIT_MISMATCH",
+                            "deterministic task identity resolved to a different base commit",
+                            task_id=task_id,
+                            stored_base_commit=old_commit,
+                            resolved_base_commit=base_commit,
+                        )
             result=self.multi.tasks.status(task_id)
             result["device_id"]=binding["device_id"]
             result=self._with_routing(
