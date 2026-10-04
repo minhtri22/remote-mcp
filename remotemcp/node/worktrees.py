@@ -66,6 +66,9 @@ class NodeWorktrees:
         task=self.task(task_id);project=self.projects.get(task["project_id"])
         if project["project_kind"]=="GIT":
             if not task["worktree_rel"]:raise DurableError("WORKTREE_IDENTITY_MISMATCH","node task worktree missing")
+            classify_task_worktree_rel(
+                str(task["project_id"]),str(task["task_id"]),str(task["worktree_rel"])
+            )
             p=(self.root/task["worktree_rel"]).resolve()
         else:
             p=self.projects.path(task["project_id"])
