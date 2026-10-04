@@ -88,7 +88,38 @@
       "sql_or_node_db_repair_forbidden": true,
       "submit_tool": "task_job_submit_with_evidence",
       "locked_submit_tool_preserved": "task_job_submit"
-    }
+    },
+    "preproxy_submit_recovery": {
+      "enabled": true,
+      "status_tool": "task_job_submit_failure_status",
+      "recovery_tool": "task_job_recover_preproxy_submit",
+      "legacy_intent_adoption_tool": "task_job_adopt_legacy_submit_intent",
+      "frozen_intent_before_admission": true,
+      "preserve_original_operation_id": true,
+      "preserve_original_argv": true,
+      "require_original_argv_sha256_acknowledgement": true,
+      "recoverable_error_codes": [
+        "PREDECESSOR_STATE_UNRESOLVED",
+        "PREDECESSOR_JOB_NOT_TERMINAL",
+        "TASK_JOB_ADMISSION_CONFLICT",
+        "DEVICE_OFFLINE",
+        "DB_BUSY"
+      ],
+      "authoritative_predecessor_reconciliation_before_proxy": true,
+      "replacement_proxy_before_recovery_forbidden": true,
+      "second_scientific_one_shot_forbidden": true,
+      "legacy_adoption_requires_exact_historical_request_hash": true,
+      "binding_identity_change_decision": "block",
+      "ambiguous_or_nonrecoverable_decision": "block"
+    },
+    "execution_lifecycle_recovery_order": [
+      "task_job_submit_failure_status",
+      "task_job_recover_preproxy_submit",
+      "task_job_recovery_status",
+      "task_job_recover_path_escape",
+      "task_job_artifact_status",
+      "task_job_artifact_read"
+    ]
   },
   "infrastructure": {
     "use_scientific_task_as_transport": false,
