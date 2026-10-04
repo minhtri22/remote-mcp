@@ -162,6 +162,25 @@
     "legacy_existing_tasks": "preserve_until_safe_closure_or_explicit_migration",
     "move_or_delete_active_worktrees": false,
     "arbitrary_sibling_worktree_decision": "WORKTREE_LAYOUT_VIOLATION",
-    "direct_mutation_decision": "WORKTREE_MUTATION_FORBIDDEN"
+    "direct_mutation_decision": "WORKTREE_MUTATION_FORBIDDEN",
+    "legacy_cleanup_ownership": {
+      "model": "agent-owned",
+      "global_cleanup_agent_forbidden": true,
+      "global_audit_mode": "read-only",
+      "owner_scope": [
+        "project_id",
+        "task_id",
+        "branch_name"
+      ],
+      "agent_may_mutate_only_owned_worktrees": true,
+      "cross_project_or_cross_branch_cleanup_forbidden": true,
+      "branch_closure_requires_owned_worktree_reconciliation": true,
+      "closure_actions": [
+        "migrate_owned_legacy_worktree_into_project_workspace_when_still_needed",
+        "remove_owned_worktree_when_terminal_clean_and_no_longer_needed",
+        "preserve_and_report_owned_worktree_when_active_dirty_or_unpushed"
+      ],
+      "active_or_dirty_worktree_move_delete_forbidden": true
+    }
   }
 }
