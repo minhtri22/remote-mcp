@@ -14,6 +14,7 @@ on:
       - "skills/remote-mcp/**"
       - "tests/v2bd/test_preexecution_path_escape_recovery.py"
       - "tests/v2bd/test_postrun_evidence_readback.py"
+      - "tests/v2bd/test_secure_local_pairing.py"
       - "tests/v2a/test_process.py"
       - "tests/v2b/test_worktrees.py"
       - "tests/v2bd/test_task_binding.py"
@@ -58,6 +59,7 @@ jobs:
           tests/v2bd/test_task_binding.py
           tests/v2bd/test_preexecution_path_escape_recovery.py
           tests/v2bd/test_postrun_evidence_readback.py
+          tests/v2bd/test_secure_local_pairing.py
       - name: Full V2-B regression
         run: python scripts/run_v2b_tests.py
       - name: Full V2-BD regression
