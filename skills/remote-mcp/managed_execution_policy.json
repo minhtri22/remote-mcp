@@ -70,6 +70,22 @@
       "second_scientific_one_shot_forbidden": true,
       "sql_or_node_db_repair_forbidden": true,
       "ambiguous_or_offline_decision": "block"
+    },
+    "postrun_evidence_readback": {
+      "enabled": true,
+      "declare_before_execution": true,
+      "declaration_field": "evidence_paths",
+      "exact_files_only": true,
+      "require_authoritative_terminal_job": true,
+      "readback_status_tool": "task_job_artifact_status",
+      "readback_tool": "task_job_artifact_read",
+      "read_requires_stat_pinned_sha256": true,
+      "same_proxy_job_id_required": true,
+      "scientific_rerun_on_readback_failure": false,
+      "arbitrary_filesystem_read_forbidden": true,
+      "undeclared_legacy_decision": "POSTRUN_EVIDENCE_PATH_UNDECLARED",
+      "missing_declared_file_decision": "POSTRUN_EVIDENCE_NOT_FOUND",
+      "sql_or_node_db_repair_forbidden": true
     }
   },
   "infrastructure": {
