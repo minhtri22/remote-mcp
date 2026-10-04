@@ -196,5 +196,33 @@
     "active_node_jobs_zero_decision": "continue_other_resource_gates",
     "device_restart_must_use_authoritative_capacity": true,
     "registry_count_must_not_block_science_by_itself": true
+  },
+  "managed_task_base_pinning": {
+    "enabled": true,
+    "routed_task_create_must_resolve_on_bound_device": true,
+    "remote_only_origin_branch_fetch_allowed": true,
+    "exact_base_commit_required_before_ready": true,
+    "nullable_base_commit_for_new_git_task": false,
+    "node_worktree_must_use_pinned_base_commit": true,
+    "legacy_null_base_commit_repair_on_claim": true,
+    "invalid_or_unresolvable_base_decision": "TASK_BASE_REF_UNRESOLVED",
+    "deterministic_local_fallback_forbidden": true
+  },
+  "control_plane_command_recovery": {
+    "device_command_pending_decision": "retry_same_operation_id",
+    "device_command_expired_decision": "retry_same_operation_id",
+    "expired_command_reuse": "same_command_id_requeue",
+    "replacement_command_for_same_operation_step": false,
+    "local_execution_fallback_forbidden": true,
+    "scientific_contract_change_forbidden": true,
+    "control_plane_priority": [
+      "NODE_RESTART",
+      "JOB_CANCEL",
+      "TASK_BASE_RESOLVE",
+      "TASK_WORKTREE_ENSURE",
+      "PROJECT_PROBE",
+      "PROJECT_BIND"
+    ],
+    "command_ttl_must_exceed_gateway_wait": true
   }
 }
