@@ -9,7 +9,8 @@
     "device_restart",
     "project_register_on_device",
     "project_bind_device",
-    "scientific_job_relaunch"
+    "scientific_job_relaunch",
+    "device_capacity_status"
   ],
   "identity": {
     "existing_approved_role_identity": "preserve",
@@ -181,5 +182,16 @@
     "move_or_delete_active_worktrees": false,
     "arbitrary_sibling_worktree_decision": "WORKTREE_LAYOUT_VIOLATION",
     "direct_mutation_decision": "WORKTREE_MUTATION_FORBIDDEN"
+  },
+  "resource_capacity_governance": {
+    "authoritative_tool": "device_capacity_status",
+    "authoritative_signal": "signed_node_heartbeat.active_node_jobs",
+    "registry_nonterminal_routed_jobs_is_inventory_only": true,
+    "device_list_active_routed_jobs_is_capacity_signal": false,
+    "offline_or_stale_capacity_decision": "unresolved_fail_closed",
+    "active_node_jobs_positive_decision": "recheck_cpu_ram_and_scientific_contention_before_fresh_one_shot",
+    "active_node_jobs_zero_decision": "continue_other_resource_gates",
+    "device_restart_must_use_authoritative_capacity": true,
+    "registry_count_must_not_block_science_by_itself": true
   }
 }
