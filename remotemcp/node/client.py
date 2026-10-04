@@ -53,15 +53,28 @@ class NodeClient:
             raise DurableError(code,f"node route HTTP {r.status_code}",body=r.text[:1000])
         return r
 
-    async def heartbeat(self,active_node_jobs:int)->dict:
+    async def heartbeat(
+        self,
+        active_node_jobs:int,
+        unresolved_node_jobs:int=0,
+        capacity_reconciliation_complete:bool=True,
+        candidate_nonterminal_routed_jobs:int|None=None,
+    )->dict:
+        payload={
+            "node_time_ms":__import__("time").time_ns()//1_000_000,
+            "capabilities":{"outbound_node":True},
+            "platform":node_platform(),
+            "active_node_jobs":int(active_node_jobs),
+            "active_node_jobs_unresolved":int(unresolved_node_jobs),
+            "capacity_reconciliation_complete":bool(capacity_reconciliation_complete),
+        }
+        if candidate_nonterminal_routed_jobs is not None:
+            payload["candidate_nonterminal_routed_jobs"]=int(
+                candidate_nonterminal_routed_jobs
+            )
         r=await self._signed_post(
             "/device/v1/heartbeat",
-            {
-                "node_time_ms":__import__("time").time_ns()//1_000_000,
-                "capabilities":{"outbound_node":True},
-                "platform":node_platform(),
-                "active_node_jobs":int(active_node_jobs),
-            },
+            payload,
         )
         return r.json()
 
