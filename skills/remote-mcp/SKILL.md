@@ -142,3 +142,15 @@ If a routed scientific job is still `QUEUED` with `node_job_id=null`, do not cre
 There is no `/deviceList` alias. Use `/devices`.
 
 If a client does not expose a native slash-command picker but sends these strings as ordinary chat text, follow the same semantics.
+
+### Secure local dedicated-node pairing
+
+When a dedicated node must be paired on the same host as the gateway, use `device_pair_local_dedicated_node` after `device_pair_begin`.
+
+- pass only `pairing_id`, exact device name, exact node root, exact runtime directory, and explicit scope acknowledgement;
+- never pass the pairing code through `run_command`, routed jobs, argv, repo files, logs, checkpoints, or lineage;
+- the tool derives and consumes the one-time credential inside the gateway process;
+- it refuses to replace an existing paired identity;
+- if a crash occurs after central consume, replay is allowed only when the exact local key fingerprint matches the central paired device;
+- pairing does not start the node process; start/supervision remains a separate lifecycle action.
+
