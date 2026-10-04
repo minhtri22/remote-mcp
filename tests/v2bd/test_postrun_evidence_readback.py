@@ -166,8 +166,10 @@ def test_legacy_terminal_job_without_manifest_fails_closed_without_rerun(make_ga
         )
         assert await _wait_terminal(node,job["node_job_id"])=="SUCCEEDED"
 
-        status=await g.routing.task_job_artifact_status(
-            task["task_id"],job["proxy_job_id"],str(artifact)
+        status=await drive(
+            g,node,g.routing.task_job_artifact_status(
+                task["task_id"],job["proxy_job_id"],str(artifact)
+            ),
         )
         assert status["state"]=="SUCCEEDED"
         assert status["readable"] is False
@@ -176,9 +178,11 @@ def test_legacy_terminal_job_without_manifest_fails_closed_without_rerun(make_ga
         assert status["scientific_rerun_forbidden"] is True
 
         with pytest.raises(DurableError) as exc:
-            await g.routing.task_job_artifact_read(
-                task["task_id"],job["proxy_job_id"],str(artifact),
-                hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            await drive(
+                g,node,g.routing.task_job_artifact_read(
+                    task["task_id"],job["proxy_job_id"],str(artifact),
+                    hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                ),
             )
         assert exc.value.code=="POSTRUN_EVIDENCE_PATH_UNDECLARED"
         assert len(g.routing.task_jobs_or_local(task["task_id"])["jobs"])==1
