@@ -33,6 +33,8 @@ def test_skill_contains_mandatory_identity_pairing_preflight():
         "remote-mcp-v2-web-clean",
         "remote-mcp-v2-web",
         "fail closed",
+        "task_job_recovery_status",
+        "task_job_recover_path_escape",
     )
     for text in required:
         assert text in skill
@@ -52,6 +54,13 @@ def test_machine_readable_policy_matches_skill_contract():
     assert policy["project_root_mismatch"]["auto_create_node"] is False
     assert policy["project_root_mismatch"]["widen_existing_root"] is False
     assert policy["scientific_job"]["observability_loss_allows_relaunch"] is False
+    recovery=policy["scientific_job"]["preexecution_routed_submit_recovery"]
+    assert recovery["enabled"] is True
+    assert recovery["supported_original_error_codes"] == ["PATH_ESCAPE"]
+    assert recovery["require_same_proxy_job_id"] is True
+    assert recovery["preserve_original_argv"] is True
+    assert recovery["replacement_proxy_forbidden"] is True
+    assert recovery["sql_or_node_db_repair_forbidden"] is True
     assert policy["plugin_session_binding"]["canonical_web_plugin_name"] == "remote-mcp-v2-web-clean"
     assert policy["plugin_session_binding"]["legacy_web_plugin_name"] == "remote-mcp-v2-web"
     assert policy["plugin_session_binding"]["failure_decision"] == "PLUGIN_SESSION_BINDING_FAILURE"
