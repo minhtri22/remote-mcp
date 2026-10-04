@@ -8,7 +8,7 @@ from pathlib import Path
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
 from remotemcp.durable.operations import OperationState
-from remotemcp.workspace_layout import task_worktree_rel
+from remotemcp.workspace_layout import classify_task_worktree_rel, task_worktree_rel
 from .admission import TaskJobAdmissionRepository
 from .agents import AgentRepository
 from .cas import CasService
@@ -256,5 +256,8 @@ class MultiAgentService:
         task=self.tasks.get(task_id); project=self.projects.get(task["project_id"])
         if project["project_kind"]=="GIT":
             if not task["worktree_rel"]: raise DurableError("WORKTREE_IDENTITY_MISMATCH","task has no worktree")
+            classify_task_worktree_rel(
+                str(task["project_id"]),str(task["task_id"]),str(task["worktree_rel"])
+            )
             return (self.config.workspace_root/task["worktree_rel"]).resolve()
         return self.projects.root_path(project)
