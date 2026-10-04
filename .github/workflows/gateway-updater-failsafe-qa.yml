@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "Update-RemoteMCP-Gateway.ps1"
+      - "scripts/audit_legacy_routed_jobs.py"
+      - "tests/test_legacy_routed_job_inventory.py"
       - "tests/test_gateway_recovery_scripts.py"
       - "tests/test_public_repo_hygiene.py"
       - "docs/REMOTEMCP_GATEWAY_UPDATER_FAILSAFE_HARDENING.md"
@@ -87,9 +89,19 @@ jobs:
                   )
           '@ | python -
 
+          $dbPath = Join-Path $runtime "runtime.db"
+          $beforeHash = (Get-FileHash -Algorithm SHA256 $dbPath).Hash
           .\Update-RemoteMCP-Gateway.ps1 -SourceRepo $PWD -Ref HEAD -SkipFetch -PreflightOnly
+          $afterHash = (Get-FileHash -Algorithm SHA256 $dbPath).Hash
+          if ($beforeHash -ne $afterHash) {
+            throw "PreflightOnly mutated the live synthetic runtime.db"
+          }
+          $reports = @(Get-ChildItem $base -Filter "gateway-preflight-legacy-routed-jobs-*.json")
+          if ($reports.Count -lt 1) {
+            throw "PreflightOnly did not persist a legacy routed-job inventory report"
+          }
 
       - name: Targeted recovery and public-hygiene QA
         shell: powershell
         run: |
-          python -m pytest -q tests/test_gateway_recovery_scripts.py tests/test_public_repo_hygiene.py
+          python -m pytest -q tests/test_gateway_recovery_scripts.py tests/test_legacy_routed_job_inventory.py tests/test_public_repo_hygiene.py
