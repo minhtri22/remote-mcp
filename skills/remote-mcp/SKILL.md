@@ -82,7 +82,7 @@ When a scientific task/job may already exist:
 
 ### Post-run scientific evidence readback
 
-For routed scientific jobs that write canonical evidence outside the managed task worktree, declare every exact evidence file **before execution** with the optional `evidence_paths` argument to `task_job_submit`. Do not use a broad directory or glob; declare exact files.
+For routed scientific jobs that write canonical evidence outside the managed task worktree, use `task_job_submit_with_evidence` and declare every exact evidence file **before execution** with `evidence_paths`. The locked `task_job_submit` tool remains unchanged for compatibility. Do not use a broad directory or glob; declare exact files.
 
 After the routed job is terminal:
 
