@@ -7,6 +7,7 @@ import secrets
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import OperationState, now_ms
+from remotemcp.durable.operations import request_hash
 
 from .auth import SignedRequestVerifier
 from .bindings import BindingRepository
@@ -796,6 +797,479 @@ class RoutingService:
             return latest["proxy_job_id"]
         return None
 
+    @staticmethod
+    def _argv_sha256(argv:list[str])->str:
+        return hashlib.sha256(
+            json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def _submit_intent_operation_id(operation_id:str)->str:
+        return "rsi_"+hashlib.sha256(str(operation_id).encode("utf-8")).hexdigest()[:40]
+
+    def _freeze_routed_submit_intent(
+        self,operation_id:str,task_id:str,binding,lease,argv:list[str],cwd:str,
+        evidence_paths:list[str],*,legacy_adopted:bool=False,
+        original_lease_epoch:int|None=None,
+    )->dict:
+        intent={
+            "original_operation_id":operation_id,
+            "task_id":task_id,
+            "project_id":binding["project_id"],
+            "device_id":binding["device_id"],
+            "binding_generation":int(binding["binding_generation"]),
+            "original_agent_id":str(lease["agent_id"]),
+            "original_lease_epoch":int(
+                lease["lease_epoch"] if original_lease_epoch is None else original_lease_epoch
+            ),
+            "argv":list(argv),
+            "argv_sha256":self._argv_sha256(list(argv)),
+            "cwd":str(cwd),
+            "evidence_paths":list(evidence_paths),
+            "legacy_adopted":bool(legacy_adopted),
+        }
+        intent_id=self._submit_intent_operation_id(operation_id)
+        op,created=self._reserve(
+            intent_id,"TASK_JOB_SUBMIT_INTENT",intent,
+            agent_id="",project_id=binding["project_id"],task_id=task_id,
+        )
+        if op["state"]==OperationState.SUCCEEDED.value:
+            frozen=self.durable.operations.replay_result(op) or {}
+            if frozen!=intent:
+                raise DurableError(
+                    "OPERATION_CONFLICT",
+                    "frozen routed submit intent differs from the requested submission",
+                    operation_id=operation_id,
+                )
+            return frozen
+        if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
+            self._operation_replay(op)
+        if created:
+            self.durable.operations.mark_executing(intent_id)
+        # The intent operation is a deterministic metadata freeze; replay after
+        # a crash between reserve/mark and succeed is safe with the same hash.
+        self.durable.operations.succeed(intent_id,intent)
+        return intent
+
+    def _routed_submit_intent(self,operation_id:str)->dict|None:
+        row=self.durable.operations.get(self._submit_intent_operation_id(operation_id))
+        if row is None or row["kind"]!="TASK_JOB_SUBMIT_INTENT":
+            return None
+        if row["state"]!=OperationState.SUCCEEDED.value:
+            return None
+        result=self.durable.operations.replay_result(row)
+        return result if isinstance(result,dict) else None
+
+    def _submit_command_for_operation(self,operation_id:str):
+        return self.db.query_one(
+            "SELECT * FROM device_commands WHERE operation_id=? AND command_type='JOB_SUBMIT' "
+            "ORDER BY operation_step,created_at_ms,command_id LIMIT 1",
+            (operation_id,),
+        )
+
+    def task_job_submit_failure_status(self,task_id:str,operation_id:str)->dict:
+        binding=self.bindings.require_task_binding(task_id)
+        op=self.durable.operations.get(operation_id)
+        if op is None or op["kind"]!="TASK_JOB_SUBMIT" or op["task_id"]!=task_id:
+            raise DurableError(
+                "NOT_FOUND","routed task-job submit operation not found",
+                task_id=task_id,operation_id=operation_id,
+            )
+        intent=self._routed_submit_intent(operation_id)
+        admission=self.job_admissions.by_operation(operation_id)
+        proxy=self.routed_jobs.by_operation(operation_id)
+        command=self._submit_command_for_operation(operation_id)
+        device_state=self.devices.status(binding["device_id"])["state"]
+
+        if proxy is not None:
+            if proxy["last_known_state"] in TERMINAL and proxy["terminal_result_json"]:
+                phase="TERMINAL"
+                recommended="POSTRUN_EVIDENCE_OR_ADJUDICATION"
+            elif proxy["node_job_id"] is not None:
+                phase="EXECUTION_STARTED"
+                recommended="OBSERVE_EXISTING_PROXY"
+            elif command is not None:
+                phase="POST_PROXY_PRE_NODE"
+                recommended="USE_SAME_PROXY_RECOVERY_STATUS"
+            else:
+                phase="PROXY_CREATED"
+                recommended="USE_SAME_PROXY_RECOVERY_STATUS"
+        elif admission is not None:
+            phase="ADMISSION_RESERVED"
+            recommended="RECOVER_PREPROXY_SUBMIT"
+        else:
+            phase="BEFORE_ADMISSION"
+            recommended="RECOVER_PREPROXY_SUBMIT"
+
+        recoverable_errors={
+            "PREDECESSOR_STATE_UNRESOLVED",
+            "PREDECESSOR_JOB_NOT_TERMINAL",
+            "TASK_JOB_ADMISSION_CONFLICT",
+            "DEVICE_OFFLINE",
+            "DB_BUSY",
+        }
+        identity_ok=bool(
+            intent is not None
+            and intent.get("task_id")==task_id
+            and intent.get("project_id")==binding["project_id"]
+            and intent.get("device_id")==binding["device_id"]
+            and int(intent.get("binding_generation",-1))==int(binding["binding_generation"])
+        )
+        admission_ok=(
+            admission is None
+            or (
+                admission["task_id"]==task_id
+                and admission["execution_kind"]=="ROUTED"
+                and admission["state"]=="ADMITTING"
+                and admission["job_id"] is None
+            )
+        )
+        preproxy_recoverable=bool(
+            proxy is None
+            and op["state"]==OperationState.FAILED_FINAL.value
+            and op["error_code"] in recoverable_errors
+            and identity_ok
+            and admission_ok
+        )
+        if proxy is None and intent is None:
+            recommended="ADOPT_LEGACY_SUBMIT_INTENT"
+        elif proxy is None and not preproxy_recoverable:
+            if op["state"] not in {
+                OperationState.FAILED_FINAL.value,
+                OperationState.SUCCEEDED.value,
+            }:
+                recommended="OBSERVE_OR_RECHECK_SUBMIT_OPERATION"
+            elif op["error_code"] not in recoverable_errors:
+                recommended="FAIL_CLOSED_NONRECOVERABLE_SUBMIT_ERROR"
+
+        out={
+            "task_id":task_id,
+            "operation_id":operation_id,
+            "operation_state":op["state"],
+            "error_code":op["error_code"],
+            "phase":phase,
+            "device_state":device_state,
+            "intent_available":intent is not None,
+            "preproxy_recoverable":preproxy_recoverable,
+            "recommended_action":recommended,
+            "scientific_execution_started":bool(
+                proxy is not None and (
+                    proxy["node_job_id"] is not None
+                    or proxy["last_known_state"] not in {"QUEUED"}
+                )
+            ),
+            "replacement_scientific_job_forbidden":True,
+        }
+        if intent is not None:
+            out["frozen_submit_intent"]={
+                "argv_sha256":intent["argv_sha256"],
+                "cwd":intent["cwd"],
+                "evidence_paths":list(intent.get("evidence_paths") or []),
+                "original_lease_epoch":int(intent["original_lease_epoch"]),
+                "device_id":intent["device_id"],
+                "binding_generation":int(intent["binding_generation"]),
+                "legacy_adopted":bool(intent.get("legacy_adopted",False)),
+            }
+        if admission is not None:
+            out["admission"]=self.job_admissions.as_dict(admission)
+        if proxy is not None:
+            out["proxy"]=self.routed_jobs.as_dict(proxy,device_state)
+            if proxy["node_job_id"] is None:
+                _,_,_,same_proxy=self._routed_submit_recovery_status(
+                    task_id,proxy["proxy_job_id"]
+                )
+                out["same_proxy_recovery"]=same_proxy
+        if command is not None:
+            out["submit_command"]={
+                "command_id":command["command_id"],
+                "state":command["state"],
+                "error_code":command["error_code"],
+                "delivery_attempt":int(command["delivery_attempt"]),
+            }
+        return self._with_routing(
+            out,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+            binding_generation=int(binding["binding_generation"]),
+        )
+
+    def task_job_adopt_legacy_submit_intent(
+        self,task_id:str,lease_token:str,lease_epoch:int,operation_id:str,
+        argv:list[str],cwd:str=".",evidence_paths:list[str]|None=None,
+    )->dict:
+        evidence_paths=list(evidence_paths or [])
+        binding=self.bindings.require_task_binding(task_id)
+        lease=self.multi.leases.validate(task_id,lease_token,lease_epoch)
+        op=self.durable.operations.get(operation_id)
+        if op is None or op["kind"]!="TASK_JOB_SUBMIT" or op["task_id"]!=task_id:
+            raise DurableError("NOT_FOUND","legacy routed submit operation not found")
+        if self.routed_jobs.by_operation(operation_id) is not None:
+            raise DurableError(
+                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
+                "legacy submit already has a routed proxy; use proxy-scoped recovery",
+                operation_id=operation_id,
+            )
+        existing=self._routed_submit_intent(operation_id)
+        if existing is not None:
+            return {
+                "operation_id":operation_id,
+                "intent_adopted":False,
+                "replayed":True,
+                "argv_sha256":existing["argv_sha256"],
+            }
+
+        # Older releases did not persist submit arguments.  Recover them only
+        # when caller-supplied values reproduce the exact historical request
+        # hash.  Lease epoch is discovered by hash equality, never guessed into
+        # execution semantics.
+        matched_epoch=None
+        matched_evidence_paths=None
+        max_epoch=max(1,int(lease_epoch))
+        for candidate_epoch in range(1,max_epoch+1):
+            candidates=[
+                {
+                    "task_id":task_id,
+                    "lease_epoch":candidate_epoch,
+                    "argv":list(argv),
+                    "cwd":str(cwd),
+                    "evidence_paths":evidence_paths,
+                },
+                {
+                    "task_id":task_id,
+                    "lease_epoch":candidate_epoch,
+                    "argv":list(argv),
+                    "cwd":str(cwd),
+                },
+            ]
+            for candidate in candidates:
+                rh=request_hash(
+                    kind="TASK_JOB_SUBMIT",
+                    normalized_arguments=candidate,
+                    principal_key=op["principal_key"] or "",
+                    agent_id=op["agent_id"] or "",
+                    project_id=op["project_id"] or "",
+                    task_id=op["task_id"] or "",
+                )
+                if rh==op["request_hash"]:
+                    matched_epoch=candidate_epoch
+                    matched_evidence_paths=(
+                        evidence_paths if "evidence_paths" in candidate else []
+                    )
+                    break
+            if matched_epoch is not None:
+                break
+        if matched_epoch is None:
+            raise DurableError(
+                "LEGACY_SUBMIT_INTENT_MISMATCH",
+                "supplied legacy argv/cwd do not match the exact historical submit request",
+                operation_id=operation_id,
+            )
+        original_lease={
+            "agent_id":op["agent_id"] or "",
+            "lease_epoch":matched_epoch,
+        }
+        intent=self._freeze_routed_submit_intent(
+            operation_id,task_id,binding,original_lease,list(argv),str(cwd),
+            list(matched_evidence_paths or []),
+            legacy_adopted=True,original_lease_epoch=matched_epoch,
+        )
+        return self._with_routing(
+            {
+                "operation_id":operation_id,
+                "intent_adopted":True,
+                "argv_sha256":intent["argv_sha256"],
+                "original_lease_epoch":matched_epoch,
+                "evidence_paths":list(intent.get("evidence_paths") or []),
+            },
+            binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+            binding_generation=int(binding["binding_generation"]),
+        )
+
+    async def task_job_recover_preproxy_submit(
+        self,task_id:str,lease_token:str,lease_epoch:int,operation_id:str,
+        expected_original_argv_sha256:str,
+    )->dict:
+        binding=self.bindings.require_task_binding(task_id)
+        lease=self.multi.leases.validate(task_id,lease_token,lease_epoch)
+        dev=self.devices.require_online(binding["device_id"])
+        status=self.task_job_submit_failure_status(task_id,operation_id)
+        intent=self._routed_submit_intent(operation_id)
+        if intent is None:
+            raise DurableError(
+                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
+                "frozen submit intent is unavailable; adopt legacy intent first when applicable",
+                operation_id=operation_id,
+            )
+        if str(expected_original_argv_sha256)!=str(intent["argv_sha256"]):
+            raise DurableError(
+                "COMMAND_CONFLICT",
+                "original argv hash acknowledgement does not match frozen submit intent",
+                operation_id=operation_id,
+                expected_argv_sha256=intent["argv_sha256"],
+            )
+        if (
+            intent["device_id"]!=binding["device_id"]
+            or int(intent["binding_generation"])!=int(binding["binding_generation"])
+        ):
+            raise DurableError(
+                "PROJECT_DEVICE_BINDING_CONFLICT",
+                "task/device binding changed since the frozen submit intent",
+                operation_id=operation_id,
+            )
+
+        recovery_operation_id=(
+            "rpr_"+hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:40]
+        )
+        existing_recovery=self.durable.operations.get(recovery_operation_id)
+        if existing_recovery is not None:
+            replay=self._operation_replay(existing_recovery)
+            if replay is not None:
+                replay=self._with_routing(
+                    replay,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+                return {**replay,"replayed":True}
+            existing_proxy=self.routed_jobs.by_operation(operation_id)
+            if existing_proxy is not None:
+                cmd=self._submit_command_for_operation(operation_id)
+                if cmd is None:
+                    raise DurableError(
+                        "PREEXECUTION_RECOVERY_UNRESOLVED",
+                        "recovery proxy exists without its original submit command",
+                        operation_id=operation_id,
+                        proxy_job_id=existing_proxy["proxy_job_id"],
+                    )
+                try:
+                    terminal=await self.commands.wait(cmd["command_id"])
+                    result=self.commands.result_value(terminal)
+                    row=self.routed_jobs.update(
+                        existing_proxy["proxy_job_id"],
+                        node_job_id=result.get("node_job_id"),
+                        state=result.get("state","QUEUED"),
+                    )
+                    response={
+                        **self.routed_jobs.as_dict(
+                            row,self.devices.get(binding["device_id"])["state"]
+                        ),
+                        "recovery_kind":"PREPROXY_SAME_LOGICAL_SUBMIT",
+                        "original_operation_id":operation_id,
+                        "same_logical_submit_preserved":True,
+                        "argv_sha256":intent["argv_sha256"],
+                        "scientific_execution_was_started_before_recovery":False,
+                    }
+                    response=self._with_routing(
+                        response,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                        binding_generation=int(binding["binding_generation"]),
+                    )
+                    self.durable.operations.succeed(recovery_operation_id,response)
+                    return response
+                except Exception as exc:
+                    self._fail_final(recovery_operation_id,exc)
+                    raise
+        elif not status["preproxy_recoverable"]:
+            raise DurableError(
+                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
+                "submit is not eligible for pre-proxy recovery",
+                operation_id=operation_id,
+                phase=status["phase"],
+                error_code=status.get("error_code"),
+            )
+
+        # Reconcile every earlier routed predecessor first.  If one is still
+        # active or unresolved, this raises without creating a proxy or recovery
+        # operation, so a later agent may retry the same logical recovery.
+        predecessor=await self._reconcile_routed_lane(
+            binding,task_id,current_operation_id=operation_id
+        )
+        admission=self.job_admissions.by_operation(operation_id)
+        if admission is None:
+            self.job_admissions.reserve(
+                task_id,operation_id,"ROUTED",predecessor_job_id=predecessor
+            )
+        else:
+            if (
+                admission["task_id"]!=task_id
+                or admission["execution_kind"]!="ROUTED"
+                or admission["state"]!="ADMITTING"
+                or admission["job_id"] is not None
+            ):
+                raise DurableError(
+                    "TASK_JOB_LANE_STATE_MISMATCH",
+                    "existing admission cannot be resumed as a pre-proxy submit",
+                    operation_id=operation_id,
+                )
+
+        if self.routed_jobs.by_operation(operation_id) is not None:
+            raise DurableError(
+                "TASK_JOB_LANE_STATE_MISMATCH",
+                "a routed proxy appeared during pre-proxy recovery",
+                operation_id=operation_id,
+            )
+
+        recovery_args={
+            "task_id":task_id,
+            "original_operation_id":operation_id,
+            "original_argv_sha256":intent["argv_sha256"],
+            "device_id":binding["device_id"],
+            "binding_generation":int(binding["binding_generation"]),
+        }
+        recovery_op,created=self._reserve(
+            recovery_operation_id,"TASK_JOB_RECOVER_PREPROXY",recovery_args,
+            agent_id="",project_id=binding["project_id"],task_id=task_id,
+        )
+        if created:
+            self.durable.operations.mark_executing(recovery_operation_id)
+
+        try:
+            with self.db.transaction() as con:
+                proxy,_=self.routed_jobs.create(
+                    con,operation_id,task_id,binding["project_id"],binding["device_id"]
+                )
+                payload={
+                    "proxy_job_id":proxy["proxy_job_id"],
+                    "task_id":task_id,
+                    "argv":list(intent["argv"]),
+                    "cwd":str(intent["cwd"]),
+                    "evidence_paths":list(intent.get("evidence_paths") or []),
+                }
+                cmd,_=self.commands.create_in_tx(
+                    con,binding["device_id"],"JOB_SUBMIT",payload,
+                    route_generation=int(dev["route_generation"]),
+                    project_id=binding["project_id"],task_id=task_id,
+                    # Keep the command under the original logical submit
+                    # operation so proxy-scoped recovery can find it later.
+                    operation_id=operation_id,operation_step=0,
+                    expires_at_ms=min(
+                        int(lease["expires_at_ms"]),
+                        now_ms()+self.config.mutation_ttl_seconds*1000,
+                    ),
+                )
+            self.job_admissions.bind(operation_id,proxy["proxy_job_id"])
+            terminal=await self.commands.wait(cmd["command_id"])
+            result=self.commands.result_value(terminal)
+            row=self.routed_jobs.update(
+                proxy["proxy_job_id"],
+                node_job_id=result.get("node_job_id"),
+                state=result.get("state","QUEUED"),
+            )
+            response={
+                **self.routed_jobs.as_dict(
+                    row,self.devices.get(binding["device_id"])["state"]
+                ),
+                "recovery_kind":"PREPROXY_SAME_LOGICAL_SUBMIT",
+                "original_operation_id":operation_id,
+                "same_logical_submit_preserved":True,
+                "argv_sha256":intent["argv_sha256"],
+                "scientific_execution_was_started_before_recovery":False,
+            }
+            response=self._with_routing(
+                response,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+            self.durable.operations.succeed(recovery_operation_id,response)
+            return response
+        except Exception as exc:
+            self._fail_final(recovery_operation_id,exc)
+            raise
+
     async def task_job_submit_or_local(
         self,operation_id:str,task_id:str,lease_token:str,lease_epoch:int,
         argv:list[str],cwd:str=".",evidence_paths:list[str]|None=None
@@ -820,6 +1294,9 @@ class RoutingService:
         op,created=self._reserve(
             operation_id,"TASK_JOB_SUBMIT",args,agent_id=lease["agent_id"],
             project_id=binding["project_id"],task_id=task_id,
+        )
+        self._freeze_routed_submit_intent(
+            operation_id,task_id,binding,lease,list(argv),str(cwd),evidence_paths
         )
         if op["state"]==OperationState.SUCCEEDED.value:
             replay=self.durable.operations.replay_result(op) or {}

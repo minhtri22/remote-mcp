@@ -93,6 +93,24 @@ After the routed job is terminal:
 5. If status reports `POSTRUN_EVIDENCE_NOT_FOUND`, preserve the terminal job result and classify the artifact as missing post-run evidence. Do not manufacture or regenerate it unless a separate scientific recovery gate explicitly authorizes that.
 6. `JOB_RESULT` and stdout/stderr may establish execution integrity, but they do not silently replace a canonical result file when the scientific protocol requires that file.
 
+### Routed execution lifecycle recovery
+
+Classify the failure phase before taking any recovery action. Use the same logical submit/job identity whenever one already exists.
+
+- **Before proxy creation / admission-dispatch failure:** call `task_job_submit_failure_status(task_id, operation_id)`. New routed submits freeze their exact argv/cwd/evidence intent before predecessor reconciliation, so a later agent can recover without reconstructing scientific parameters from chat history.
+- If status returns `preproxy_recoverable=true`, reclaim the task lease if needed, pin the returned `argv_sha256`, and call `task_job_recover_preproxy_submit`. The tool authoritatively reconciles earlier routed predecessors first, then creates the first proxy for the **same original operation_id** and reuses the frozen argv/cwd/evidence declaration. It must not create a replacement logical one-shot.
+- Older operations created before submit-intent freezing may return `ADOPT_LEGACY_SUBMIT_INTENT`. Use `task_job_adopt_legacy_submit_intent` only when the exact original argv/cwd are available. The tool accepts them only if they reproduce the historical operation request hash; otherwise it fails closed.
+- If the original failure is nonrecoverable, task/device identity changed, an earlier job is still genuinely active, or predecessor state is not authoritative, do not bypass the gate with SQL, a new operation, another proxy, or a second scientific run.
+- Once a proxy exists, switch to the proxy-scoped workflow below. Once a job is terminal, switch to post-run evidence readback. Do not keep using pre-proxy recovery after execution has started.
+
+Decision order:
+
+`task_job_submit_failure_status`
+→ `task_job_recover_preproxy_submit` when eligible
+→ `task_job_recovery_status` / `task_job_recover_path_escape` when a proxy exists but no node job exists
+→ `task_job_get` / `task_job_result` while executing or terminalizing
+→ `task_job_artifact_status` / `task_job_artifact_read` for declared post-run evidence.
+
 ### Pre-execution routed-submit recovery
 
 If a routed scientific job is still `QUEUED` with `node_job_id=null`, do not create a second proxy/job as the first response.
