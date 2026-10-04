@@ -108,11 +108,13 @@ class NodeService:
                 try:
                     now=loop.time()
                     if now-last_hb>=self.config.heartbeat_seconds:
-                        active=sum(
-                            1 for r in self.db.query_all("SELECT state FROM node_routed_jobs")
-                            if r["state"] not in ("SUCCEEDED","FAILED","CANCELLED","LOST")
+                        capacity=self.jobs.capacity_snapshot()
+                        await self.client.heartbeat(
+                            capacity["active_node_jobs"],
+                            capacity["unresolved_node_jobs"],
+                            capacity["capacity_reconciliation_complete"],
+                            capacity["candidate_nonterminal_routed_jobs"],
                         )
-                        await self.client.heartbeat(active)
                         last_hb=now
                     envelope=await self.client.poll()
                     if envelope is not None:
