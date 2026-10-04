@@ -7,6 +7,7 @@ import secrets
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import OperationState, now_ms
+from remotemcp.workspace_layout import enforce_agent_git_worktree_policy, task_worktree_rel
 
 from .auth import SignedRequestVerifier
 from .bindings import BindingRepository
@@ -410,7 +411,7 @@ class RoutingService:
         if created:self.durable.operations.mark_executing(operation_id)
         task_id="tsk_"+hashlib.sha256(f"{self.owner_account_id}|{operation_id}|{project_id}".encode()).hexdigest()[:24]
         branch=f"remotemcp/task/{task_id}" if project["project_kind"]=="GIT" else None
-        worktree_rel=f".remote-worktrees/{project_id}/{task_id}" if project["project_kind"]=="GIT" else None
+        worktree_rel=task_worktree_rel(project_id,task_id) if project["project_kind"]=="GIT" else None
         t=now_ms()
         try:
             with self.db.transaction() as con:
@@ -1138,6 +1139,7 @@ class RoutingService:
         argv:list[str],cwd:str=".",evidence_paths:list[str]|None=None
     )->dict:
         evidence_paths=list(evidence_paths or [])
+        enforce_agent_git_worktree_policy(argv)
         binding=self.bindings.task_binding(task_id)
         if binding is None:
             if evidence_paths:

@@ -57,6 +57,29 @@ Use `task_read_file`, CAS mutation tools, and `task_job_*` for routed task work.
 Legacy `run_command`, `read_file`, and `write_file` are gateway-local compatibility tools and are not evidence of execution routing.
 When managed projects exist, prefer task-scoped tools over legacy execution/mutation tools.
 
+### Project workspace isolation
+
+Every managed project owns one deterministic MCP workspace:
+
+`.remotemcp/workspaces/{project_id}`
+
+Git task worktrees for that project must live only under:
+
+`.remotemcp/workspaces/{project_id}/worktrees/{task_id}`
+
+Rules:
+
+- agents never choose or invent a worktree filesystem path;
+- task creation computes the worktree path from `project_id + task_id`;
+- the execution node independently validates the same path before provisioning or executing;
+- direct managed-job mutations through `git worktree add/move/remove/prune/repair/lock/unlock` are forbidden; use RemoteMCP task lifecycle APIs instead;
+- read-only `git worktree list` is allowed for diagnostics;
+- existing legacy `.remote-worktrees/{project_id}/{task_id}` tasks remain valid in place until safe closure or an explicitly authorized migration;
+- never move, delete, or prune an active/dirty legacy worktree merely to make the filesystem tidy;
+- arbitrary sibling directories such as `CLDP-SIX-*`, `CQG-*`, or other agent-selected worktree names outside the project workspace are not valid managed worktrees.
+
+Use the `workspace_rel` and `worktrees_root_rel` returned by project status as the authoritative placement for future work.
+
 ## Pairing and dedicated-node rules
 
 Before `device_pair_begin`, prove all of the following:

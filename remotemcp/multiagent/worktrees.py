@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from remotemcp.durable.errors import DurableError
+from remotemcp.workspace_layout import classify_task_worktree_rel
 
 
 class WorktreeManager:
@@ -33,6 +34,9 @@ class WorktreeManager:
         return out
 
     def provision(self,project_root:Path,task)->Path:
+        classify_task_worktree_rel(
+            str(task["project_id"]),str(task["task_id"]),str(task["worktree_rel"])
+        )
         wt=(self.workspace_root/task["worktree_rel"]).resolve()
         if not wt.is_relative_to(self.workspace_root):
             raise DurableError("PATH_ESCAPE","worktree outside workspace")
@@ -59,6 +63,9 @@ class WorktreeManager:
         return self.validate(project_root,task)
 
     def validate(self,project_root:Path,task)->Path:
+        classify_task_worktree_rel(
+            str(task["project_id"]),str(task["task_id"]),str(task["worktree_rel"])
+        )
         wt=(self.workspace_root/task["worktree_rel"]).resolve()
         branch=task["branch_name"]
         for entry in self.list_worktrees(project_root):

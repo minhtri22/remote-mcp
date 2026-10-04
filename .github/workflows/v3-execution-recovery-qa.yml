@@ -7,12 +7,17 @@ on:
     paths:
       - "remotemcp/node/**"
       - "remotemcp/routing/**"
-      - "remotemcp/durable/config.py"
+      - "remotemcp/durable/**"
+      - "remotemcp/multiagent/**"
+      - "remotemcp/workspace_layout.py"
       - "server.py"
       - "skills/remote-mcp/**"
       - "tests/v2bd/test_preexecution_path_escape_recovery.py"
       - "tests/v2bd/test_postrun_evidence_readback.py"
       - "tests/v2a/test_process.py"
+      - "tests/v2b/test_worktrees.py"
+      - "tests/v2bd/test_task_binding.py"
+      - "tests/test_project_workspace_policy.py"
       - ".github/workflows/v3-execution-recovery-qa.yml"
   workflow_dispatch:
 
@@ -41,10 +46,16 @@ jobs:
           remotemcp/routing/service.py
           remotemcp/node/jobs.py
           remotemcp/node/executor.py
+          remotemcp/node/worktrees.py
+          remotemcp/multiagent/worktrees.py
+          remotemcp/workspace_layout.py
       - name: Targeted recovery and readback QA
         run: >-
           python -m pytest -q
           tests/v2a/test_process.py
+          tests/test_project_workspace_policy.py
+          tests/v2b/test_worktrees.py
+          tests/v2bd/test_task_binding.py
           tests/v2bd/test_preexecution_path_escape_recovery.py
           tests/v2bd/test_postrun_evidence_readback.py
       - name: Full V2-B regression
