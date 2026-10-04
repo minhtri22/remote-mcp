@@ -108,7 +108,7 @@ def test_declared_external_artifact_readback_after_terminal(make_gateway,tmp_pat
             "SELECT * FROM device_commands WHERE task_id=? AND command_type='JOB_ARTIFACT_READ'",
             (task["task_id"],),
         )
-        assert len(commands)==1
+        assert len(commands)==2
         assert len(g.routing.task_jobs_or_local(task["task_id"])["jobs"])==1
 
         with pytest.raises(DurableError) as exc:
