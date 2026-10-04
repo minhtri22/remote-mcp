@@ -80,6 +80,11 @@ class NodeExecutor:
             elif t=="JOB_GET": result=self.jobs.get(str(p["proxy_job_id"]))
             elif t=="JOB_LOGS": result=self.jobs.logs(str(p["proxy_job_id"]),str(p.get("stream","stdout")),int(p.get("cursor",0)),int(p.get("max_bytes",65536)))
             elif t=="JOB_RESULT": result=self.jobs.result(str(p["proxy_job_id"]))
+            elif t=="JOB_ARTIFACT_STAT": result=self.jobs.artifact_stat(str(p["proxy_job_id"]),str(p["path"]))
+            elif t=="JOB_ARTIFACT_READ": result=self.jobs.artifact_read(
+                str(p["proxy_job_id"]),str(p["path"]),str(p["expected_sha256"]),
+                int(p.get("offset",0)),int(p.get("limit",120000)),
+            )
             elif t=="JOB_CANCEL": result=await self.jobs.cancel(str(p["proxy_job_id"]),envelope["command_id"])
             elif t=="TASK_WORKTREE_CLEANUP": result={"task_id":str(p["task_id"]),"deferred":True}
             elif t=="NODE_RESTART":
