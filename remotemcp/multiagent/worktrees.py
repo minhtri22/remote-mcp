@@ -46,7 +46,7 @@ class WorktreeManager:
             raise DurableError("TASK_BASE_REF_UNRESOLVED","invalid task base_ref")
 
         local=self._run(
-            "git","-C",str(project_root),"rev-parse","--verify",f"{ref}^{{commit}}",
+            "git","-C",str(project_root),"rev-parse","--verify","--end-of-options",f"{ref}^{{commit}}",
             check=False,
         )
         if local.returncode==0 and local.stdout.strip():
@@ -73,7 +73,7 @@ class WorktreeManager:
                         base_ref=ref,
                     )
                 fetched=self._run(
-                    "git","-C",str(project_root),"rev-parse","--verify",
+                    "git","-C",str(project_root),"rev-parse","--verify","--end-of-options",
                     f"refs/remotes/origin/{branch}^{{commit}}",
                     check=False,
                 )
