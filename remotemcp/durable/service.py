@@ -20,6 +20,7 @@ from .process import (
     verify_fingerprint,
 )
 from .reconcile import Reconciler
+from remotemcp.workspace_layout import enforce_agent_git_worktree_policy
 
 
 class DurableService:
@@ -98,6 +99,7 @@ class DurableService:
         cwd_path = self._safe_cwd(cwd)
         resolved = resolve_executable(argv[0], cwd_path, self.config.allowed_cmds)
         normalized_argv = [resolved, *argv[1:]]
+        enforce_agent_git_worktree_policy(normalized_argv)
         env_overrides = dict(env_overrides or {})
         allowed_env = {"REMOTEMCP_DEVICE_ID", "REMOTEMCP_PROJECT_ID"}
         if any(k not in allowed_env for k in env_overrides):
