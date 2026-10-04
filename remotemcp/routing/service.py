@@ -1004,10 +1004,10 @@ class RoutingService:
                 "PATH_ESCAPE recovery changes cwd to the managed task root; caller must confirm cwd does not change execution semantics",
                 proxy_job_id=proxy_job_id,
             )
-        if not status["recoverable"] or command is None:
+        if command is None:
             raise DurableError(
                 "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
-                "routed submit is not eligible for guarded PATH_ESCAPE recovery",
+                "original routed submit command is unavailable",
                 proxy_job_id=proxy_job_id,
                 reason=status.get("recovery_reason"),
             )
@@ -1021,6 +1021,23 @@ class RoutingService:
             )
 
         recovery_operation_id=f"routed-preexec-path-recovery:{proxy_job_id}"
+        existing_recovery=self.durable.operations.get(recovery_operation_id)
+        if existing_recovery is not None:
+            replay=self._operation_replay(existing_recovery)
+            if replay is not None:
+                replay=self._with_routing(
+                    replay,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+                return {**replay,"replayed":True}
+        elif not status["recoverable"]:
+            raise DurableError(
+                "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
+                "routed submit is not eligible for guarded PATH_ESCAPE recovery",
+                proxy_job_id=proxy_job_id,
+                reason=status.get("recovery_reason"),
+            )
+
         args={
             "task_id":task_id,
             "proxy_job_id":proxy_job_id,
