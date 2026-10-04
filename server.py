@@ -573,6 +573,22 @@ async def task_job_submit(
 
 
 @mcp.tool()
+async def task_job_submit_with_evidence(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    argv: list[str],
+    evidence_paths: list[str],
+    cwd: str = ".",
+) -> dict:
+    """Submit a routed job with exact evidence files declared before execution."""
+    return await routing_service.task_job_submit_or_local(
+        operation_id, task_id, lease_token, lease_epoch, argv, cwd, evidence_paths
+    )
+
+
+@mcp.tool()
 def task_jobs(task_id: str) -> dict:
     return routing_service.task_jobs_or_local(task_id)
 
@@ -677,6 +693,62 @@ async def task_search(
     path: str = ".",
 ) -> dict:
     return await routing_service.task_search(task_id, pattern, path)
+
+
+@mcp.tool()
+def task_job_recovery_status(
+    task_id: str,
+    proxy_job_id: str,
+) -> dict:
+    """Classify same-proxy pre-node recovery without launching replacement science."""
+    return routing_service.task_job_recovery_status(task_id, proxy_job_id)
+
+
+@mcp.tool()
+async def task_job_recover_path_escape(
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    proxy_job_id: str,
+    expected_original_argv_sha256: str,
+    acknowledge_cwd_semantics_preserved: bool = False,
+) -> dict:
+    """Recover a pre-execution PATH_ESCAPE submit on the same proxy."""
+    return await routing_service.task_job_recover_path_escape(
+        task_id,
+        lease_token,
+        lease_epoch,
+        proxy_job_id,
+        expected_original_argv_sha256,
+        acknowledge_cwd_semantics_preserved,
+    )
+
+
+@mcp.tool()
+async def task_job_artifact_status(
+    task_id: str,
+    proxy_job_id: str,
+    path: str,
+) -> dict:
+    """Check declared post-run scientific evidence without rerunning science."""
+    return await routing_service.task_job_artifact_status(
+        task_id, proxy_job_id, path
+    )
+
+
+@mcp.tool()
+async def task_job_artifact_read(
+    task_id: str,
+    proxy_job_id: str,
+    path: str,
+    expected_sha256: str,
+    offset: int = 0,
+    limit: int = 120000,
+) -> dict:
+    """Read a predeclared terminal evidence file pinned by SHA-256."""
+    return await routing_service.task_job_artifact_read(
+        task_id, proxy_job_id, path, expected_sha256, offset, limit
+    )
 
 
 @mcp.tool()
