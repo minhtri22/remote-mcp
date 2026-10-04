@@ -80,6 +80,19 @@ When a scientific task/job may already exist:
 - do not submit a replacement run because status retrieval failed;
 - infrastructure diagnostics and maintenance records do not belong in scientific `LINEAGE.md` unless the scientific protocol explicitly says otherwise.
 
+### Post-run scientific evidence readback
+
+For routed scientific jobs that write canonical evidence outside the managed task worktree, declare every exact evidence file **before execution** with the optional `evidence_paths` argument to `task_job_submit`. Do not use a broad directory or glob; declare exact files.
+
+After the routed job is terminal:
+
+1. Do not rerun science because `task_read_file` failed. `task_read_file` is task-root scoped and can legitimately return `PATH_ESCAPE` or `NOT_FOUND` for an external evidence file even when the scientific job succeeded.
+2. Call `task_job_artifact_status(task_id, proxy_job_id, path)`. This reconciles the exact existing job, requires authoritative terminal evidence, and checks the predeclared artifact without creating another scientific job.
+3. If status returns `readback_state=READY`, pin the returned SHA-256 and call `task_job_artifact_read(..., expected_sha256=...)`. Reads are idempotent for the same proxy/path/hash/range.
+4. If status reports `POSTRUN_EVIDENCE_PATH_UNDECLARED`, the job is legacy or the path was not preregistered. Treat this as an evidence-readback limitation, not a scientific failure. Do not widen filesystem access, use SQL/node-db edits, or rerun the scientific one-shot.
+5. If status reports `POSTRUN_EVIDENCE_NOT_FOUND`, preserve the terminal job result and classify the artifact as missing post-run evidence. Do not manufacture or regenerate it unless a separate scientific recovery gate explicitly authorizes that.
+6. `JOB_RESULT` and stdout/stderr may establish execution integrity, but they do not silently replace a canonical result file when the scientific protocol requires that file.
+
 ### Pre-execution routed-submit recovery
 
 If a routed scientific job is still `QUEUED` with `node_job_id=null`, do not create a second proxy/job as the first response.
