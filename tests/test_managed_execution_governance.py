@@ -41,6 +41,7 @@ def test_skill_contains_mandatory_identity_pairing_preflight():
         "task_job_submit_with_evidence",
         "task_job_artifact_status",
         "task_job_artifact_read",
+        "device_pair_local_dedicated_node",
         "evidence_paths",
     )
     for text in required:
@@ -58,6 +59,14 @@ def test_machine_readable_policy_matches_skill_contract():
     assert policy["identity"]["existing_approved_role_identity"] == "preserve"
     assert policy["identity"]["repair_by_repairing"] is False
     assert policy["pairing"]["ticket_is_authorization"] is False
+    local_pair=policy["pairing"]["secure_local_dedicated_node_action"]
+    assert local_pair["enabled"] is True
+    assert local_pair["tool"] == "device_pair_local_dedicated_node"
+    assert local_pair["pairing_code_tool_argument_forbidden"] is True
+    assert local_pair["pairing_code_shell_argument_forbidden"] is True
+    assert local_pair["explicit_scope_acknowledgement_required"] is True
+    assert local_pair["replace_existing_paired_identity"] is False
+    assert local_pair["result_must_not_include_pairing_secret"] is True
     assert policy["project_root_mismatch"]["auto_create_node"] is False
     assert policy["project_root_mismatch"]["widen_existing_root"] is False
     assert policy["scientific_job"]["observability_loss_allows_relaunch"] is False
