@@ -6,6 +6,7 @@ from pathlib import Path
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
+from remotemcp.workspace_layout import project_workspace_rel, project_worktrees_rel
 
 
 class ProjectRepository:
@@ -68,6 +69,8 @@ class ProjectRepository:
         return {
             "project_id":project_id,"root_rel":row["root_rel"],"project_kind":row["project_kind"],
             "max_active_tasks":row["max_active_tasks"],"active_tasks":int(active["n"]),
+            "workspace_rel":project_workspace_rel(project_id),
+            "worktrees_root_rel":project_worktrees_rel(project_id),
         }
 
     def managed_mode(self)->bool:
