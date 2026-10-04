@@ -1,0 +1,68 @@
+name: Publish RemoteMCP v3.0.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/releases/v3.0.0.md"
+      - ".github/workflows/publish-v3.0.0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TAG: v3.0.0
+      TARGET_SHA: b826a7d59743f2c134752a3a50608560f41cbae5
+      RELEASE_TITLE: RemoteMCP v3.0.0 — Production v3
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify frozen production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin release/v3-production-recovery
+          actual="$(git rev-parse origin/release/v3-production-recovery)"
+          test "$actual" = "$TARGET_SHA"
+
+      - name: Create or verify immutable release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
+            actual="$(git rev-list -n 1 "$TAG")"
+            test "$actual" = "$TARGET_SHA"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" "$TARGET_SHA" -m "$RELEASE_TITLE"
+            git push origin "refs/tags/$TAG"
+          fi
+
+      - name: Create or refresh GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$RELEASE_TITLE" \
+              --notes-file docs/releases/v3.0.0.md \
+              --latest
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --verify-tag \
+              --title "$RELEASE_TITLE" \
+              --notes-file docs/releases/v3.0.0.md \
+              --latest
+          fi
