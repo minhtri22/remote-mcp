@@ -1232,14 +1232,10 @@ class RoutingService:
                 base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
                 binding_generation=int(binding["binding_generation"]),
             )
-        stat_op="job-artifact-stat:"+hashlib.sha256(
-            f"{proxy_job_id}|{path}".encode("utf-8")
-        ).hexdigest()
         try:
             result,_=await self._route_step(
                 binding["device_id"],"JOB_ARTIFACT_STAT",
                 {"proxy_job_id":proxy_job_id,"path":path},
-                operation_id=stat_op,operation_step=0,
                 project_id=binding["project_id"],task_id=task_id,
             )
         except DurableError as exc:
@@ -1291,15 +1287,6 @@ class RoutingService:
         if not row["terminal_result_json"]:
             row=await self._ensure_routed_terminal_evidence(binding,row)
         self.devices.require_online(binding["device_id"])
-        read_key=json.dumps(
-            {
-                "proxy_job_id":proxy_job_id,"path":path,
-                "expected_sha256":str(expected_sha256).lower(),
-                "offset":int(offset),"limit":int(limit),
-            },
-            ensure_ascii=False,sort_keys=True,separators=(",",":"),
-        )
-        read_op="job-artifact-read:"+hashlib.sha256(read_key.encode("utf-8")).hexdigest()
         result,_=await self._route_step(
             binding["device_id"],"JOB_ARTIFACT_READ",
             {
@@ -1309,7 +1296,6 @@ class RoutingService:
                 "offset":int(offset),
                 "limit":int(limit),
             },
-            operation_id=read_op,operation_step=0,
             project_id=binding["project_id"],task_id=task_id,
         )
         result={
