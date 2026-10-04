@@ -1702,29 +1702,58 @@ class RoutingService:
         capabilities=payload.get("capabilities")
         platform=payload.get("platform")
         active_node_jobs=payload.get("active_node_jobs")
+        unresolved_node_jobs=payload.get("active_node_jobs_unresolved")
+        capacity_complete=payload.get("capacity_reconciliation_complete")
+        candidate_nonterminal=payload.get("candidate_nonterminal_routed_jobs")
         observed_at_ms=now_ms()
-        if isinstance(active_node_jobs,bool):
-            raise DurableError("INVALID_ARGUMENT","active_node_jobs must be a non-negative integer")
-        if active_node_jobs is not None:
+
+        def _nonnegative_int(value,label):
+            if isinstance(value,bool):
+                raise DurableError("INVALID_ARGUMENT",f"{label} must be a non-negative integer")
             try:
-                active_node_jobs=int(active_node_jobs)
+                value=int(value)
             except Exception as exc:
                 raise DurableError(
-                    "INVALID_ARGUMENT",
-                    "active_node_jobs must be a non-negative integer",
+                    "INVALID_ARGUMENT",f"{label} must be a non-negative integer"
                 ) from exc
-            if active_node_jobs<0 or active_node_jobs>1000000:
+            if value<0 or value>1000000:
                 raise DurableError(
-                    "INVALID_ARGUMENT",
-                    "active_node_jobs is outside the accepted range",
+                    "INVALID_ARGUMENT",f"{label} is outside the accepted range"
                 )
+            return value
+
+        if active_node_jobs is not None:
+            active_node_jobs=_nonnegative_int(active_node_jobs,"active_node_jobs")
+        if unresolved_node_jobs is not None:
+            unresolved_node_jobs=_nonnegative_int(
+                unresolved_node_jobs,"active_node_jobs_unresolved"
+            )
+        if candidate_nonterminal is not None:
+            candidate_nonterminal=_nonnegative_int(
+                candidate_nonterminal,"candidate_nonterminal_routed_jobs"
+            )
+        if capacity_complete is not None and not isinstance(capacity_complete,bool):
+            raise DurableError(
+                "INVALID_ARGUMENT",
+                "capacity_reconciliation_complete must be boolean",
+            )
+
         if (
             isinstance(capabilities,dict)
             or isinstance(platform,dict)
             or active_node_jobs is not None
+            or unresolved_node_jobs is not None
+            or capacity_complete is not None
+            or candidate_nonterminal is not None
         ):
             with self.db.transaction() as con:
-                if isinstance(capabilities,dict) or active_node_jobs is not None:
+                if (
+                    isinstance(capabilities,dict)
+                    or active_node_jobs is not None
+                    or unresolved_node_jobs is not None
+                    or capacity_complete is not None
+                    or candidate_nonterminal is not None
+                ):
                     try:
                         merged=json.loads(device_row["capabilities_json"] or "{}")
                         if not isinstance(merged,dict):
@@ -1736,6 +1765,12 @@ class RoutingService:
                     if active_node_jobs is not None:
                         merged["_remotemcp_active_node_jobs"]=active_node_jobs
                         merged["_remotemcp_active_node_jobs_observed_at_ms"]=observed_at_ms
+                    if unresolved_node_jobs is not None:
+                        merged["_remotemcp_active_node_jobs_unresolved"]=unresolved_node_jobs
+                    if capacity_complete is not None:
+                        merged["_remotemcp_capacity_reconciliation_complete"]=capacity_complete
+                    if candidate_nonterminal is not None:
+                        merged["_remotemcp_candidate_nonterminal_routed_jobs"]=candidate_nonterminal
                     con.execute(
                         "UPDATE devices SET capabilities_json=? WHERE device_id=?",
                         (json.dumps(merged,sort_keys=True),device_row["device_id"]),
