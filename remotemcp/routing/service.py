@@ -1169,9 +1169,31 @@ class RoutingService:
         self,task_id:str,proxy_job_id:str,path:str
     )->dict:
         binding,row=self._task_proxy(task_id,proxy_job_id)
+        state=self.devices.status(binding["device_id"])["state"]
+
+        # Always reconcile the exact existing scientific job first when
+        # possible.  Readback classification must never hide or overwrite the
+        # authoritative execution state.
+        try:
+            row=await self._refresh_exact_routed_job_if_online(binding,row)
+        except DurableError as exc:
+            base={
+                **self.routed_jobs.as_dict(row,state),
+                "path":path,
+                "declared_evidence_paths":[],
+                "readable":False,
+                "readback_state":"POSTRUN_EVIDENCE_JOB_STATE_UNRESOLVED",
+                "message":str(exc),
+                "scientific_rerun_required":False,
+                "scientific_rerun_forbidden":True,
+            }
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+
         command,payload=self._original_routed_submit(row)
         declared=list((payload or {}).get("evidence_paths") or [])
-        state=self.devices.status(binding["device_id"])["state"]
         base={
             **self.routed_jobs.as_dict(row,state),
             "path":path,
@@ -1181,6 +1203,33 @@ class RoutingService:
             "scientific_rerun_required":False,
             "scientific_rerun_forbidden":True,
         }
+
+        if row["last_known_state"] not in TERMINAL:
+            base["readback_state"]="POSTRUN_EVIDENCE_JOB_NOT_TERMINAL"
+            return self._with_routing(
+                base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+
+        if not row["terminal_result_json"]:
+            if state!="ONLINE":
+                base["readback_state"]="POSTRUN_EVIDENCE_TERMINAL_RESULT_UNRESOLVED"
+                base["message"]="terminal job is cached but authoritative terminal result is unavailable while device is offline"
+                return self._with_routing(
+                    base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+            try:
+                row=await self._ensure_routed_terminal_evidence(binding,row)
+                base.update(self.routed_jobs.as_dict(row,state))
+            except DurableError as exc:
+                base["readback_state"]="POSTRUN_EVIDENCE_TERMINAL_RESULT_UNRESOLVED"
+                base["message"]=str(exc)
+                return self._with_routing(
+                    base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+                    binding_generation=int(binding["binding_generation"]),
+                )
+
         if command is None:
             base["readback_state"]="ORIGINAL_SUBMIT_COMMAND_MISSING"
             return self._with_routing(
@@ -1194,44 +1243,13 @@ class RoutingService:
                 base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
                 binding_generation=int(binding["binding_generation"]),
             )
-        try:
-            row=await self._refresh_exact_routed_job_if_online(binding,row)
-        except DurableError as exc:
-            base["readback_state"]="POSTRUN_EVIDENCE_JOB_STATE_UNRESOLVED"
-            base["message"]=str(exc)
-            return self._with_routing(
-                base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
-                binding_generation=int(binding["binding_generation"]),
-            )
-        base.update(self.routed_jobs.as_dict(row,state))
-        if row["last_known_state"] not in TERMINAL:
-            base["readback_state"]="POSTRUN_EVIDENCE_JOB_NOT_TERMINAL"
-            return self._with_routing(
-                base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
-                binding_generation=int(binding["binding_generation"]),
-            )
-        if not row["terminal_result_json"]:
-            if state!="ONLINE":
-                base["readback_state"]="POSTRUN_EVIDENCE_DEVICE_OFFLINE"
-                return self._with_routing(
-                    base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
-                    binding_generation=int(binding["binding_generation"]),
-                )
-            try:
-                row=await self._ensure_routed_terminal_evidence(binding,row)
-            except DurableError as exc:
-                base["readback_state"]="POSTRUN_EVIDENCE_TERMINAL_RESULT_UNRESOLVED"
-                base["message"]=str(exc)
-                return self._with_routing(
-                    base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
-                    binding_generation=int(binding["binding_generation"]),
-                )
         if state!="ONLINE":
             base["readback_state"]="POSTRUN_EVIDENCE_DEVICE_OFFLINE"
             return self._with_routing(
                 base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
                 binding_generation=int(binding["binding_generation"]),
             )
+
         try:
             result,_=await self._route_step(
                 binding["device_id"],"JOB_ARTIFACT_STAT",
