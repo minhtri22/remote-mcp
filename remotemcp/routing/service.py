@@ -1185,7 +1185,7 @@ class RoutingService:
                 "readback_state":"POSTRUN_EVIDENCE_JOB_STATE_UNRESOLVED",
                 "message":str(exc),
                 "scientific_rerun_required":False,
-                "scientific_rerun_forbidden":True,
+                "automatic_scientific_rerun_for_readback_forbidden":True,
             }
             return self._with_routing(
                 base,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
@@ -1201,7 +1201,7 @@ class RoutingService:
             "readable":False,
             "readback_state":"UNKNOWN",
             "scientific_rerun_required":False,
-            "scientific_rerun_forbidden":True,
+            "automatic_scientific_rerun_for_readback_forbidden":True,
         }
 
         if row["last_known_state"] not in TERMINAL:
@@ -1269,7 +1269,7 @@ class RoutingService:
             "readable":True,
             "readback_state":"READY",
             "scientific_rerun_required":False,
-            "scientific_rerun_forbidden":True,
+            "automatic_scientific_rerun_for_readback_forbidden":True,
         }
         return self._with_routing(
             result,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
@@ -1320,7 +1320,7 @@ class RoutingService:
             **result,
             "readback_state":"READ_OK",
             "scientific_rerun_required":False,
-            "scientific_rerun_forbidden":True,
+            "automatic_scientific_rerun_for_readback_forbidden":True,
         }
         return self._with_routing(
             result,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
