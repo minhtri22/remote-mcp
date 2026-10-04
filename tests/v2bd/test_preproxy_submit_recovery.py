@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import sys
 
 import pytest
@@ -58,7 +59,17 @@ def test_preproxy_admission_failure_recovers_same_logical_submit(make_gateway,tm
         )
         assert first["node_job_id"].startswith("job_")
 
-        second_argv=[sys.executable,"-c","print('independent-qa')"]
+        artifact=tmp_path/"recovered-evidence"/"qa-result.json"
+        second_argv=[
+            sys.executable,
+            "-c",
+            (
+                "from pathlib import Path;"
+                f"p=Path({str(artifact)!r});"
+                "p.parent.mkdir(parents=True,exist_ok=True);"
+                "p.write_text('qa-pass',encoding='utf-8')"
+            ),
+        ]
         with pytest.raises(DurableError) as exc:
             await drive(
                 g,node,g.routing.task_job_submit_or_local(
@@ -68,6 +79,7 @@ def test_preproxy_admission_failure_recovers_same_logical_submit(make_gateway,tm
                     claim["lease_epoch"],
                     second_argv,
                     ".",
+                    [str(artifact)],
                 ),
             )
         assert exc.value.code=="PREDECESSOR_JOB_NOT_TERMINAL"
@@ -108,6 +120,21 @@ def test_preproxy_admission_failure_recovers_same_logical_submit(make_gateway,tm
         )
         assert result["terminal"] is True
         assert result["state"]=="SUCCEEDED"
+
+        artifact_status=await drive(
+            g,node,g.routing.task_job_artifact_status(
+                task["task_id"],recovered["proxy_job_id"],str(artifact)
+            ),
+        )
+        assert artifact_status["readback_state"]=="READY"
+        expected=hashlib.sha256(artifact.read_bytes()).hexdigest()
+        assert artifact_status["sha256"]==expected
+        artifact_read=await drive(
+            g,node,g.routing.task_job_artifact_read(
+                task["task_id"],recovered["proxy_job_id"],str(artifact),expected
+            ),
+        )
+        assert artifact_read["content"]=="qa-pass"
 
         jobs=g.routing.task_jobs_or_local(task["task_id"])["jobs"]
         assert len(jobs)==2
