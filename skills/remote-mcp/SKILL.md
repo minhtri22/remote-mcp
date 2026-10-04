@@ -164,9 +164,10 @@ Before a fresh one-shot, resource-sensitive execution, or node restart:
 
 1. call `device_capacity_status(device_id)`;
 2. require `capacity_resolved=true`;
-3. use only `authoritative_active_node_jobs`, which comes from the signed node heartbeat;
-4. if the authoritative count is positive, recheck CPU/RAM and identify whether the live workload materially contends with the planned run;
-5. if the authoritative count is zero, continue the remaining CPU/RAM/disk/model-cache resource gates;
-6. if the capacity signal is stale, unavailable, or the device is offline, treat capacity as unresolved and fail closed.
+3. require the node heartbeat to report `capacity_reconciliation_complete=true` and zero unresolved node rows;
+4. use only `authoritative_active_node_jobs`, which is computed after the node reconciles every nonterminal routed row against durable job state;
+5. if the authoritative count is positive, recheck CPU/RAM and identify whether the live workload materially contends with the planned run;
+6. if the authoritative count is zero, continue the remaining CPU/RAM/disk/model-cache resource gates;
+7. if the heartbeat is from an older node, unreconciled, stale, unavailable, contains unresolved rows, or the device is offline, treat capacity as unresolved and fail closed.
 
-A large `registry_nonterminal_routed_jobs` value by itself must never block a scientific transition. It is an inventory/audit signal, not a capacity signal.
+A large `registry_nonterminal_routed_jobs` value by itself must never block a scientific transition. It is an inventory/audit signal, not a capacity signal. Likewise, an unreconciled node-routed count must never be presented as authoritative capacity.
