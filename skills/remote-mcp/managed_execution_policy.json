@@ -115,5 +115,22 @@
       "scientific-job-relaunch"
     ],
     "fresh_conversation_required_for_final_session_smoke_after_release_change": true
+  },
+  "project_workspace_isolation": {
+    "enabled": true,
+    "layout_version": "PROJECT_WORKSPACE_V1",
+    "project_workspace_template": ".remotemcp/workspaces/{project_id}",
+    "worktrees_root_template": ".remotemcp/workspaces/{project_id}/worktrees",
+    "task_worktree_template": ".remotemcp/workspaces/{project_id}/worktrees/{task_id}",
+    "agent_selects_worktree_path": false,
+    "direct_git_worktree_mutations_forbidden": true,
+    "direct_git_worktree_observation_allowed": [
+      "list"
+    ],
+    "legacy_layout": ".remote-worktrees/{project_id}/{task_id}",
+    "legacy_existing_tasks": "preserve_until_safe_closure_or_explicit_migration",
+    "move_or_delete_active_worktrees": false,
+    "arbitrary_sibling_worktree_decision": "WORKTREE_LAYOUT_VIOLATION",
+    "direct_mutation_decision": "WORKTREE_MUTATION_FORBIDDEN"
   }
 }
