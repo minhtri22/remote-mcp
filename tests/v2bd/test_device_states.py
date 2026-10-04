@@ -24,3 +24,34 @@ def test_online_offline_recover_revoke(make_gateway,tmp_path):
     assert row["state"]=="REVOKED" and row["route_generation"]==old+1
     with pytest.raises(DurableError) as exc:b.routing.devices.require_online(did)
     assert exc.value.code=="DEVICE_REVOKED"
+
+
+def test_signed_heartbeat_is_authoritative_capacity_signal(make_gateway,tmp_path):
+    import asyncio
+    b=make_gateway()
+    node,dev=asyncio.run(pair_node(
+        b,tmp_path/"capacity-node",tmp_path/"capacity-node-rt","capacity-node"
+    ))
+    did=node.identity.device["device_id"]
+    row=b.routing.devices.get(did)
+    b.routing.heartbeat_http(
+        row,
+        {
+            "node_time_ms":now_ms(),
+            "capabilities":{"outbound_node":True},
+            "platform":{"hostname":"node-a-host","system":"Windows"},
+            "active_node_jobs":3,
+        },
+    )
+    status=b.routing.device_status(did)
+    assert status["authoritative_active_node_jobs"]==3
+    assert status["capacity_signal_fresh"] is True
+    assert status["capacity_signal_source"]=="SIGNED_NODE_HEARTBEAT"
+    assert status["active_routed_jobs_is_capacity_signal"] is False
+
+    capacity=b.routing.device_capacity_status(did)
+    assert capacity["capacity_resolved"] is True
+    assert capacity["authoritative_active_node_jobs"]==3
+    assert capacity["registry_count_is_capacity_signal"] is False
+    assert capacity["resource_gate_rule"]=="USE_AUTHORITATIVE_NODE_COUNT_ONLY"
+    assert "RECHECK_CPU_RAM" in capacity["recommendation"]
