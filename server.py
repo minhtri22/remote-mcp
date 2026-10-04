@@ -647,6 +647,16 @@ def device_status(device_id: str) -> dict:
 
 
 @mcp.tool()
+def device_capacity_status(device_id: str) -> dict:
+    """Return authoritative node-local workload from the signed node heartbeat.
+
+    The central registry's nonterminal routed-job count is inventory only and
+    must not be used as a resource-contention/capacity gate.
+    """
+    return routing_service.device_capacity_status(device_id)
+
+
+@mcp.tool()
 async def device_revoke(
     operation_id: str,
     device_id: str,
