@@ -868,16 +868,74 @@ class RoutingService:
             )
             self.durable.operations.succeed(operation_id,result)
             return {**result,"lease_token":lease["lease_token"]}
+
         expiry=min(int(lease["expires_at_ms"]),now_ms()+self.config.mutation_ttl_seconds*1000)
-        payload={
-            "task_id":task_id,"project_id":task["project_id"],"binding_generation":int(binding["binding_generation"]),
-            "branch_name":task["branch_name"],"worktree_rel":task["worktree_rel"],
-            "base_ref":task["base_ref"],"base_commit":task["base_commit"],
-        }
         try:
+            ensure_step=0
+            if project["project_kind"]=="GIT" and not task["base_commit"]:
+                resolved,_=await self._route_step(
+                    binding["device_id"],
+                    "TASK_BASE_RESOLVE",
+                    {
+                        "project_id":task["project_id"],
+                        "binding_generation":int(binding["binding_generation"]),
+                        "base_ref":task["base_ref"],
+                    },
+                    operation_id=operation_id,
+                    operation_step=0,
+                    project_id=task["project_id"],
+                    task_id=task_id,
+                    expires_at_ms=expiry,
+                )
+                resolved_commit=str(resolved.get("base_commit") or "").strip()
+                if not resolved_commit:
+                    raise DurableError(
+                        "TASK_BASE_REF_UNRESOLVED",
+                        "legacy routed task base resolver returned no commit",
+                        task_id=task_id,
+                        base_ref=task["base_ref"],
+                    )
+                with self.db.transaction() as con:
+                    current=con.execute(
+                        "SELECT base_commit FROM tasks WHERE task_id=?",
+                        (task_id,),
+                    ).fetchone()
+                    if current is None:
+                        raise DurableError("NOT_FOUND","task disappeared during base pin")
+                    if current["base_commit"] is None:
+                        con.execute(
+                            "UPDATE tasks SET base_commit=?,updated_at_ms=? WHERE task_id=? AND base_commit IS NULL",
+                            (resolved_commit,now_ms(),task_id),
+                        )
+                        self.multi.tasks._event(
+                            con,task_id,operation_id,agent_id,session_id,
+                            "TASK_BASE_PINNED",
+                            {
+                                "base_ref":task["base_ref"],
+                                "base_commit":resolved_commit,
+                                "legacy_repair":True,
+                            },
+                        )
+                    elif current["base_commit"]!=resolved_commit:
+                        raise DurableError(
+                            "TASK_BASE_COMMIT_MISMATCH",
+                            "task base changed while repairing legacy null base",
+                            task_id=task_id,
+                            stored_base_commit=current["base_commit"],
+                            resolved_base_commit=resolved_commit,
+                        )
+                task=self.multi.tasks.get(task_id)
+                ensure_step=1
+
+            payload={
+                "task_id":task_id,"project_id":task["project_id"],"binding_generation":int(binding["binding_generation"]),
+                "branch_name":task["branch_name"],"worktree_rel":task["worktree_rel"],
+                "base_ref":task["base_ref"],"base_commit":task["base_commit"],
+            }
             await self._route_step(
                 binding["device_id"],"TASK_WORKTREE_ENSURE",payload,
-                operation_id=operation_id,operation_step=0,project_id=task["project_id"],task_id=task_id,
+                operation_id=operation_id,operation_step=ensure_step,
+                project_id=task["project_id"],task_id=task_id,
                 expires_at_ms=expiry,
             )
             self.multi.leases.finalize_running(task_id,agent_id,session_id,int(lease["lease_epoch"]))
