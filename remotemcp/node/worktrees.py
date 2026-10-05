@@ -13,6 +13,31 @@ class NodeWorktrees:
         self.db=db;self.root=root.resolve();self.projects=projects
         self.manager=WorktreeManager(self.root)
 
+    def resolve_base(self,payload:dict)->dict:
+        project_id=str(payload["project_id"])
+        generation=int(payload["binding_generation"])
+        project=self.projects.get(project_id)
+        if int(project["binding_generation"])!=generation:
+            raise DurableError(
+                "PROJECT_DEVICE_BINDING_CONFLICT",
+                "task base binding generation mismatch",
+            )
+        if project["project_kind"]!="GIT":
+            raise DurableError(
+                "INVALID_ARGUMENT",
+                "task base resolution requires a git project",
+            )
+        base_ref=str(payload.get("base_ref") or "HEAD")
+        project_root=self.projects.path(project_id)
+        base_commit=self.manager.resolve_base(project_root,base_ref)
+        return {
+            "project_id":project_id,
+            "binding_generation":generation,
+            "base_ref":base_ref,
+            "base_commit":base_commit,
+            "base_pinned":True,
+        }
+
     def ensure(self,payload:dict)->dict:
         task_id=str(payload["task_id"]);project_id=str(payload["project_id"])
         generation=int(payload["binding_generation"])
@@ -28,7 +53,22 @@ class NodeWorktrees:
             layout=classify_task_worktree_rel(project_id,task_id,worktree_rel)
             project_root=self.projects.path(project_id)
             base_ref=str(payload.get("base_ref") or "HEAD")
-            base_commit=self.manager.resolve_base(project_root,base_ref)
+            base_commit=str(payload.get("base_commit") or "").strip()
+            if not base_commit:
+                raise DurableError(
+                    "TASK_BASE_COMMIT_REQUIRED",
+                    "managed git task must carry an immutable pinned base_commit",
+                    base_ref=base_ref,
+                )
+            verified=self.manager.resolve_base(project_root,base_commit)
+            if verified!=base_commit:
+                raise DurableError(
+                    "TASK_BASE_COMMIT_MISMATCH",
+                    "pinned task base does not resolve to itself",
+                    base_ref=base_ref,
+                    base_commit=base_commit,
+                    resolved_commit=verified,
+                )
             task={
                 "task_id":task_id,
                 "project_id":project_id,

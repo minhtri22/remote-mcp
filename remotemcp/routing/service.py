@@ -89,7 +89,13 @@ class RoutingService:
         if isinstance(exc,DurableError) and exc.code=="DEVICE_COMMAND_PENDING":
             return
         code=getattr(exc,"code","INVALID_ARGUMENT")
-        self.durable.operations.fail(operation_id,code,{"error":str(exc)},False)
+        retryable=bool(
+            isinstance(exc,DurableError)
+            and exc.code=="DEVICE_COMMAND_EXPIRED"
+        )
+        self.durable.operations.fail(
+            operation_id,code,{"error":str(exc)},retryable
+        )
 
     def guard_local_job_id(self,job_id:str)->None:
         if str(job_id).startswith("rjob_"):
@@ -481,12 +487,18 @@ class RoutingService:
         elif reported is None:
             resolved=False
             reason="NODE_HEARTBEAT_CAPACITY_UNAVAILABLE"
+        elif not bool(status.get("capacity_reconciliation_complete")):
+            resolved=False
+            reason="NODE_HEARTBEAT_CAPACITY_UNRECONCILED"
+        elif status.get("authoritative_unresolved_node_jobs") not in (0,):
+            resolved=False
+            reason="NODE_HEARTBEAT_CAPACITY_UNRESOLVED_ROWS"
         elif not fresh:
             resolved=False
             reason="NODE_HEARTBEAT_CAPACITY_STALE"
         else:
             resolved=True
-            reason="AUTHORITATIVE_NODE_HEARTBEAT"
+            reason="AUTHORITATIVE_NODE_HEARTBEAT_RECONCILED_DURABLE_STATE"
         active=int(reported) if resolved else None
         if not resolved:
             recommendation="RECHECK_NODE_CAPACITY"
@@ -505,6 +517,15 @@ class RoutingService:
                 "reported_active_node_jobs":reported,
                 "capacity_signal_source":status.get("capacity_signal_source"),
                 "capacity_signal_fresh":fresh,
+                "capacity_reconciliation_complete":bool(
+                    status.get("capacity_reconciliation_complete")
+                ),
+                "authoritative_unresolved_node_jobs":status.get(
+                    "authoritative_unresolved_node_jobs"
+                ),
+                "candidate_nonterminal_routed_jobs":status.get(
+                    "candidate_nonterminal_routed_jobs"
+                ),
                 "capacity_signal_age_ms":status.get(
                     "authoritative_active_node_jobs_age_ms"
                 ),
@@ -754,20 +775,58 @@ class RoutingService:
         worktree_rel=task_worktree_rel(project_id,task_id) if project["project_kind"]=="GIT" else None
         t=now_ms()
         try:
+            base_commit=None
+            if project["project_kind"]=="GIT":
+                resolved,_=await self._route_step(
+                    binding["device_id"],
+                    "TASK_BASE_RESOLVE",
+                    {
+                        "project_id":project_id,
+                        "binding_generation":int(binding["binding_generation"]),
+                        "base_ref":base_ref,
+                    },
+                    operation_id=operation_id,
+                    operation_step=0,
+                    project_id=project_id,
+                )
+                base_commit=str(resolved.get("base_commit") or "").strip()
+                if not base_commit:
+                    raise DurableError(
+                        "TASK_BASE_REF_UNRESOLVED",
+                        "remote task base resolver returned no commit",
+                        base_ref=base_ref,
+                    )
             with self.db.transaction() as con:
                 old=con.execute("SELECT * FROM tasks WHERE task_id=?",(task_id,)).fetchone()
                 if old is None:
                     con.execute(
                         "INSERT INTO tasks(task_id,project_id,title,state,base_ref,base_commit,branch_name,worktree_rel,created_at_ms,updated_at_ms) "
-                        "VALUES(?,?,?,'READY',?,NULL,?,?,?,?)",
-                        (task_id,project_id,title,base_ref,branch,worktree_rel,t,t),
+                        "VALUES(?,?,?,'READY',?,?,?,?,?,?)",
+                        (task_id,project_id,title,base_ref,base_commit,branch,worktree_rel,t,t),
                     )
-                    self.multi.tasks._event(con,task_id,operation_id,None,None,"TASK_CREATED",{"title":title})
+                    self.multi.tasks._event(
+                        con,task_id,operation_id,None,None,"TASK_CREATED",
+                        {"title":title,"base_ref":base_ref,"base_commit":base_commit},
+                    )
                     self.multi.tasks._event(con,task_id,operation_id,None,None,"TASK_READY",{})
                     self.bindings.inherit_task(con,task_id,project_id)
                 else:
                     if old["project_id"]!=project_id or old["title"]!=title or old["base_ref"]!=base_ref:
                         raise DurableError("OPERATION_CONFLICT","deterministic task identity conflicts")
+                    old_commit=old["base_commit"]
+                    if old_commit is None and base_commit is not None:
+                        con.execute(
+                            "UPDATE tasks SET base_commit=?,updated_at_ms=? WHERE task_id=? AND base_commit IS NULL",
+                            (base_commit,now_ms(),task_id),
+                        )
+                    elif old_commit!=base_commit:
+                        raise DurableError(
+                            "TASK_BASE_COMMIT_MISMATCH",
+                            "deterministic task identity resolved to a different base commit",
+                            task_id=task_id,
+                            stored_base_commit=old_commit,
+                            resolved_base_commit=base_commit,
+                        )
             result=self.multi.tasks.status(task_id)
             result["device_id"]=binding["device_id"]
             result=self._with_routing(
@@ -815,16 +874,74 @@ class RoutingService:
             )
             self.durable.operations.succeed(operation_id,result)
             return {**result,"lease_token":lease["lease_token"]}
+
         expiry=min(int(lease["expires_at_ms"]),now_ms()+self.config.mutation_ttl_seconds*1000)
-        payload={
-            "task_id":task_id,"project_id":task["project_id"],"binding_generation":int(binding["binding_generation"]),
-            "branch_name":task["branch_name"],"worktree_rel":task["worktree_rel"],
-            "base_ref":task["base_ref"],"base_commit":task["base_commit"],
-        }
         try:
+            ensure_step=0
+            if project["project_kind"]=="GIT" and not task["base_commit"]:
+                resolved,_=await self._route_step(
+                    binding["device_id"],
+                    "TASK_BASE_RESOLVE",
+                    {
+                        "project_id":task["project_id"],
+                        "binding_generation":int(binding["binding_generation"]),
+                        "base_ref":task["base_ref"],
+                    },
+                    operation_id=operation_id,
+                    operation_step=0,
+                    project_id=task["project_id"],
+                    task_id=task_id,
+                    expires_at_ms=expiry,
+                )
+                resolved_commit=str(resolved.get("base_commit") or "").strip()
+                if not resolved_commit:
+                    raise DurableError(
+                        "TASK_BASE_REF_UNRESOLVED",
+                        "legacy routed task base resolver returned no commit",
+                        task_id=task_id,
+                        base_ref=task["base_ref"],
+                    )
+                with self.db.transaction() as con:
+                    current=con.execute(
+                        "SELECT base_commit FROM tasks WHERE task_id=?",
+                        (task_id,),
+                    ).fetchone()
+                    if current is None:
+                        raise DurableError("NOT_FOUND","task disappeared during base pin")
+                    if current["base_commit"] is None:
+                        con.execute(
+                            "UPDATE tasks SET base_commit=?,updated_at_ms=? WHERE task_id=? AND base_commit IS NULL",
+                            (resolved_commit,now_ms(),task_id),
+                        )
+                        self.multi.tasks._event(
+                            con,task_id,operation_id,agent_id,session_id,
+                            "TASK_BASE_PINNED",
+                            {
+                                "base_ref":task["base_ref"],
+                                "base_commit":resolved_commit,
+                                "legacy_repair":True,
+                            },
+                        )
+                    elif current["base_commit"]!=resolved_commit:
+                        raise DurableError(
+                            "TASK_BASE_COMMIT_MISMATCH",
+                            "task base changed while repairing legacy null base",
+                            task_id=task_id,
+                            stored_base_commit=current["base_commit"],
+                            resolved_base_commit=resolved_commit,
+                        )
+                task=self.multi.tasks.get(task_id)
+                ensure_step=1
+
+            payload={
+                "task_id":task_id,"project_id":task["project_id"],"binding_generation":int(binding["binding_generation"]),
+                "branch_name":task["branch_name"],"worktree_rel":task["worktree_rel"],
+                "base_ref":task["base_ref"],"base_commit":task["base_commit"],
+            }
             await self._route_step(
                 binding["device_id"],"TASK_WORKTREE_ENSURE",payload,
-                operation_id=operation_id,operation_step=0,project_id=task["project_id"],task_id=task_id,
+                operation_id=operation_id,operation_step=ensure_step,
+                project_id=task["project_id"],task_id=task_id,
                 expires_at_ms=expiry,
             )
             self.multi.leases.finalize_running(task_id,agent_id,session_id,int(lease["lease_epoch"]))
@@ -836,7 +953,9 @@ class RoutingService:
             self.durable.operations.succeed(operation_id,result)
             return {**result,"lease_token":lease["lease_token"]}
         except DurableError as exc:
-            if exc.code=="DEVICE_COMMAND_PENDING":
+            if exc.code in {"DEVICE_COMMAND_PENDING","DEVICE_COMMAND_EXPIRED"}:
+                if exc.code=="DEVICE_COMMAND_EXPIRED":
+                    self._fail_final(operation_id,exc)
                 raise
             with self.db.transaction() as con:
                 con.execute("DELETE FROM path_leases WHERE task_id=?",(task_id,))
@@ -1702,29 +1821,58 @@ class RoutingService:
         capabilities=payload.get("capabilities")
         platform=payload.get("platform")
         active_node_jobs=payload.get("active_node_jobs")
+        unresolved_node_jobs=payload.get("active_node_jobs_unresolved")
+        capacity_complete=payload.get("capacity_reconciliation_complete")
+        candidate_nonterminal=payload.get("candidate_nonterminal_routed_jobs")
         observed_at_ms=now_ms()
-        if isinstance(active_node_jobs,bool):
-            raise DurableError("INVALID_ARGUMENT","active_node_jobs must be a non-negative integer")
-        if active_node_jobs is not None:
+
+        def _nonnegative_int(value,label):
+            if isinstance(value,bool):
+                raise DurableError("INVALID_ARGUMENT",f"{label} must be a non-negative integer")
             try:
-                active_node_jobs=int(active_node_jobs)
+                value=int(value)
             except Exception as exc:
                 raise DurableError(
-                    "INVALID_ARGUMENT",
-                    "active_node_jobs must be a non-negative integer",
+                    "INVALID_ARGUMENT",f"{label} must be a non-negative integer"
                 ) from exc
-            if active_node_jobs<0 or active_node_jobs>1000000:
+            if value<0 or value>1000000:
                 raise DurableError(
-                    "INVALID_ARGUMENT",
-                    "active_node_jobs is outside the accepted range",
+                    "INVALID_ARGUMENT",f"{label} is outside the accepted range"
                 )
+            return value
+
+        if active_node_jobs is not None:
+            active_node_jobs=_nonnegative_int(active_node_jobs,"active_node_jobs")
+        if unresolved_node_jobs is not None:
+            unresolved_node_jobs=_nonnegative_int(
+                unresolved_node_jobs,"active_node_jobs_unresolved"
+            )
+        if candidate_nonterminal is not None:
+            candidate_nonterminal=_nonnegative_int(
+                candidate_nonterminal,"candidate_nonterminal_routed_jobs"
+            )
+        if capacity_complete is not None and not isinstance(capacity_complete,bool):
+            raise DurableError(
+                "INVALID_ARGUMENT",
+                "capacity_reconciliation_complete must be boolean",
+            )
+
         if (
             isinstance(capabilities,dict)
             or isinstance(platform,dict)
             or active_node_jobs is not None
+            or unresolved_node_jobs is not None
+            or capacity_complete is not None
+            or candidate_nonterminal is not None
         ):
             with self.db.transaction() as con:
-                if isinstance(capabilities,dict) or active_node_jobs is not None:
+                if (
+                    isinstance(capabilities,dict)
+                    or active_node_jobs is not None
+                    or unresolved_node_jobs is not None
+                    or capacity_complete is not None
+                    or candidate_nonterminal is not None
+                ):
                     try:
                         merged=json.loads(device_row["capabilities_json"] or "{}")
                         if not isinstance(merged,dict):
@@ -1736,6 +1884,12 @@ class RoutingService:
                     if active_node_jobs is not None:
                         merged["_remotemcp_active_node_jobs"]=active_node_jobs
                         merged["_remotemcp_active_node_jobs_observed_at_ms"]=observed_at_ms
+                    if unresolved_node_jobs is not None:
+                        merged["_remotemcp_active_node_jobs_unresolved"]=unresolved_node_jobs
+                    if capacity_complete is not None:
+                        merged["_remotemcp_capacity_reconciliation_complete"]=capacity_complete
+                    if candidate_nonterminal is not None:
+                        merged["_remotemcp_candidate_nonterminal_routed_jobs"]=candidate_nonterminal
                     con.execute(
                         "UPDATE devices SET capabilities_json=? WHERE device_id=?",
                         (json.dumps(merged,sort_keys=True),device_row["device_id"]),

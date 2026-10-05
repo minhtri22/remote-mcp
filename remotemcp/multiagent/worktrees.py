@@ -17,9 +17,84 @@ class WorktreeManager:
             raise DurableError("WORKTREE_CONFLICT",(cp.stderr or cp.stdout or "git failed").strip())
         return cp
 
+    @staticmethod
+    def _branch_candidate(base_ref:str)->str|None:
+        ref=str(base_ref or "").strip()
+        if not ref or any(ch in ref for ch in ("\x00","\r","\n")):
+            return None
+        if ref.startswith("refs/heads/"):
+            return ref[len("refs/heads/"):]
+        if ref.startswith("refs/remotes/origin/"):
+            return ref[len("refs/remotes/origin/"):]
+        if ref.startswith("origin/"):
+            return ref[len("origin/"):]
+        if ref.startswith("refs/"):
+            return None
+        if len(ref)==40 and all(ch in "0123456789abcdefABCDEF" for ch in ref):
+            return None
+        return ref
+
     def resolve_base(self,project_root:Path,base_ref:str)->str:
-        cp=self._run("git","-C",str(project_root),"rev-parse",f"{base_ref}^{{commit}}")
-        return cp.stdout.strip()
+        """Resolve and locally materialize an immutable base commit.
+
+        Local refs are preferred.  If a branch exists only on origin, fetch the
+        exact remote branch into refs/remotes/origin/<branch> and pin the fetched
+        commit.  Never return a nullable/ambiguous base.
+        """
+        ref=str(base_ref or "").strip()
+        if not ref or len(ref)>1024 or any(ch in ref for ch in ("\x00","\r","\n")):
+            raise DurableError("TASK_BASE_REF_UNRESOLVED","invalid task base_ref")
+
+        local=self._run(
+            "git","-C",str(project_root),"rev-parse","--verify","--end-of-options",f"{ref}^{{commit}}",
+            check=False,
+        )
+        if local.returncode==0 and local.stdout.strip():
+            return local.stdout.strip()
+
+        branch=self._branch_candidate(ref)
+        if branch:
+            remote_ref=f"refs/heads/{branch}"
+            advertised=self._run(
+                "git","-C",str(project_root),"ls-remote","--exit-code","origin",remote_ref,
+                check=False,
+            )
+            if advertised.returncode==0 and advertised.stdout.strip():
+                advertised_sha=advertised.stdout.split()[0].strip()
+                fetch=self._run(
+                    "git","-C",str(project_root),"fetch","--no-tags","origin",
+                    f"{remote_ref}:refs/remotes/origin/{branch}",
+                    check=False,
+                )
+                if fetch.returncode!=0:
+                    raise DurableError(
+                        "TASK_BASE_REF_UNRESOLVED",
+                        (fetch.stderr or fetch.stdout or "failed to fetch remote task base").strip(),
+                        base_ref=ref,
+                    )
+                fetched=self._run(
+                    "git","-C",str(project_root),"rev-parse","--verify","--end-of-options",
+                    f"refs/remotes/origin/{branch}^{{commit}}",
+                    check=False,
+                )
+                if fetched.returncode==0 and fetched.stdout.strip():
+                    commit=fetched.stdout.strip()
+                    if commit!=advertised_sha:
+                        raise DurableError(
+                            "TASK_BASE_REF_CHANGED_DURING_RESOLUTION",
+                            "remote task base changed while being resolved",
+                            base_ref=ref,
+                            advertised_commit=advertised_sha,
+                            fetched_commit=commit,
+                        )
+                    return commit
+
+        detail=(local.stderr or local.stdout or "task base ref not found").strip()
+        raise DurableError(
+            "TASK_BASE_REF_UNRESOLVED",
+            detail,
+            base_ref=ref,
+        )
 
     def list_worktrees(self,project_root:Path)->list[dict]:
         cp=self._run("git","-C",str(project_root),"worktree","list","--porcelain")

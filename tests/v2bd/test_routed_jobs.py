@@ -15,7 +15,7 @@ def test_routed_job_proxy_observation_terminal_cache_and_local_guard(make_gatewa
         node,dev=await pair_node(g,root,tmp_path/"rt","node")
         p=await drive(g,node,g.routing.project_register_on_device("p",dev["device_id"],"repo",4))
         a=await g.multi.agent_register("a","agent","install",[])
-        t=await g.routing.task_create_or_local("t",p["project_id"],"task")
+        t=await drive(g,node,g.routing.task_create_or_local("t",p["project_id"],"task"))
         c=await drive(g,node,g.routing.task_claim_or_local("c",t["task_id"],a["agent_id"],a["session_id"]))
         job=await drive(g,node,g.routing.task_job_submit_or_local(
             "j",t["task_id"],c["lease_token"],c["lease_epoch"],
