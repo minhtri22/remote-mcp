@@ -2402,6 +2402,8 @@ class RoutingService:
         unresolved_node_jobs=payload.get("active_node_jobs_unresolved")
         capacity_complete=payload.get("capacity_reconciliation_complete")
         candidate_nonterminal=payload.get("candidate_nonterminal_routed_jobs")
+        active_job_summaries=payload.get("active_job_summaries")
+        node_attestation=payload.get("node_attestation")
         observed_at_ms=now_ms()
 
         def _nonnegative_int(value,label):
@@ -2434,6 +2436,50 @@ class RoutingService:
                 "INVALID_ARGUMENT",
                 "capacity_reconciliation_complete must be boolean",
             )
+        if active_job_summaries is not None:
+            if not isinstance(active_job_summaries,list) or len(active_job_summaries)>64:
+                raise DurableError(
+                    "INVALID_ARGUMENT",
+                    "active_job_summaries must be a list of at most 64 items",
+                )
+            normalized_summaries=[]
+            allowed={
+                "proxy_job_id","node_job_id","task_id","project_id","state","pid",
+                "command_sha256","argv_sha256","cwd","started_at_ms",
+                "last_output_at_ms","last_heartbeat_at_ms",
+            }
+            for item in active_job_summaries:
+                if not isinstance(item,dict):
+                    raise DurableError("INVALID_ARGUMENT","active job summary must be an object")
+                summary={k:item.get(k) for k in allowed if k in item}
+                for key in ("proxy_job_id","node_job_id","task_id","project_id","state","command_sha256","argv_sha256","cwd"):
+                    value=summary.get(key)
+                    if value is not None and (not isinstance(value,str) or len(value)>4096):
+                        raise DurableError("INVALID_ARGUMENT",f"invalid active job summary field: {key}")
+                for key in ("pid","started_at_ms","last_output_at_ms","last_heartbeat_at_ms"):
+                    value=summary.get(key)
+                    if value is not None:
+                        try:
+                            summary[key]=int(value)
+                        except Exception as exc:
+                            raise DurableError("INVALID_ARGUMENT",f"invalid active job summary field: {key}") from exc
+                normalized_summaries.append(summary)
+            active_job_summaries=normalized_summaries
+        if node_attestation is not None:
+            if not isinstance(node_attestation,dict):
+                raise DurableError("INVALID_ARGUMENT","node_attestation must be an object")
+            allowed_attestation={
+                "source_dir","release_commit","execution_root","runtime_dir",
+                "schema_version","schema_sha256",
+            }
+            node_attestation={
+                k:node_attestation.get(k)
+                for k in allowed_attestation
+                if k in node_attestation
+            }
+            for key,value in node_attestation.items():
+                if value is not None and not isinstance(value,(str,int)):
+                    raise DurableError("INVALID_ARGUMENT",f"invalid node attestation field: {key}")
 
         if (
             isinstance(capabilities,dict)
@@ -2442,6 +2488,8 @@ class RoutingService:
             or unresolved_node_jobs is not None
             or capacity_complete is not None
             or candidate_nonterminal is not None
+            or active_job_summaries is not None
+            or node_attestation is not None
         ):
             with self.db.transaction() as con:
                 if (
@@ -2450,6 +2498,8 @@ class RoutingService:
                     or unresolved_node_jobs is not None
                     or capacity_complete is not None
                     or candidate_nonterminal is not None
+                    or active_job_summaries is not None
+                    or node_attestation is not None
                 ):
                     try:
                         merged=json.loads(device_row["capabilities_json"] or "{}")
@@ -2468,6 +2518,12 @@ class RoutingService:
                         merged["_remotemcp_capacity_reconciliation_complete"]=capacity_complete
                     if candidate_nonterminal is not None:
                         merged["_remotemcp_candidate_nonterminal_routed_jobs"]=candidate_nonterminal
+                    if active_job_summaries is not None:
+                        merged["_remotemcp_active_job_summaries"]=active_job_summaries
+                        merged["_remotemcp_active_job_summaries_observed_at_ms"]=observed_at_ms
+                    if node_attestation is not None:
+                        merged["_remotemcp_node_attestation"]=node_attestation
+                        merged["_remotemcp_node_attestation_observed_at_ms"]=observed_at_ms
                     con.execute(
                         "UPDATE devices SET capabilities_json=? WHERE device_id=?",
                         (json.dumps(merged,sort_keys=True),device_row["device_id"]),
