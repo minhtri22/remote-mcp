@@ -1754,6 +1754,49 @@ class RoutingService:
         recovery_operation_id=(
             "rpr_"+hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:40]
         )
+        if intent.get("execution_key"):
+            existing_science=self.routed_jobs.by_execution_key(intent["execution_key"])
+            if (
+                existing_science is not None
+                and existing_science["operation_id"]!=operation_id
+            ):
+                recovery_op,created=self._reserve(
+                    recovery_operation_id,"TASK_JOB_RECOVER_PREPROXY",
+                    {
+                        "task_id":task_id,
+                        "original_operation_id":operation_id,
+                        "original_argv_sha256":intent["argv_sha256"],
+                        "execution_key":intent["execution_key"],
+                        "deduplicated_to_proxy_job_id":existing_science["proxy_job_id"],
+                    },
+                    agent_id="",project_id=binding["project_id"],task_id=task_id,
+                )
+                replay=self._operation_replay(recovery_op)
+                if replay is not None:
+                    return {**replay,"replayed":True}
+                if created:
+                    self.durable.operations.mark_executing(recovery_operation_id)
+                admission=self.job_admissions.by_operation(operation_id)
+                if admission is not None and admission["state"]=="ADMITTING":
+                    self.job_admissions.abort_if_unbound(
+                        operation_id,"SCIENTIFIC_EXECUTION_DEDUPLICATED"
+                    )
+                response={
+                    **self.routed_jobs.as_dict(
+                        existing_science,
+                        self.devices.status(existing_science["device_id"])["state"],
+                    ),
+                    "recovery_kind":"EXACTLY_ONCE_EXISTING_EXECUTION_ADOPTED",
+                    "original_operation_id":operation_id,
+                    "same_logical_science_preserved":True,
+                    "exactly_once":True,
+                    "adopted_existing_execution":True,
+                    "execution_key":intent["execution_key"],
+                    "scientific_gate":intent.get("scientific_gate"),
+                    "scientific_rerun_required":False,
+                }
+                self.durable.operations.succeed(recovery_operation_id,response)
+                return response
         existing_recovery=self.durable.operations.get(recovery_operation_id)
         if existing_recovery is not None:
             replay=self._operation_replay(existing_recovery)
@@ -1903,6 +1946,9 @@ class RoutingService:
                 "same_logical_submit_preserved":True,
                 "argv_sha256":intent["argv_sha256"],
                 "scientific_execution_was_started_before_recovery":False,
+                "execution_key":intent.get("execution_key"),
+                "scientific_gate":intent.get("scientific_gate"),
+                "exactly_once":bool(intent.get("execution_key")),
             }
             response=self._with_routing(
                 response,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
