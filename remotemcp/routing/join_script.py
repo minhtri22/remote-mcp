@@ -56,7 +56,13 @@ if (-not $Workspace) {{
 if (-not $Workspace) {{
     throw "REMOTEMCP_NODE_ROOT must be set explicitly to a non-OS research/data root. OS-drive research/project/worktree storage is forbidden."
 }}
-if (-not [System.IO.Path]::IsPathFullyQualified($Workspace)) {{
+# Windows PowerShell 5.1 runs on .NET Framework and does not expose
+# Path.IsPathFullyQualified(). IsPathRooted() is available there; reject
+# drive-relative forms such as "D:folder" explicitly.
+if (
+    -not [System.IO.Path]::IsPathRooted($Workspace) -or
+    $Workspace -match '^[A-Za-z]:[^\\\\/]'
+) {{
     throw "REMOTEMCP_NODE_ROOT must be an absolute path."
 }}
 $Workspace = [System.IO.Path]::GetFullPath($Workspace)
