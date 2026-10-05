@@ -59,6 +59,8 @@ class NodeClient:
         unresolved_node_jobs:int=0,
         capacity_reconciliation_complete:bool=True,
         candidate_nonterminal_routed_jobs:int|None=None,
+        active_job_summaries:list[dict]|None=None,
+        node_attestation:dict|None=None,
     )->dict:
         payload={
             "node_time_ms":__import__("time").time_ns()//1_000_000,
@@ -72,6 +74,10 @@ class NodeClient:
             payload["candidate_nonterminal_routed_jobs"]=int(
                 candidate_nonterminal_routed_jobs
             )
+        if active_job_summaries is not None:
+            payload["active_job_summaries"]=list(active_job_summaries)
+        if node_attestation is not None:
+            payload["node_attestation"]=dict(node_attestation)
         r=await self._signed_post(
             "/device/v1/heartbeat",
             payload,

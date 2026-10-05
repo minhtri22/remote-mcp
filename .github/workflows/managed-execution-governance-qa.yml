@@ -1,0 +1,40 @@
+name: Managed execution governance preflight QA
+
+on:
+  pull_request:
+    paths:
+      - "skills/remote-mcp/SKILL.md"
+      - "skills/remote-mcp/managed_execution_policy.json"
+      - "scripts/managed_execution_preflight.py"
+      - "scripts/build_chatgpt_plugin.py"
+      - "tests/test_managed_execution_governance.py"
+      - "tests/test_chatgpt_plugin_builder.py"
+      - "tests/test_public_repo_hygiene.py"
+      - "docs/REMOTEMCP_MANAGED_EXECUTION_IDENTITY_AND_PAIRING_GOVERNANCE_SKILL_PREFLIGHT_LOCK.md"
+      - "docs/REMOTEMCP_V2_WEB_CANONICAL_PLUGIN_IDENTITY_AND_SESSION_BINDING_PREFLIGHT.md"
+      - ".github/workflows/managed-execution-governance-qa.yml"
+  workflow_dispatch:
+
+jobs:
+  governance-qa:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Governance, package, and hygiene QA
+        run: >-
+          python -m pytest -q
+          tests/test_managed_execution_governance.py
+          tests/test_chatgpt_plugin_builder.py
+          tests/test_public_repo_hygiene.py

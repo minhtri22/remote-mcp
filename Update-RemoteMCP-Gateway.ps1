@@ -2,7 +2,8 @@ param(
     [string]$SourceRepo = $PSScriptRoot,
     [string]$Ref = "origin/main",
     [int]$HealthTimeoutSec = 5,
-    [switch]$SkipFetch
+    [switch]$SkipFetch,
+    [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,8 +11,296 @@ $ProgressPreference = "SilentlyContinue"
 
 $Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
 $ConfigFile = Join-Path $Base "gateway-config.json"
+$LiveLogFile = Join-Path $Base "gateway.log"
+$LiveErrFile = Join-Path $Base "gateway-error.log"
+
 if (-not (Test-Path $ConfigFile)) {
     throw "RemoteMCP gateway is not configured: $ConfigFile"
+}
+
+function Get-FreeLoopbackPort {
+    $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback,0)
+    try {
+        $listener.Start()
+        return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        try { $listener.Stop() } catch {}
+    }
+}
+
+function Invoke-IsolatedGatewayReleaseProbe {
+    param(
+        [string]$PythonExe,
+        [string]$SourceDir,
+        [string]$ReleaseShort,
+        [int]$TimeoutSec
+    )
+
+    $ProbeBase = Join-Path $env:TEMP ("remotemcp-gateway-probe-" + [guid]::NewGuid().ToString("N"))
+    $ProbeRoot = Join-Path $ProbeBase "workspace"
+    $ProbeRuntime = Join-Path $ProbeBase "runtime"
+    $ProbeState = Join-Path $ProbeBase "oauth-state.json"
+    $ProbeOut = Join-Path $ProbeBase "stdout.log"
+    $ProbeErr = Join-Path $ProbeBase "stderr.log"
+    New-Item -ItemType Directory -Force -Path $ProbeRoot,$ProbeRuntime | Out-Null
+
+    $Port = Get-FreeLoopbackPort
+    $Names = @(
+        "PUBLIC_URL","OWNER_PASSWORD","MCP_ROOT","MCP_STATE","MCP_RUNTIME_DIR",
+        "ALLOWED_REDIRECT_HOSTS","PORT"
+    )
+    $Saved = @{}
+    foreach ($Name in $Names) {
+        $Saved[$Name] = [Environment]::GetEnvironmentVariable($Name,"Process")
+    }
+
+    $Process = $null
+    try {
+        [Environment]::SetEnvironmentVariable("PUBLIC_URL","https://diagnostic.invalid","Process")
+        [Environment]::SetEnvironmentVariable("OWNER_PASSWORD","diagnostic-password-only","Process")
+        [Environment]::SetEnvironmentVariable("MCP_ROOT",$ProbeRoot,"Process")
+        [Environment]::SetEnvironmentVariable("MCP_STATE",$ProbeState,"Process")
+        [Environment]::SetEnvironmentVariable("MCP_RUNTIME_DIR",$ProbeRuntime,"Process")
+        [Environment]::SetEnvironmentVariable("ALLOWED_REDIRECT_HOSTS","chatgpt.com,localhost,127.0.0.1","Process")
+        [Environment]::SetEnvironmentVariable("PORT",[string]$Port,"Process")
+
+        $Process = Start-Process -FilePath $PythonExe -ArgumentList @("server.py") -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $ProbeOut -RedirectStandardError $ProbeErr -PassThru
+
+        $Deadline = (Get-Date).AddSeconds([Math]::Max(15,$TimeoutSec * 4))
+        $Healthy = $false
+        do {
+            Start-Sleep -Milliseconds 500
+            if ($Process.HasExited) { break }
+            try {
+                $r = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:{0}/.well-known/oauth-authorization-server" -f $Port) -TimeoutSec $TimeoutSec
+                $Healthy = ($r.StatusCode -eq 200)
+            } catch {}
+        } while (-not $Healthy -and (Get-Date) -lt $Deadline)
+
+        if (-not $Healthy) {
+            $Stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+            $PreservedOut = Join-Path $Base ("gateway-upgrade-probe-failed-" + $ReleaseShort + "-" + $Stamp + ".stdout.log")
+            $PreservedErr = Join-Path $Base ("gateway-upgrade-probe-failed-" + $ReleaseShort + "-" + $Stamp + ".stderr.log")
+            if (Test-Path $ProbeOut) { Copy-Item -Force $ProbeOut $PreservedOut }
+            if (Test-Path $ProbeErr) { Copy-Item -Force $ProbeErr $PreservedErr }
+            $ExitText = if ($Process.HasExited) { [string]$Process.ExitCode } else { "still-running-unhealthy" }
+            throw ("Isolated gateway release startup probe failed; exit=" + $ExitText + "; stdout=" + $PreservedOut + "; stderr=" + $PreservedErr)
+        }
+
+        Write-Host "REMOTEMCP_GATEWAY_RELEASE_PROBE=PASS"
+        Write-Host ("Probe commit short : {0}" -f $ReleaseShort)
+        Write-Host ("Probe loopback port: {0}" -f $Port)
+    } finally {
+        if ($Process -and -not $Process.HasExited) {
+            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+        }
+        foreach ($Name in $Names) {
+            [Environment]::SetEnvironmentVariable($Name,$Saved[$Name],"Process")
+        }
+        if (Test-Path $ProbeBase) {
+            Remove-Item -Recurse -Force $ProbeBase -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Invoke-ProductionRuntimeMigrationProbe {
+    param(
+        [string]$PythonExe,
+        [string]$SourceDir,
+        [string]$RuntimeDir,
+        [string]$ReleaseShort
+    )
+
+    $LiveDb = Join-Path $RuntimeDir "runtime.db"
+    if (-not (Test-Path $LiveDb)) {
+        Write-Host "REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=SKIP_NO_RUNTIME_DB"
+        return
+    }
+
+    $AuditScript = Join-Path $SourceDir "scripts\audit_legacy_routed_jobs.py"
+    if (-not (Test-Path $AuditScript)) {
+        throw "Candidate release is missing legacy routed-job inventory utility: $AuditScript"
+    }
+
+    $ProbeBase = Join-Path $env:TEMP ("remotemcp-production-state-probe-" + [guid]::NewGuid().ToString("N"))
+    $ProbeRuntime = Join-Path $ProbeBase "runtime"
+    $ProbeDb = Join-Path $ProbeRuntime "runtime.db"
+    $InventoryOut = Join-Path $Base (
+        "gateway-preflight-legacy-routed-jobs-" + $ReleaseShort + "-" +
+        (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".json"
+    )
+    New-Item -ItemType Directory -Force -Path $ProbeRuntime | Out-Null
+
+    try {
+        $BackupCode = @'
+import sqlite3, sys
+src_path, dst_path = sys.argv[1], sys.argv[2]
+src = sqlite3.connect(src_path, timeout=5.0)
+dst = sqlite3.connect(dst_path, timeout=5.0)
+try:
+    src.backup(dst)
+finally:
+    dst.close()
+    src.close()
+'@
+        $BackupScript = Join-Path $ProbeBase "backup_runtime_db.py"
+        [IO.File]::WriteAllText($BackupScript,$BackupCode,(New-Object Text.UTF8Encoding($false)))
+        & $PythonExe $BackupScript $LiveDb $ProbeDb
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not create consistent SQLite backup for production-state preflight"
+        }
+
+        & $PythonExe $AuditScript --db $ProbeDb --output $InventoryOut
+        if ($LASTEXITCODE -ne 0) {
+            throw "Full legacy routed-job inventory failed against production-state backup"
+        }
+        Write-Host "REMOTEMCP_LEGACY_ROUTED_JOB_INVENTORY=PASS"
+        Write-Host ("Legacy inventory report: {0}" -f $InventoryOut)
+
+        $ProbeCode = @'
+import hashlib
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+source_dir = Path(sys.argv[1]).resolve()
+runtime_dir = Path(sys.argv[2]).resolve()
+sys.path.insert(0, str(source_dir))
+
+from remotemcp.durable.db import Database
+
+db_path = runtime_dir / "runtime.db"
+legacy_tables = (
+    "operations",
+    "jobs",
+    "tasks",
+    "devices",
+    "project_device_bindings",
+    "task_device_bindings",
+    "device_commands",
+    "routed_jobs",
+)
+
+def connect():
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    return con
+
+def table_exists(con, name):
+    return con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone() is not None
+
+def table_fingerprint(con, name):
+    if not table_exists(con, name):
+        return None
+    cols = [r["name"] for r in con.execute(f"PRAGMA table_info({name})")]
+    h = hashlib.sha256()
+    h.update(json.dumps(cols, separators=(",", ":")).encode())
+    for row in con.execute(f"SELECT * FROM {name} ORDER BY rowid"):
+        payload = [row[c] for c in cols]
+        h.update(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=False,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        )
+        h.update(b"\n")
+    return h.hexdigest()
+
+con = connect()
+try:
+    integrity_before = con.execute("PRAGMA integrity_check").fetchone()[0]
+    if integrity_before != "ok":
+        raise SystemExit("production-state backup failed integrity_check before migration")
+    before = con.execute(
+        "SELECT version, applied_at_ms, checksum_sha256 "
+        "FROM schema_migrations ORDER BY version"
+    ).fetchall()
+    before_tuples = [tuple(r) for r in before]
+    versions = [int(r["version"]) for r in before]
+    if versions not in ([1, 2, 3], [1, 2, 3, 4]):
+        raise SystemExit(f"unexpected production migration ledger before v4 probe: {versions}")
+    before_fp = {name: table_fingerprint(con, name) for name in legacy_tables}
+    admission_existed_before = table_exists(con, "task_job_admissions")
+finally:
+    con.close()
+
+db = Database(runtime_dir)
+db.bootstrap(target_version=4)
+
+con = connect()
+try:
+    integrity_after = con.execute("PRAGMA integrity_check").fetchone()[0]
+    if integrity_after != "ok":
+        raise SystemExit("production-state backup failed integrity_check after migration")
+    after = con.execute(
+        "SELECT version, applied_at_ms, checksum_sha256 "
+        "FROM schema_migrations ORDER BY version"
+    ).fetchall()
+    after_tuples = [tuple(r) for r in after]
+
+    if before_tuples[:3] != after_tuples[:3]:
+        raise SystemExit("existing migration ledger entries changed during v4 compatibility probe")
+
+    if versions == [1, 2, 3]:
+        if [int(r["version"]) for r in after] != [1, 2, 3, 4]:
+            raise SystemExit("schema v4 was not appended exactly once")
+        expected_v4 = hashlib.sha256(db.migration_v4_path.read_bytes()).hexdigest()
+        if after_tuples[3][2] != expected_v4:
+            raise SystemExit("schema v4 checksum does not match candidate migration")
+    elif after_tuples != before_tuples:
+        raise SystemExit("existing schema-v4 migration ledger changed during compatibility probe")
+
+    cols = {r["name"] for r in con.execute("PRAGMA table_info(task_job_admissions)")}
+    required_cols = {
+        "admission_id","task_id","sequence","operation_id","execution_kind",
+        "predecessor_job_id","job_id","state","terminal_state",
+        "terminal_evidence_json","created_at_ms","updated_at_ms","terminal_at_ms",
+    }
+    if not required_cols.issubset(cols):
+        raise SystemExit("schema v4 task_job_admissions columns are incomplete")
+
+    indexes = {r["name"] for r in con.execute("PRAGMA index_list(task_job_admissions)")}
+    if "uq_task_job_admissions_one_active_lane" not in indexes:
+        raise SystemExit("schema v4 active-lane unique index is missing")
+
+    if not admission_existed_before:
+        count = con.execute("SELECT COUNT(*) FROM task_job_admissions").fetchone()[0]
+        if int(count) != 0:
+            raise SystemExit("schema v4 migration unexpectedly backfilled admission rows")
+
+    after_fp = {name: table_fingerprint(con, name) for name in legacy_tables}
+    if before_fp != after_fp:
+        changed = [name for name in legacy_tables if before_fp.get(name) != after_fp.get(name)]
+        raise SystemExit("legacy production tables changed during v4 migration probe: " + ",".join(changed))
+finally:
+    con.close()
+
+print("REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS")
+print("REMOTEMCP_SCHEMA_V4_BACKUP_PROBE=PASS")
+'@
+        $ProbeScript = Join-Path $ProbeBase "probe_migration_compat.py"
+        [IO.File]::WriteAllText($ProbeScript,$ProbeCode,(New-Object Text.UTF8Encoding($false)))
+        & $PythonExe $ProbeScript $SourceDir $ProbeRuntime
+        if ($LASTEXITCODE -ne 0) {
+            throw (
+                "Candidate schema-v4 compatibility failed against a consistent backup of production runtime.db " +
+                "for release " + $ReleaseShort
+            )
+        }
+
+        Write-Host "REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=PASS"
+    } finally {
+        if (Test-Path $ProbeBase) {
+            Remove-Item -Recurse -Force $ProbeBase -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 $SourceRepo = (Resolve-Path $SourceRepo).Path
@@ -72,11 +361,7 @@ if (Test-Path $NewSource) {
             created_at = (Get-Date).ToString("o")
             source_repo = $SourceRepo
         }
-        [IO.File]::WriteAllText(
-            (Join-Path $Tmp ".remotemcp-release.json"),
-            ($markerObj | ConvertTo-Json -Depth 4),
-            (New-Object Text.UTF8Encoding($false))
-        )
+        [IO.File]::WriteAllText((Join-Path $Tmp ".remotemcp-release.json"),($markerObj | ConvertTo-Json -Depth 4),(New-Object Text.UTF8Encoding($false)))
         Move-Item -Path $Tmp -Destination $NewSource
     } finally {
         if (Test-Path $Tmp) { Remove-Item -Recurse -Force $Tmp }
@@ -89,12 +374,21 @@ if (-not (Test-Path $PythonExe)) { throw "Configured gateway Python is missing: 
 & $PythonExe -m py_compile (Join-Path $NewSource "server.py") (Join-Path $NewSource "oauth_provider.py")
 if ($LASTEXITCODE -ne 0) { throw "New release Python syntax preflight failed" }
 
-# Validate that the configured environment can import the gateway dependencies
-# before touching the live process.
 & $PythonExe -c "import mcp,uvicorn,httpx,cryptography"
 if ($LASTEXITCODE -ne 0) { throw "Configured gateway Python dependency preflight failed" }
 
-$BackupFile = Join-Path $Base ("gateway-config.pre-upgrade-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".json")
+Invoke-IsolatedGatewayReleaseProbe -PythonExe $PythonExe -SourceDir $NewSource -ReleaseShort $Short -TimeoutSec $HealthTimeoutSec
+Invoke-ProductionRuntimeMigrationProbe -PythonExe $PythonExe -SourceDir $NewSource -RuntimeDir ([string]$cfg.runtime_dir) -ReleaseShort $Short
+
+if ($PreflightOnly) {
+    Write-Host "REMOTEMCP_GATEWAY_UPDATE_PREFLIGHT_ONLY=PASS"
+    Write-Host "Commit : $Commit"
+    Write-Host "Release: $NewSource"
+    Write-Host "Live gateway configuration and process were not changed."
+    exit 0
+}
+
+$BackupFile = Join-Path $Base ("gateway-config.pre-upgrade-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".json")
 Copy-Item -Force $ConfigFile $BackupFile
 
 $cfg.source_dir = $NewSource
@@ -128,11 +422,37 @@ try {
     Write-Host "Gateway durable runtime/state/device identities were reused."
     Write-Host "Execution nodes were not restarted."
 } catch {
-    Write-Warning ("Upgrade failed; rolling gateway source_dir back to: " + $OldSourceResolved)
+    $UpgradeFailure = $_
+    $Stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+    $SavedLiveOut = Join-Path $Base ("gateway-upgrade-failed-" + $Short + "-" + $Stamp + ".stdout.log")
+    $SavedLiveErr = Join-Path $Base ("gateway-upgrade-failed-" + $Short + "-" + $Stamp + ".stderr.log")
+
+    if (Test-Path $LiveLogFile) { Copy-Item -Force $LiveLogFile $SavedLiveOut }
+    if (Test-Path $LiveErrFile) { Copy-Item -Force $LiveErrFile $SavedLiveErr }
+
+    Write-Warning ("Upgrade failed; preserved stdout: " + $SavedLiveOut)
+    Write-Warning ("Upgrade failed; preserved stderr: " + $SavedLiveErr)
+    Write-Warning ("Rolling gateway source_dir back to: " + $OldSourceResolved)
+
     Copy-Item -Force $BackupFile $ConfigFile
-    $OldRestart = Join-Path $OldSourceResolved "Restart-RemoteMCP-Gateway.ps1"
-    if (Test-Path $OldRestart) {
-        try { & $OldRestart } catch { Write-Warning ("Rollback restart also failed: " + $_.Exception.Message) }
+
+    $RollbackStarter = Join-Path $NewSource "Start-RemoteMCP-Gateway.ps1"
+    $RollbackFailure = $null
+    if (Test-Path $RollbackStarter) {
+        try {
+            & $RollbackStarter -Restart -HealthTimeoutSec $HealthTimeoutSec
+        } catch {
+            $RollbackFailure = $_.Exception.Message
+            Write-Warning ("Rollback restart also failed: " + $RollbackFailure)
+        }
+    } else {
+        $RollbackFailure = "candidate release is missing Start-RemoteMCP-Gateway.ps1"
+        Write-Warning ("Rollback restart also failed: " + $RollbackFailure)
     }
-    throw
+
+    if ($RollbackFailure) {
+        throw ("Gateway upgrade failed: " + $UpgradeFailure.Exception.Message + "; rollback restart failed: " + $RollbackFailure + "; preserved stderr: " + $SavedLiveErr)
+    }
+
+    throw $UpgradeFailure
 }

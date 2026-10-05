@@ -138,7 +138,41 @@
       "task_job_recover_path_escape",
       "task_job_artifact_status",
       "task_job_artifact_read"
-    ]
+    ],
+    "zero_command_observation": {
+      "enabled": true,
+      "tool": "task_job_inspect",
+      "requires_task_lease": false,
+      "creates_device_command": false,
+      "preferred_before_refreshing_get_logs_or_result": true,
+      "observability_loss_allows_relaunch": false,
+      "pending_readback_decision": "RETURN_OBSERVATION_REFRESH_PENDING_WITH_EXISTING_PROVENANCE",
+      "automatic_scientific_rerun_for_readback_forbidden": true,
+      "scientific_observability_ready_for_fresh_one_shot_requires": [
+        "capacity_resolved",
+        "active_job_identity_complete",
+        "gateway_node_release_attestation_match",
+        "node_execution_root_attested",
+        "node_runtime_dir_attested"
+      ],
+      "rolling_upgrade_rule": "CAPACITY_TRUTH_AND_PROVENANCE_READINESS_ARE_SEPARATE"
+    },
+    "exactly_once_execution": {
+      "enabled": true,
+      "submit_tool": "task_job_submit_once",
+      "execution_key_material": [
+        "project_id",
+        "immutable_base_commit",
+        "scientific_gate",
+        "argv",
+        "cwd",
+        "evidence_paths"
+      ],
+      "same_execution_key_running_decision": "ADOPT_EXISTING_EXECUTION",
+      "same_execution_key_terminal_decision": "RETURN_EXISTING_EXECUTION",
+      "replacement_proxy_forbidden": true,
+      "second_scientific_one_shot_forbidden": true
+    }
   },
   "infrastructure": {
     "use_scientific_task_as_transport": false,
@@ -195,7 +229,9 @@
     "active_node_jobs_positive_decision": "recheck_cpu_ram_and_scientific_contention_before_fresh_one_shot",
     "active_node_jobs_zero_decision": "continue_other_resource_gates",
     "device_restart_must_use_authoritative_capacity": true,
-    "registry_count_must_not_block_science_by_itself": true
+    "registry_count_must_not_block_science_by_itself": true,
+    "active_job_identity_signal": "signed_node_heartbeat.active_job_summaries",
+    "reconciled_heartbeat_must_identify_every_active_job": true
   },
   "managed_task_base_pinning": {
     "enabled": true,
@@ -241,5 +277,37 @@
     "preserve_device_identity_during_root_override": true,
     "historical_binding_identifiers": "LOCAL_DEPLOYMENT_ONLY",
     "historical_bindings_must_not_be_reused_for_new_science": true
+  },
+  "project_binding_lifecycle": {
+    "historical_binding_tool": "project_binding_deprecate",
+    "historical_binding_accepts_new_tasks": false,
+    "historical_evidence_preserved": true,
+    "delete_or_rewrite_history": false,
+    "superseding_binding_must_be_active": true
+  },
+  "runtime_attestation": {
+    "signed_node_heartbeat_fields": [
+      "release_commit",
+      "source_dir",
+      "execution_root",
+      "runtime_dir",
+      "schema_version",
+      "schema_sha256"
+    ],
+    "device_status_surfaces_node_attestation": true,
+    "device_status_surfaces_gateway_attestation": true,
+    "root_or_release_mismatch_decision": "BLOCK_UPGRADE_OR_FRESH_ONE_SHOT"
+  },
+  "deployment_upgrade_gate": {
+    "policy": "NO_LIVE_AGENT_OR_EXECUTION_ACTIVITY",
+    "upgrade_while_agents_or_jobs_active": false,
+    "require_authoritative_active_node_jobs_zero": true,
+    "require_authoritative_unresolved_node_jobs_zero": true,
+    "require_capacity_reconciliation_complete": true,
+    "require_fresh_agent_sessions_zero": true,
+    "require_unexpired_task_leases_zero": true,
+    "require_unexpired_device_commands_zero": true,
+    "action_when_not_ready": "WAIT_DO_NOT_RESTART_OR_DEPLOY",
+    "require_gateway_local_nonterminal_jobs_zero": true
   }
 }
