@@ -8,6 +8,7 @@ def test_node_watchdog_is_runtime_explicit_and_identity_preserving():
 
     assert "[Parameter(Mandatory=$true)]" in text
     assert "[string]$RuntimeDir" in text
+    assert "[string]$RootDir" in text
     assert "[string]$NodeSourceDir" in text
     assert "device.json" in text
     assert "device-ed25519.pem" in text
@@ -18,7 +19,8 @@ def test_node_watchdog_is_runtime_explicit_and_identity_preserving():
     assert "Get-CimInstance Win32_Process" in text
     assert "--runtime-dir" in text
     assert "process absence threshold reached" in text
-    assert "& $StartScript -RuntimeDir $RuntimeDir -SourceDir $NodeSourceDir" in text
+    assert "& $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $NodeSourceDir" in text
+    assert "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN" in text
     assert "Get-LogicalNodeRoots" in text
     assert "multiple independent exact-runtime node roots detected" in text
     assert "raw_processes" in text
@@ -42,7 +44,10 @@ def test_node_supervisor_installer_is_explicit_per_runtime():
 
     assert "[Parameter(Mandatory=$true)]" in text
     assert "[string]$RuntimeDir" in text
+    assert "[string]$RootDir" in text
     assert "[string]$NodeSourceDir" in text
+    assert "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN" in text
+    assert "-RootDir" in text
     assert "device.json" in text
     assert "device-ed25519.pem" in text
     assert "New-ScheduledTaskAction" in text
