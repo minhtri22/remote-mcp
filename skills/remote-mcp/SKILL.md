@@ -166,7 +166,7 @@ If a client does not expose a native slash-command picker but sends these string
 
 On the production Windows research host, the Windows OS drive is **forbidden** for research repositories, managed project roots, managed workspaces, and task worktrees.
 
-- canonical production research root: `D:\WORK\RESEARCH`;
+- canonical production research root: `NON_OS_RESEARCH_ROOT`;
 - paths under `%USERPROFILE%\RemoteMCP-Workspace` are historical-only and must not be reused as production research roots;
 - `%LOCALAPPDATA%\RemoteMCP` may contain only RemoteMCP runtime identity, durable state, logs, and virtual environments;
 - never create, clone, expose, migrate, or materialize a research repository/worktree on the OS drive as a workaround for `PATH_ESCAPE` or project-root mismatch;
