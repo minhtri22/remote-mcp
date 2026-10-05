@@ -107,7 +107,38 @@
       "sql_or_node_db_repair_forbidden": true,
       "submit_tool": "task_job_submit_with_evidence",
       "locked_submit_tool_preserved": "task_job_submit"
-    }
+    },
+    "preproxy_submit_recovery": {
+      "enabled": true,
+      "status_tool": "task_job_submit_failure_status",
+      "recovery_tool": "task_job_recover_preproxy_submit",
+      "legacy_intent_adoption_tool": "task_job_adopt_legacy_submit_intent",
+      "frozen_intent_before_admission": true,
+      "preserve_original_operation_id": true,
+      "preserve_original_argv": true,
+      "require_original_argv_sha256_acknowledgement": true,
+      "recoverable_error_codes": [
+        "PREDECESSOR_STATE_UNRESOLVED",
+        "PREDECESSOR_JOB_NOT_TERMINAL",
+        "TASK_JOB_ADMISSION_CONFLICT",
+        "DEVICE_OFFLINE",
+        "DB_BUSY"
+      ],
+      "authoritative_predecessor_reconciliation_before_proxy": true,
+      "replacement_proxy_before_recovery_forbidden": true,
+      "second_scientific_one_shot_forbidden": true,
+      "legacy_adoption_requires_exact_historical_request_hash": true,
+      "binding_identity_change_decision": "block",
+      "ambiguous_or_nonrecoverable_decision": "block"
+    },
+    "execution_lifecycle_recovery_order": [
+      "task_job_submit_failure_status",
+      "task_job_recover_preproxy_submit",
+      "task_job_recovery_status",
+      "task_job_recover_path_escape",
+      "task_job_artifact_status",
+      "task_job_artifact_read"
+    ]
   },
   "infrastructure": {
     "use_scientific_task_as_transport": false,
@@ -193,5 +224,22 @@
       "PROJECT_BIND"
     ],
     "command_ttl_must_exceed_gateway_wait": true
+  },
+  "storage_policy": {
+    "windows_production_research_root": "NON_OS_RESEARCH_ROOT",
+    "os_drive_research_project_worktree_storage_forbidden": true,
+    "os_drive_runtime_only_allowed": [
+      "%LOCALAPPDATA%\\RemoteMCP\\runtime",
+      "%LOCALAPPDATA%\\RemoteMCP\\node-venv",
+      "%LOCALAPPDATA%\\RemoteMCP\\gateway-venv",
+      "%LOCALAPPDATA%\\RemoteMCP\\gateway state/logs"
+    ],
+    "userprofile_workspace_default_forbidden": true,
+    "historical_os_drive_workspace_status": "HISTORICAL_ONLY_DO_NOT_REUSE",
+    "new_project_or_worktree_on_os_drive_decision": "BLOCK",
+    "research_root_change_requires_repair_not_repairing": true,
+    "preserve_device_identity_during_root_override": true,
+    "historical_binding_identifiers": "LOCAL_DEPLOYMENT_ONLY",
+    "historical_bindings_must_not_be_reused_for_new_science": true
   }
 }
