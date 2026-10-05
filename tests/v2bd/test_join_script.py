@@ -19,6 +19,8 @@ def test_windows_join_script_is_single_file_and_instance_bound():
     assert "RemoteMCP-Node.vbs" in script
     assert "active-runtime.txt" in script
     assert "REMOTEMCP_NODE_ROOT" in script
+    assert "IsPathFullyQualified" not in script
+    assert "IsPathRooted" in script
     assert "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN" in script
     assert "RemoteMCP-Workspace" not in script
     assert "$env:USERPROFILE" not in script
