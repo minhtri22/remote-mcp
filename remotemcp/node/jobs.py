@@ -351,6 +351,39 @@ class NodeJobs:
                 (state,t,1 if terminal else 0,t,proxy_job_id),
             )
 
+    def _active_job_summary(self,row,state:dict)->dict:
+        durable_row=self.durable.jobs.get(row["node_job_id"])
+        try:
+            command=json.loads(durable_row["command_json"] or "{}")
+        except Exception:
+            command={}
+        argv=command.get("argv") if isinstance(command,dict) else None
+        if not isinstance(argv,list):
+            argv=[]
+        argv_sha256=hashlib.sha256(
+            json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+        ).hexdigest()
+        try:
+            fp=json.loads(durable_row["worker_fingerprint_json"] or "{}")
+            if not isinstance(fp,dict):
+                fp={}
+        except Exception:
+            fp={}
+        return {
+            "proxy_job_id":row["proxy_job_id"],
+            "node_job_id":row["node_job_id"],
+            "task_id":row["task_id"],
+            "project_id":row["project_id"],
+            "state":state.get("state"),
+            "pid":fp.get("pid"),
+            "command_sha256":fp.get("command_sha256"),
+            "argv_sha256":argv_sha256,
+            "cwd":command.get("cwd"),
+            "started_at_ms":state.get("started_at_ms"),
+            "last_output_at_ms":state.get("last_output_at_ms"),
+            "last_heartbeat_at_ms":state.get("last_heartbeat_at_ms"),
+        }
+
     def capacity_snapshot(self)->dict:
         """Reconcile node-routed rows against durable job truth before counting.
 
@@ -365,6 +398,7 @@ class NodeJobs:
         active=0
         unresolved=0
         reconciled_terminal=0
+        active_job_summaries=[]
         for row in candidates:
             try:
                 state=self.durable.job_get(row["node_job_id"])["state"]
@@ -376,12 +410,15 @@ class NodeJobs:
                 reconciled_terminal+=1
             else:
                 active+=1
+                if len(active_job_summaries)<64:
+                    active_job_summaries.append(self._active_job_summary(row,state))
         return {
             "active_node_jobs":active,
             "unresolved_node_jobs":unresolved,
             "candidate_nonterminal_routed_jobs":len(candidates),
             "reconciled_terminal_rows":reconciled_terminal,
             "capacity_reconciliation_complete":unresolved==0,
+            "active_job_summaries":active_job_summaries,
         }
 
     def reconcile_all(self):
