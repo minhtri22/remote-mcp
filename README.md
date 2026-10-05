@@ -149,24 +149,24 @@ The repository root includes `Start-RemoteMCP-Node.ps1`. Users should use this s
 Normal production node on Windows must use an explicit non-OS project/worktree root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RootDir "D:\WORK\RESEARCH"
+.\Start-RemoteMCP-Node.ps1 -RootDir "<NON_OS_RESEARCH_ROOT>"
 ```
 
 Restart the same node identity without changing the research root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RootDir "D:\WORK\RESEARCH" -Restart
+.\Start-RemoteMCP-Node.ps1 -RootDir "<NON_OS_RESEARCH_ROOT>" -Restart
 ```
 
 Use an existing non-default runtime identity. The runtime directory is small control-plane state and may live under LocalAppData on the OS drive; it is **not** a project/worktree root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "D:\WORK\RESEARCH"
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "<NON_OS_RESEARCH_ROOT>"
 ```
 
 The script reuses the existing device runtime/key, creates or reuses the dedicated RemoteMCP virtual environment, ensures the pinned node dependencies are available, avoids duplicate node processes, starts the node headlessly, and prints local node status. It does **not** pair a new device.
 
-**Storage invariant for this production research host:** research repositories, managed projects, managed workspaces, and task worktrees are forbidden on the Windows OS drive. Historical `%USERPROFILE%\RemoteMCP-Workspace` paths are not valid production research roots.
+**Storage invariant for production Windows research hosts:** research repositories, managed projects, managed workspaces, and task worktrees are forbidden on the Windows OS drive. Historical `%USERPROFILE%\RemoteMCP-Workspace` paths are not valid production research roots.
 
 Current practical readiness:
 
