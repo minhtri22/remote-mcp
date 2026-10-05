@@ -1308,6 +1308,35 @@ class RoutingService:
             json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
         ).hexdigest()
 
+    def _scientific_execution_key(
+        self,task_id:str,scientific_gate:str,argv:list[str],cwd:str,evidence_paths:list[str]
+    )->str:
+        gate=str(scientific_gate or "").strip()
+        if not gate or len(gate)>256:
+            raise DurableError(
+                "INVALID_ARGUMENT","scientific_gate must be a non-empty string <= 256 characters"
+            )
+        task=self.multi.tasks.get(task_id)
+        base_commit=str(task["base_commit"] or "").strip()
+        if not base_commit:
+            raise DurableError(
+                "SCIENTIFIC_BASE_COMMIT_REQUIRED",
+                "exactly-once scientific execution requires an immutable task base_commit",
+                task_id=task_id,
+            )
+        payload={
+            "project_id":task["project_id"],
+            "base_commit":base_commit,
+            "scientific_gate":gate,
+            "argv":list(argv),
+            "cwd":str(cwd),
+            "evidence_paths":list(evidence_paths),
+        }
+        digest=hashlib.sha256(
+            json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+        ).hexdigest()
+        return "sek_"+digest
+
     @staticmethod
     def _submit_intent_operation_id(operation_id:str)->str:
         return "rsi_"+hashlib.sha256(str(operation_id).encode("utf-8")).hexdigest()[:40]
@@ -1777,28 +1806,60 @@ class RoutingService:
 
     async def task_job_submit_or_local(
         self,operation_id:str,task_id:str,lease_token:str,lease_epoch:int,
-        argv:list[str],cwd:str=".",evidence_paths:list[str]|None=None
+        argv:list[str],cwd:str=".",evidence_paths:list[str]|None=None,
+        scientific_gate:str|None=None,
     )->dict:
         evidence_paths=list(evidence_paths or [])
         enforce_agent_git_worktree_policy(argv)
         binding=self.bindings.task_binding(task_id)
         if binding is None:
-            if evidence_paths:
+            if evidence_paths or scientific_gate is not None:
                 raise DurableError(
-                    "INVALID_ARGUMENT",
-                    "evidence_paths are currently supported only for routed task jobs",
+                    "DEVICE_CONTEXT_REQUIRED",
+                    "evidence-bound or exactly-once scientific jobs require a routed task",
                 )
             return await self.multi.task_job_submit(
                 operation_id,task_id,lease_token,lease_epoch,argv,cwd
             )
         dev=self.devices.require_online(binding["device_id"])
         lease=self.multi.leases.validate(task_id,lease_token,lease_epoch)
+        execution_key=None
+        if scientific_gate is not None:
+            execution_key=self._scientific_execution_key(
+                task_id,scientific_gate,argv,cwd,evidence_paths
+            )
+            existing=self.routed_jobs.by_execution_key(execution_key)
+            if existing is not None:
+                existing_binding=self.bindings.task_binding(existing["task_id"])
+                device_state=self.devices.status(existing["device_id"])["state"]
+                response={
+                    **self.routed_jobs.as_dict(existing,device_state),
+                    "exactly_once":True,
+                    "adopted_existing_execution":True,
+                    "scientific_gate":str(scientific_gate),
+                    "existing_task_id":existing["task_id"],
+                    "requested_task_id":task_id,
+                    "scientific_rerun_required":False,
+                }
+                return self._with_routing(
+                    response,existing["device_id"],
+                    project_id=existing["project_id"],task_id=existing["task_id"],
+                    binding_generation=(
+                        int(existing_binding["binding_generation"])
+                        if existing_binding is not None else None
+                    ),
+                )
         args={
             "task_id":task_id,"lease_epoch":int(lease_epoch),
             "argv":argv,"cwd":cwd,"evidence_paths":evidence_paths,
         }
+        if scientific_gate is not None:
+            args["scientific_gate"]=str(scientific_gate)
+            args["execution_key"]=execution_key
         op,created=self._reserve(
-            operation_id,"TASK_JOB_SUBMIT",args,agent_id=lease["agent_id"],
+            operation_id,
+            "TASK_JOB_SUBMIT_ONCE" if execution_key else "TASK_JOB_SUBMIT",
+            args,agent_id=lease["agent_id"],
             project_id=binding["project_id"],task_id=task_id,
         )
         self._freeze_routed_submit_intent(
@@ -1841,25 +1902,61 @@ class RoutingService:
         self.devices.require_online(binding["device_id"])
         if created:
             self.durable.operations.mark_executing(operation_id)
+        deduplicated_proxy=None
         with self.db.transaction() as con:
-            proxy,_=self.routed_jobs.create(
-                con,operation_id,task_id,binding["project_id"],binding["device_id"]
+            proxy,proxy_created=self.routed_jobs.create(
+                con,operation_id,task_id,binding["project_id"],binding["device_id"],
+                execution_key=execution_key,
+                argv_sha256=self._argv_sha256(argv),
+                cwd=str(cwd),
             )
-            payload={
-                "proxy_job_id":proxy["proxy_job_id"],
-                "task_id":task_id,"argv":argv,"cwd":cwd,
-                "evidence_paths":evidence_paths,
-            }
-            cmd,_=self.commands.create_in_tx(
+            if execution_key and not proxy_created and proxy["operation_id"]!=operation_id:
+                deduplicated_proxy=proxy
+                cmd=None
+            else:
+                payload={
+                    "proxy_job_id":proxy["proxy_job_id"],
+                    "task_id":task_id,"argv":argv,"cwd":cwd,
+                    "evidence_paths":evidence_paths,
+                    "execution_key":execution_key,
+                    "scientific_gate":scientific_gate,
+                }
+                cmd,_=self.commands.create_in_tx(
                 con,binding["device_id"],"JOB_SUBMIT",payload,
                 route_generation=int(dev["route_generation"]),
                 project_id=binding["project_id"],task_id=task_id,
                 operation_id=operation_id,operation_step=0,
-                expires_at_ms=min(
-                    int(lease["expires_at_ms"]),
-                    now_ms()+self.config.mutation_ttl_seconds*1000,
+                    expires_at_ms=min(
+                        int(lease["expires_at_ms"]),
+                        now_ms()+self.config.mutation_ttl_seconds*1000,
+                    ),
+                )
+        if deduplicated_proxy is not None:
+            self.job_admissions.abort_if_unbound(operation_id,"SCIENTIFIC_EXECUTION_DEDUPLICATED")
+            existing_binding=self.bindings.task_binding(deduplicated_proxy["task_id"])
+            response={
+                **self.routed_jobs.as_dict(
+                    deduplicated_proxy,
+                    self.devices.status(deduplicated_proxy["device_id"])["state"],
+                ),
+                "exactly_once":True,
+                "adopted_existing_execution":True,
+                "scientific_gate":str(scientific_gate),
+                "existing_task_id":deduplicated_proxy["task_id"],
+                "requested_task_id":task_id,
+                "scientific_rerun_required":False,
+            }
+            response=self._with_routing(
+                response,deduplicated_proxy["device_id"],
+                project_id=deduplicated_proxy["project_id"],
+                task_id=deduplicated_proxy["task_id"],
+                binding_generation=(
+                    int(existing_binding["binding_generation"])
+                    if existing_binding is not None else None
                 ),
             )
+            self.durable.operations.succeed(operation_id,response)
+            return response
         if self.job_admissions.by_operation(operation_id) is not None:
             self.job_admissions.bind(operation_id,proxy["proxy_job_id"])
         try:
@@ -1873,6 +1970,13 @@ class RoutingService:
             response=self.routed_jobs.as_dict(
                 row,self.devices.get(binding["device_id"])["state"]
             )
+            if execution_key:
+                response.update({
+                    "exactly_once":True,
+                    "adopted_existing_execution":False,
+                    "scientific_gate":str(scientific_gate),
+                    "scientific_rerun_required":False,
+                })
             response=self._with_routing(
                 response,binding["device_id"],
                 project_id=binding["project_id"],task_id=task_id,
@@ -1886,6 +1990,16 @@ class RoutingService:
                     self.job_admissions.abort_if_unbound(operation_id,exc.code)
                 self._fail_final(operation_id,exc)
             raise
+
+    async def task_job_submit_once_or_local(
+        self,operation_id:str,task_id:str,lease_token:str,lease_epoch:int,
+        scientific_gate:str,argv:list[str],cwd:str=".",
+        evidence_paths:list[str]|None=None,
+    )->dict:
+        return await self.task_job_submit_or_local(
+            operation_id,task_id,lease_token,lease_epoch,argv,cwd,
+            evidence_paths,scientific_gate=scientific_gate,
+        )
 
     def task_jobs_or_local(self,task_id:str)->dict:
         binding=self.bindings.task_binding(task_id)
