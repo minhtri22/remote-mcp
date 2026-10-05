@@ -50,21 +50,21 @@ $RuntimePointer = Join-Path $Base "active-runtime.txt"
 # Research/project/worktree storage must be explicitly placed on a non-OS data drive.
 # Never silently fall back to USERPROFILE or the Windows system drive.
 $Workspace = [Environment]::GetEnvironmentVariable("REMOTEMCP_NODE_ROOT","Process")
-if (-not $Workspace) {
+if (-not $Workspace) {{
     $Workspace = [Environment]::GetEnvironmentVariable("REMOTEMCP_NODE_ROOT","User")
-}
-if (-not $Workspace) {
+}}
+if (-not $Workspace) {{
     throw "REMOTEMCP_NODE_ROOT must be set explicitly to a non-OS research/data root (for this deployment: D:\\WORK\\RESEARCH). OS-drive research/project/worktree storage is forbidden."
-}
-if (-not [System.IO.Path]::IsPathFullyQualified($Workspace)) {
+}}
+if (-not [System.IO.Path]::IsPathFullyQualified($Workspace)) {{
     throw "REMOTEMCP_NODE_ROOT must be an absolute path."
-}
+}}
 $Workspace = [System.IO.Path]::GetFullPath($Workspace)
 $WorkspaceDrive = [System.IO.Path]::GetPathRoot($Workspace)
 $OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
-if ($WorkspaceDrive -and $OsDrive -and ($WorkspaceDrive.TrimEnd('\\') -ieq $OsDrive.TrimEnd('\\'))) {
+if ($WorkspaceDrive -and $OsDrive -and ($WorkspaceDrive.TrimEnd('\\') -ieq $OsDrive.TrimEnd('\\'))) {{
     throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: RemoteMCP project/worktree root cannot be on the Windows OS drive."
-}
+}}
 
 $Source = Join-Path $Base "source"
 $Venv = Join-Path $Base "node-venv"
