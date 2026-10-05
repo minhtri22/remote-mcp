@@ -675,6 +675,12 @@ def device_capacity_status(device_id: str) -> dict:
 
 
 @mcp.tool()
+def device_upgrade_readiness(device_id: str) -> dict:
+    """Return the fail-closed deployment gate; upgrade only when agents/jobs/leases/commands are idle."""
+    return routing_service.device_upgrade_readiness(device_id)
+
+
+@mcp.tool()
 async def device_revoke(
     operation_id: str,
     device_id: str,
