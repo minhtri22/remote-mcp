@@ -620,12 +620,19 @@ class RoutingService:
             "AND command_expires_at_ms>?",
             (device_id,t),
         )
+        gateway_local_jobs=self.db.query_one(
+            "SELECT COUNT(*) AS n FROM jobs "
+            "WHERE state IN ('QUEUED','STARTING','RUNNING','CANCELLING')"
+        )
         blockers={
             "capacity_unresolved":not bool(capacity.get("capacity_resolved")),
             "active_node_jobs":int(capacity.get("authoritative_active_node_jobs") or 0),
             "fresh_agent_sessions":int(fresh_sessions["n"]) if fresh_sessions else 0,
             "unexpired_task_leases":int(active_leases["n"]) if active_leases else 0,
             "unexpired_device_commands":int(active_commands["n"]) if active_commands else 0,
+            "gateway_local_nonterminal_jobs":(
+                int(gateway_local_jobs["n"]) if gateway_local_jobs else 0
+            ),
         }
         ready=(
             not blockers["capacity_unresolved"]
@@ -633,6 +640,7 @@ class RoutingService:
             and blockers["fresh_agent_sessions"]==0
             and blockers["unexpired_task_leases"]==0
             and blockers["unexpired_device_commands"]==0
+            and blockers["gateway_local_nonterminal_jobs"]==0
         )
         return self._with_routing(
             {
