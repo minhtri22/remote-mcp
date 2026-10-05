@@ -2015,6 +2015,7 @@ class RoutingService:
         execution_key=None
         existing_execution=None
         if scientific_gate is not None:
+            scientific_gate=str(scientific_gate).strip()
             execution_key=self._scientific_execution_key(
                 task_id,scientific_gate,argv,cwd,evidence_paths
             )
