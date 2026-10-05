@@ -2543,15 +2543,25 @@ class RoutingService:
         if not refresh or state!="ONLINE":
             result=self.routed_jobs.as_dict(row,state)
         else:
-            remote,_=await self._route_step(
-                binding["device_id"],"JOB_GET",{"proxy_job_id":proxy_job_id},
-                project_id=binding["project_id"],task_id=task_id,
-            )
+            try:
+                remote,_=await self._route_step(
+                    binding["device_id"],"JOB_GET",{"proxy_job_id":proxy_job_id},
+                    project_id=binding["project_id"],task_id=task_id,
+                )
+            except DurableError as exc:
+                if exc.code!="DEVICE_COMMAND_PENDING":
+                    raise
+                observed=self.task_job_inspect(task_id,proxy_job_id)
+                observed["observation_refresh"]="PENDING"
+                observed["readback_state"]="OBSERVATION_REFRESH_PENDING"
+                observed["message"]=str(exc)
+                return observed
             row=self.routed_jobs.update(
                 proxy_job_id,node_job_id=remote.get("node_job_id"),
                 state=remote.get("state"),
             )
             result=self.routed_jobs.as_dict(row,"ONLINE")
+            result["observation_refresh"]="SUCCEEDED"
         return self._with_routing(
             result,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
             binding_generation=int(binding["binding_generation"]),
@@ -2563,14 +2573,35 @@ class RoutingService:
     )->dict:
         binding,_=self._task_proxy(task_id,proxy_job_id)
         self.devices.require_online(binding["device_id"])
-        result,_=await self._route_step(
-            binding["device_id"],"JOB_LOGS",
-            {
-                "proxy_job_id":proxy_job_id,"stream":stream,
-                "cursor":int(cursor),"max_bytes":int(max_bytes),
-            },
-            project_id=binding["project_id"],task_id=task_id,
-        )
+        try:
+            result,_=await self._route_step(
+                binding["device_id"],"JOB_LOGS",
+                {
+                    "proxy_job_id":proxy_job_id,"stream":stream,
+                    "cursor":int(cursor),"max_bytes":int(max_bytes),
+                },
+                project_id=binding["project_id"],task_id=task_id,
+            )
+        except DurableError as exc:
+            if exc.code!="DEVICE_COMMAND_PENDING":
+                raise
+            observed=self.task_job_inspect(task_id,proxy_job_id)
+            return {
+                **observed,
+                "stream":stream,
+                "cursor":int(cursor),
+                "data":"",
+                "content":"",
+                "eof":False,
+                "readback_state":"OBSERVATION_REFRESH_PENDING",
+                "observation_refresh":"PENDING",
+                "message":str(exc),
+            }
+        result={
+            **result,
+            "readback_state":"READ_OK",
+            "observation_refresh":"SUCCEEDED",
+        }
         return self._with_routing(
             result,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
             binding_generation=int(binding["binding_generation"]),
@@ -2582,10 +2613,22 @@ class RoutingService:
             result=json.loads(row["terminal_result_json"])
         else:
             self.devices.require_online(binding["device_id"])
-            result,_=await self._route_step(
-                binding["device_id"],"JOB_RESULT",{"proxy_job_id":proxy_job_id},
-                project_id=binding["project_id"],task_id=task_id,
-            )
+            try:
+                result,_=await self._route_step(
+                    binding["device_id"],"JOB_RESULT",{"proxy_job_id":proxy_job_id},
+                    project_id=binding["project_id"],task_id=task_id,
+                )
+            except DurableError as exc:
+                if exc.code!="DEVICE_COMMAND_PENDING":
+                    raise
+                observed=self.task_job_inspect(task_id,proxy_job_id)
+                return {
+                    **observed,
+                    "terminal":False,
+                    "result_readback_state":"OBSERVATION_REFRESH_PENDING",
+                    "observation_refresh":"PENDING",
+                    "message":str(exc),
+                }
             if result.get("state"):
                 self.routed_jobs.update(
                     proxy_job_id,node_job_id=result.get("node_job_id"),
