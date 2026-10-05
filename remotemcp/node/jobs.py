@@ -72,6 +72,10 @@ class NodeJobs:
     def _provenance_meta_key(proxy_job_id:str)->str:
         return f"job-provenance:{proxy_job_id}"
 
+    @staticmethod
+    def _science_execution_meta_key(execution_key:str)->str:
+        return f"science-execution:{execution_key}"
+
     def _normalize_evidence_paths(self,task_id:str,paths)->list[dict]:
         if paths is None:
             return []
@@ -270,6 +274,14 @@ class NodeJobs:
         supplied_project=payload.get("project_id")
         if supplied_project is not None and str(supplied_project)!=project_id:
             raise DurableError("COMMAND_CONFLICT","routed job project mismatch")
+        execution_key=payload.get("execution_key")
+        if execution_key is not None:
+            execution_key=str(execution_key).strip()
+            if not execution_key.startswith("sek_") or len(execution_key)!=68:
+                raise DurableError("INVALID_ARGUMENT","invalid scientific execution key")
+        scientific_gate=payload.get("scientific_gate")
+        if scientific_gate is not None:
+            scientific_gate=str(scientific_gate)
         submitted_argv_sha256=hashlib.sha256(
             json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
         ).hexdigest()
@@ -280,9 +292,73 @@ class NodeJobs:
             "project_id":project_id,
             "submitted_argv_sha256":submitted_argv_sha256,
             "cwd":cwd,
-            "execution_key":payload.get("execution_key"),
-            "scientific_gate":payload.get("scientific_gate"),
+            "execution_key":execution_key,
+            "scientific_gate":scientific_gate,
         }
+        if execution_key is not None:
+            science_meta_key=self._science_execution_meta_key(execution_key)
+            with self.db.transaction() as con:
+                row=con.execute(
+                    "SELECT value_json FROM node_meta WHERE key=?",
+                    (science_meta_key,),
+                ).fetchone()
+                existing=json.loads(row["value_json"]) if row is not None else None
+                if existing is not None:
+                    same_contract=(
+                        existing.get("task_id")==task_id
+                        and existing.get("project_id")==project_id
+                        and existing.get("submitted_argv_sha256")==submitted_argv_sha256
+                        and existing.get("cwd")==cwd
+                        and existing.get("scientific_gate")==scientific_gate
+                    )
+                    if not same_contract:
+                        raise DurableError(
+                            "COMMAND_CONFLICT",
+                            "scientific execution key maps to a different node contract",
+                            execution_key=execution_key,
+                        )
+                    if existing.get("proxy_job_id")!=proxy_job_id:
+                        raise DurableError(
+                            "SCIENTIFIC_EXECUTION_ALREADY_EXISTS",
+                            "scientific execution key is already reserved by another proxy",
+                            execution_key=execution_key,
+                            canonical_proxy_job_id=existing.get("proxy_job_id"),
+                            canonical_node_job_id=existing.get("node_job_id"),
+                        )
+                    if existing.get("node_job_id"):
+                        current=self.durable.job_get(existing["node_job_id"])
+                        return {
+                            "proxy_job_id":proxy_job_id,
+                            "node_job_id":existing["node_job_id"],
+                            "state":current["state"],
+                            "declared_evidence_paths":len(evidence_manifest["paths"]),
+                            "exactly_once":True,
+                            "replayed":True,
+                        }
+                else:
+                    reservation={
+                        "schema":"remotemcp.science-execution.v1",
+                        "execution_key":execution_key,
+                        "proxy_job_id":proxy_job_id,
+                        "node_job_id":None,
+                        "task_id":task_id,
+                        "project_id":project_id,
+                        "submitted_argv_sha256":submitted_argv_sha256,
+                        "cwd":cwd,
+                        "scientific_gate":scientific_gate,
+                        "state":"RESERVED",
+                        "created_at_ms":now_ms(),
+                    }
+                    con.execute(
+                        "INSERT INTO node_meta(key,value_json) VALUES(?,?)",
+                        (
+                            science_meta_key,
+                            json.dumps(
+                                reservation,ensure_ascii=False,sort_keys=True,
+                                separators=(",",":")
+                            ),
+                        ),
+                    )
         operation_id=f"v2bd-node-job:{self.device_id}:{command_id}"
         result=await self.durable.job_submit(
             operation_id,argv,rel,
@@ -295,6 +371,28 @@ class NodeJobs:
         node_job_id=result["job_id"]
         t=now_ms()
         with self.db.transaction() as con:
+            if execution_key is not None:
+                science_meta_key=self._science_execution_meta_key(execution_key)
+                row_meta=con.execute(
+                    "SELECT value_json FROM node_meta WHERE key=?",(science_meta_key,)
+                ).fetchone()
+                science_meta=json.loads(row_meta["value_json"]) if row_meta is not None else {}
+                science_meta.update({
+                    "node_job_id":node_job_id,
+                    "state":result["state"],
+                    "updated_at_ms":t,
+                })
+                con.execute(
+                    "INSERT INTO node_meta(key,value_json) VALUES(?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+                    (
+                        science_meta_key,
+                        json.dumps(
+                            science_meta,ensure_ascii=False,sort_keys=True,
+                            separators=(",",":")
+                        ),
+                    ),
+                )
             row=con.execute("SELECT * FROM node_routed_jobs WHERE proxy_job_id=?",(proxy_job_id,)).fetchone()
             if row:
                 if row["node_job_id"]!=node_job_id or row["task_id"]!=task_id or row["project_id"]!=project_id:
@@ -324,6 +422,8 @@ class NodeJobs:
         return {
             "proxy_job_id":proxy_job_id,"node_job_id":node_job_id,"state":result["state"],
             "declared_evidence_paths":len(evidence_manifest["paths"]),
+            "exactly_once":execution_key is not None,
+            "execution_key":execution_key,
         }
 
     def _row(self,proxy_job_id:str):
