@@ -1,5 +1,6 @@
 param(
     [string]$RuntimeDir = "",
+    [string]$RootDir = "",
     [string]$SourceDir = $PSScriptRoot,
     [string]$VenvDir = (Join-Path $env:LOCALAPPDATA "RemoteMCP\node-venv"),
     [switch]$Restart
@@ -109,6 +110,27 @@ New-Item -ItemType Directory -Force -Path $Base | Out-Null
 $RuntimeDir = Resolve-RemoteMCPRuntime -Requested $RuntimeDir
 [System.IO.File]::WriteAllText($RuntimePointer,$RuntimeDir,[System.Text.UTF8Encoding]::new($false))
 
+# Resolve the project/worktree execution root explicitly. Runtime identity may remain
+# under LOCALAPPDATA, but research/project/worktree storage must not use the OS drive.
+$DeviceFile = Join-Path $RuntimeDir "device.json"
+$StoredDevice = Get-Content $DeviceFile -Raw | ConvertFrom-Json
+if (-not $RootDir) { $RootDir = $env:REMOTEMCP_NODE_ROOT }
+if (-not $RootDir) { $RootDir = [string]$StoredDevice.root }
+if (-not $RootDir) {
+    throw "RemoteMCP node root is missing. Pass -RootDir or set REMOTEMCP_NODE_ROOT."
+}
+if (-not [System.IO.Path]::IsPathFullyQualified($RootDir)) {
+    throw "RemoteMCP node root must be an absolute path."
+}
+$RootDir = [System.IO.Path]::GetFullPath($RootDir)
+$RootDrive = [System.IO.Path]::GetPathRoot($RootDir)
+$OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd('\'))) {
+    throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: project/worktree root cannot be on the Windows OS drive. Use a data/research drive such as D:\WORK\RESEARCH."
+}
+New-Item -ItemType Directory -Force -Path $RootDir | Out-Null
+Write-Host "Node root: $RootDir"
+
 New-Item -ItemType Directory -Force -Path (Split-Path $VenvDir -Parent) | Out-Null
 
 $BootstrapPython = Find-RemoteMCPPython
@@ -148,7 +170,7 @@ if ($existing.Count -eq 0) {
     $logFile = Join-Path $Base "node.log"
     $errFile = Join-Path $Base "node-error.log"
     Write-Host "Starting RemoteMCP node..."
-    Start-Process -FilePath $NodePython -ArgumentList @("-m","remotemcp.node","run","--runtime-dir",$RuntimeDir) -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile | Out-Null
+    Start-Process -FilePath $NodePython -ArgumentList @("-m","remotemcp.node","run","--runtime-dir",$RuntimeDir,"--root",$RootDir) -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile | Out-Null
     Start-Sleep -Seconds 2
 } else {
     Write-Host "RemoteMCP node is already running."
@@ -158,6 +180,8 @@ Push-Location $SourceDir
 try {
     & $NodePython -m remotemcp.node status --runtime-dir $RuntimeDir
     if ($LASTEXITCODE -ne 0) { throw "RemoteMCP node status failed." }
+    & $NodePython -m remotemcp.node doctor --runtime-dir $RuntimeDir --root $RootDir
+    if ($LASTEXITCODE -ne 0) { throw "RemoteMCP node doctor failed." }
 } finally {
     Pop-Location
 }
