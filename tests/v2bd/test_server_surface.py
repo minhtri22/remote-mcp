@@ -21,7 +21,9 @@ def test_exact_v2bd_server_surface(monkeypatch,tmp_path):
         assert actual==expected,(name,actual,expected)
     for name in (
         "project_register","task_create","task_claim","task_complete",
-        "file_write_cas","file_edit_cas","task_job_submit","task_jobs","task_job_cancel"
+        "file_write_cas","file_edit_cas","task_job_submit","task_job_submit_once",
+        "task_job_inspect","task_jobs","task_job_cancel","device_upgrade_readiness",
+        "project_binding_deprecate"
     ):
         assert callable(getattr(server,name))
     assert server.routing_service.db.query_one("select version from schema_migrations where version=3")
