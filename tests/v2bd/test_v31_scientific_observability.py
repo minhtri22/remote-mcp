@@ -238,3 +238,113 @@ def test_upgrade_readiness_waits_for_fresh_agents_and_live_work(make_gateway,tmp
         assert blocked["blockers"]["fresh_agent_sessions"]==1
         assert blocked["decision"]=="WAIT_DO_NOT_RESTART_OR_DEPLOY"
     asyncio.run(run())
+
+
+def test_exactly_once_key_deduplicates_across_two_tasks_same_base(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        node,_,project,task1,claim1=await _setup_routed_git(g,tmp_path,"cross-task")
+        agent2=await g.multi.agent_register("agent-two","agent-two","client-two",[])
+        task2=await drive(
+            g,node,
+            g.routing.task_create_or_local(
+                "task-two",project["project_id"],"science-two","HEAD"
+            ),
+        )
+        claim2=await drive(
+            g,node,
+            g.routing.task_claim_or_local(
+                "claim-two",task2["task_id"],agent2["agent_id"],agent2["session_id"]
+            ),
+        )
+        await node.jobs.durable.start()
+        try:
+            argv=[sys.executable,"-c","import time; time.sleep(1.0)"]
+            first=await drive(
+                g,node,
+                g.routing.task_job_submit_once_or_local(
+                    "cross-science-1",task1["task_id"],claim1["lease_token"],
+                    claim1["lease_epoch"],"CONFIRMATORY_E",argv,".",[]
+                ),
+            )
+            second=await g.routing.task_job_submit_once_or_local(
+                "cross-science-2",task2["task_id"],claim2["lease_token"],
+                claim2["lease_epoch"],"CONFIRMATORY_E",argv,".",[]
+            )
+            assert task1["base_commit"]==task2["base_commit"]
+            assert second["proxy_job_id"]==first["proxy_job_id"]
+            assert second["execution_key"]==first["execution_key"]
+            assert second["adopted_existing_execution"] is True
+            assert second["existing_task_id"]==task1["task_id"]
+            assert second["requested_task_id"]==task2["task_id"]
+        finally:
+            await node.jobs.durable.stop()
+    asyncio.run(run())
+
+
+def test_node_rejects_second_proxy_for_same_science_key(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        node,_,project,task,_=await _setup_routed_git(g,tmp_path,"node-defense")
+        await node.jobs.durable.start()
+        try:
+            key="sek_"+"a"*64
+            payload={
+                "task_id":task["task_id"],
+                "argv":[sys.executable,"-c","import time; time.sleep(.5)"],
+                "cwd":".",
+                "evidence_paths":[],
+                "execution_key":key,
+                "scientific_gate":"NODE_DEFENSE",
+            }
+            first=await node.jobs.submit("proxy-one","command-one",payload)
+            assert first["exactly_once"] is True
+            with pytest.raises(DurableError) as exc:
+                await node.jobs.submit("proxy-two","command-two",payload)
+            assert exc.value.code=="SCIENTIFIC_EXECUTION_ALREADY_EXISTS"
+        finally:
+            await node.jobs.durable.stop()
+    asyncio.run(run())
+
+
+def test_exactly_once_preproxy_recovery_preserves_execution_key(make_gateway,tmp_path,monkeypatch):
+    async def run():
+        g=make_gateway()
+        node,_,_,task,claim=await _setup_routed_git(g,tmp_path,"recover-once")
+        original=g.routing._reconcile_routed_lane
+
+        async def unresolved(*args,**kwargs):
+            raise DurableError(
+                "PREDECESSOR_STATE_UNRESOLVED",
+                "qualification-induced preproxy stop",
+            )
+
+        monkeypatch.setattr(g.routing,"_reconcile_routed_lane",unresolved)
+        argv=[sys.executable,"-c","print('science')"]
+        with pytest.raises(DurableError) as exc:
+            await g.routing.task_job_submit_once_or_local(
+                "recover-science",task["task_id"],claim["lease_token"],
+                claim["lease_epoch"],"RECOVERABLE_E",argv,".",[]
+            )
+        assert exc.value.code=="PREDECESSOR_STATE_UNRESOLVED"
+        status=g.routing.task_job_submit_failure_status(
+            task["task_id"],"recover-science"
+        )
+        frozen=status["frozen_submit_intent"]
+        assert frozen["execution_key"].startswith("sek_")
+        assert frozen["scientific_gate"]=="RECOVERABLE_E"
+        monkeypatch.setattr(g.routing,"_reconcile_routed_lane",original)
+
+        recovered=await drive(
+            g,node,
+            g.routing.task_job_recover_preproxy_submit(
+                task["task_id"],claim["lease_token"],claim["lease_epoch"],
+                "recover-science",frozen["argv_sha256"]
+            ),
+        )
+        assert recovered["execution_key"]==frozen["execution_key"]
+        assert recovered["scientific_gate"]=="RECOVERABLE_E"
+        assert recovered["exactly_once"] is True
+        row=g.routing.routed_jobs.by_operation("recover-science")
+        assert row["execution_key"]==frozen["execution_key"]
+    asyncio.run(run())
