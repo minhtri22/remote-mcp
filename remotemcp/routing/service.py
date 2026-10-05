@@ -1435,6 +1435,7 @@ class RoutingService:
         self,operation_id:str,task_id:str,binding,lease,argv:list[str],cwd:str,
         evidence_paths:list[str],*,legacy_adopted:bool=False,
         original_lease_epoch:int|None=None,
+        scientific_gate:str|None=None,execution_key:str|None=None,
     )->dict:
         intent={
             "original_operation_id":operation_id,
@@ -1451,6 +1452,8 @@ class RoutingService:
             "cwd":str(cwd),
             "evidence_paths":list(evidence_paths),
             "legacy_adopted":bool(legacy_adopted),
+            "scientific_gate":scientific_gate,
+            "execution_key":execution_key,
         }
         intent_id=self._submit_intent_operation_id(operation_id)
         op,created=self._reserve(
@@ -1494,7 +1497,11 @@ class RoutingService:
     def task_job_submit_failure_status(self,task_id:str,operation_id:str)->dict:
         binding=self.bindings.require_task_binding(task_id)
         op=self.durable.operations.get(operation_id)
-        if op is None or op["kind"]!="TASK_JOB_SUBMIT" or op["task_id"]!=task_id:
+        if (
+            op is None
+            or op["kind"] not in {"TASK_JOB_SUBMIT","TASK_JOB_SUBMIT_ONCE"}
+            or op["task_id"]!=task_id
+        ):
             raise DurableError(
                 "NOT_FOUND","routed task-job submit operation not found",
                 task_id=task_id,operation_id=operation_id,
@@ -1593,6 +1600,8 @@ class RoutingService:
                 "device_id":intent["device_id"],
                 "binding_generation":int(intent["binding_generation"]),
                 "legacy_adopted":bool(intent.get("legacy_adopted",False)),
+                "scientific_gate":intent.get("scientific_gate"),
+                "execution_key":intent.get("execution_key"),
             }
         if admission is not None:
             out["admission"]=self.job_admissions.as_dict(admission)
@@ -1624,7 +1633,10 @@ class RoutingService:
         lease=self.multi.leases.validate(task_id,lease_token,lease_epoch)
         op=self.durable.operations.get(operation_id)
         if op is None or op["kind"]!="TASK_JOB_SUBMIT" or op["task_id"]!=task_id:
-            raise DurableError("NOT_FOUND","legacy routed submit operation not found")
+            raise DurableError(
+                "NOT_FOUND",
+                "legacy routed submit operation not found; exactly-once submits already freeze their intent",
+            )
         if self.routed_jobs.by_operation(operation_id) is not None:
             raise DurableError(
                 "PREEXECUTION_RECOVERY_NOT_ELIGIBLE",
@@ -1778,6 +1790,9 @@ class RoutingService:
                         "same_logical_submit_preserved":True,
                         "argv_sha256":intent["argv_sha256"],
                         "scientific_execution_was_started_before_recovery":False,
+                        "execution_key":intent.get("execution_key"),
+                        "scientific_gate":intent.get("scientific_gate"),
+                        "exactly_once":bool(intent.get("execution_key")),
                     }
                     response=self._with_routing(
                         response,binding["device_id"],project_id=binding["project_id"],task_id=task_id,
@@ -1845,7 +1860,10 @@ class RoutingService:
         try:
             with self.db.transaction() as con:
                 proxy,_=self.routed_jobs.create(
-                    con,operation_id,task_id,binding["project_id"],binding["device_id"]
+                    con,operation_id,task_id,binding["project_id"],binding["device_id"],
+                    execution_key=intent.get("execution_key"),
+                    argv_sha256=intent.get("argv_sha256"),
+                    cwd=str(intent["cwd"]),
                 )
                 payload={
                     "proxy_job_id":proxy["proxy_job_id"],
@@ -1853,6 +1871,8 @@ class RoutingService:
                     "argv":list(intent["argv"]),
                     "cwd":str(intent["cwd"]),
                     "evidence_paths":list(intent.get("evidence_paths") or []),
+                    "execution_key":intent.get("execution_key"),
+                    "scientific_gate":intent.get("scientific_gate"),
                 }
                 cmd,_=self.commands.create_in_tx(
                     con,binding["device_id"],"JOB_SUBMIT",payload,
@@ -1934,7 +1954,8 @@ class RoutingService:
             project_id=binding["project_id"],task_id=task_id,
         )
         self._freeze_routed_submit_intent(
-            operation_id,task_id,binding,lease,list(argv),str(cwd),evidence_paths
+            operation_id,task_id,binding,lease,list(argv),str(cwd),evidence_paths,
+            scientific_gate=scientific_gate,execution_key=execution_key,
         )
         if op["state"]==OperationState.SUCCEEDED.value:
             replay=self.durable.operations.replay_result(op) or {}
