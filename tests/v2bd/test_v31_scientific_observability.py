@@ -203,3 +203,38 @@ def test_historical_binding_blocks_new_tasks_but_preserves_project(make_gateway,
             )
         assert exc.value.code=="PROJECT_BINDING_HISTORICAL"
     asyncio.run(run())
+
+
+def test_upgrade_readiness_waits_for_fresh_agents_and_live_work(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"upgrade"
+        root.mkdir()
+        node,dev=await pair_node(g,root,tmp_path/"upgrade-rt","upgrade")
+        g.routing.heartbeat_http(
+            g.routing.devices.get(dev["device_id"]),
+            {
+                "active_node_jobs":0,
+                "active_node_jobs_unresolved":0,
+                "capacity_reconciliation_complete":True,
+                "candidate_nonterminal_routed_jobs":0,
+                "active_job_summaries":[],
+                "node_attestation":{
+                    "source_dir":"test-source",
+                    "release_commit":"b"*40,
+                    "execution_root":str(node.config.root),
+                    "runtime_dir":str(node.config.runtime_dir),
+                    "schema_version":1,
+                },
+            },
+        )
+        ready=g.routing.device_upgrade_readiness(dev["device_id"])
+        assert ready["upgrade_allowed"] is True
+        assert ready["blockers"]["fresh_agent_sessions"]==0
+
+        await g.multi.agent_register("live-agent","live","live-client",[])
+        blocked=g.routing.device_upgrade_readiness(dev["device_id"])
+        assert blocked["upgrade_allowed"] is False
+        assert blocked["blockers"]["fresh_agent_sessions"]==1
+        assert blocked["decision"]=="WAIT_DO_NOT_RESTART_OR_DEPLOY"
+    asyncio.run(run())
