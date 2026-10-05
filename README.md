@@ -146,25 +146,27 @@ These command/backend additions remain source-staged until the corresponding rel
 
 The repository root includes `Start-RemoteMCP-Node.ps1`. Users should use this script instead of reconstructing the Python/venv command manually.
 
-Normal production node:
+Normal production node on Windows must use an explicit non-OS project/worktree root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1
+.\Start-RemoteMCP-Node.ps1 -RootDir "D:\WORK\RESEARCH"
 ```
 
-Restart the same node identity:
+Restart the same node identity without changing the research root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -Restart
+.\Start-RemoteMCP-Node.ps1 -RootDir "D:\WORK\RESEARCH" -Restart
 ```
 
-Use an existing non-default runtime identity:
+Use an existing non-default runtime identity. The runtime directory is small control-plane state and may live under LocalAppData on the OS drive; it is **not** a project/worktree root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RuntimeDir "C:\path\to\existing\runtime"
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "D:\WORK\RESEARCH"
 ```
 
 The script reuses the existing device runtime/key, creates or reuses the dedicated RemoteMCP virtual environment, ensures the pinned node dependencies are available, avoids duplicate node processes, starts the node headlessly, and prints local node status. It does **not** pair a new device.
+
+**Storage invariant for this production research host:** research repositories, managed projects, managed workspaces, and task worktrees are forbidden on the Windows OS drive. Historical `%USERPROFILE%\RemoteMCP-Workspace` paths are not valid production research roots.
 
 Current practical readiness:
 
