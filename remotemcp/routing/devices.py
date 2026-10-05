@@ -165,6 +165,14 @@ class DeviceRepository:
         candidate_nonterminal=capabilities.get(
             "_remotemcp_candidate_nonterminal_routed_jobs"
         )
+        active_job_summaries=capabilities.get("_remotemcp_active_job_summaries")
+        active_job_summaries_observed_at_ms=capabilities.get(
+            "_remotemcp_active_job_summaries_observed_at_ms"
+        )
+        node_attestation=capabilities.get("_remotemcp_node_attestation")
+        node_attestation_observed_at_ms=capabilities.get(
+            "_remotemcp_node_attestation_observed_at_ms"
+        )
         try:
             reported_active_node_jobs=int(reported_active_node_jobs)
             if reported_active_node_jobs<0:
@@ -192,6 +200,22 @@ class DeviceRepository:
             if isinstance(reconciliation_complete,bool)
             else False
         )
+        if not isinstance(active_job_summaries,list):
+            active_job_summaries=[]
+        else:
+            active_job_summaries=[
+                dict(x) for x in active_job_summaries if isinstance(x,dict)
+            ][:64]
+        if not isinstance(node_attestation,dict):
+            node_attestation={}
+        try:
+            active_job_summaries_observed_at_ms=int(active_job_summaries_observed_at_ms)
+        except Exception:
+            active_job_summaries_observed_at_ms=None
+        try:
+            node_attestation_observed_at_ms=int(node_attestation_observed_at_ms)
+        except Exception:
+            node_attestation_observed_at_ms=None
         age_ms=(
             max(0,now_ms()-observed_at_ms)
             if observed_at_ms is not None else None
@@ -225,6 +249,10 @@ class DeviceRepository:
             "capacity_reconciliation_complete":reconciliation_complete,
             "authoritative_unresolved_node_jobs":unresolved_node_jobs,
             "candidate_nonterminal_routed_jobs":candidate_nonterminal,
+            "active_job_summaries":active_job_summaries,
+            "active_job_summaries_observed_at_ms":active_job_summaries_observed_at_ms,
+            "node_attestation":node_attestation,
+            "node_attestation_observed_at_ms":node_attestation_observed_at_ms,
             "capacity_signal_source":(
                 "SIGNED_NODE_HEARTBEAT_RECONCILED_DURABLE_STATE"
                 if capacity_fresh else (

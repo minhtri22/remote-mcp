@@ -9,6 +9,7 @@ from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
 from remotemcp.durable.operations import OperationState
 from remotemcp.workspace_layout import classify_task_worktree_rel, task_worktree_rel
+from .admission import TaskJobAdmissionRepository
 from .agents import AgentRepository
 from .cas import CasService
 from .config import MultiAgentConfig
@@ -26,9 +27,9 @@ from .worktrees import WorktreeManager
 class MultiAgentService:
     def __init__(self,config:MultiAgentConfig,durable,auth_client_resolver=None):
         self.config=config; self.durable=durable; self.db=durable.db
-        # V2-A DurableService keeps bootstrap() semantics at schema v1.
-        # Entering the V2-B control plane explicitly upgrades the same DB to v2.
-        self.db.bootstrap(target_version=2)
+        # Managed execution requires the branch-serial admission ledger in v4.
+        # Ordered bootstrap preserves V2-A/V2-B/V2-BD migration history.
+        self.db.bootstrap(target_version=4)
         self.identity=OwnerIdentity(config.runtime_dir,self.db,auth_client_resolver)
         self.tokens=LeaseTokenManager(config.runtime_dir,self.db)
         self.agents=AgentRepository(self.db,self.identity.owner_account_id,config.task_lease_ttl_seconds)
@@ -38,7 +39,11 @@ class MultiAgentService:
         self.worktrees=WorktreeManager(config.workspace_root)
         self.guard=LegacyGuard(self.projects)
         self.cas=CasService(self.db,durable.operations,self.leases,config.workspace_root,self.execution_root)
-        self.jobs=TaskJobService(self.db,durable,self.leases,self.projects,self.tasks,self.worktrees,self.execution_root)
+        self.job_admissions=TaskJobAdmissionRepository(self.db)
+        self.jobs=TaskJobService(
+            self.db,durable,self.leases,self.projects,self.tasks,self.worktrees,
+            self.execution_root,self.job_admissions,
+        )
         self.reconciler=MultiAgentReconciler(self.db,self.tasks,self.projects,self.worktrees,self.cas,config.task_lease_ttl_seconds)
         self.reconciler.reconcile_all()
         self._task=None; self._stop=asyncio.Event()

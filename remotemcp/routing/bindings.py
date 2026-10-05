@@ -11,6 +11,54 @@ class BindingRepository:
     def project_binding(self,project_id:str):
         return self.db.query_one("SELECT * FROM project_device_bindings WHERE project_id=?",(project_id,))
 
+    def require_active_project_binding(self,project_id:str):
+        row=self.project_binding(project_id)
+        if row is None:
+            return None
+        if "lifecycle_state" in row.keys() and row["lifecycle_state"]!="ACTIVE":
+            raise DurableError(
+                "PROJECT_BINDING_HISTORICAL",
+                "project binding is historical and cannot accept new scientific tasks",
+                project_id=project_id,
+                superseded_by_project_id=row["superseded_by_project_id"],
+            )
+        return row
+
+    def deprecate_project(self,project_id:str,superseded_by_project_id:str|None=None):
+        t=now_ms()
+        with self.db.transaction() as con:
+            row=con.execute(
+                "SELECT * FROM project_device_bindings WHERE project_id=?",(project_id,)
+            ).fetchone()
+            if row is None:
+                raise DurableError("NOT_FOUND","project binding not found",project_id=project_id)
+            if superseded_by_project_id:
+                successor=con.execute(
+                    "SELECT * FROM project_device_bindings WHERE project_id=?",
+                    (superseded_by_project_id,),
+                ).fetchone()
+                if successor is None:
+                    raise DurableError(
+                        "NOT_FOUND","superseding project binding not found",
+                        project_id=superseded_by_project_id,
+                    )
+                if (
+                    "lifecycle_state" in successor.keys()
+                    and successor["lifecycle_state"]!="ACTIVE"
+                ):
+                    raise DurableError(
+                        "PROJECT_BINDING_HISTORICAL",
+                        "superseding project binding must be active",
+                        project_id=superseded_by_project_id,
+                    )
+            con.execute(
+                "UPDATE project_device_bindings "
+                "SET lifecycle_state='HISTORICAL',superseded_by_project_id=?,updated_at_ms=? "
+                "WHERE project_id=?",
+                (superseded_by_project_id,t,project_id),
+            )
+        return self.project_binding(project_id)
+
     def task_binding(self,task_id:str):
         return self.db.query_one("SELECT * FROM task_device_bindings WHERE task_id=?",(task_id,))
 
