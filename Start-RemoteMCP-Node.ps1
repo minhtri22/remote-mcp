@@ -159,6 +159,18 @@ if (-not $depsOk) {
 
 $existing = @(Get-RemoteMCPNodeProcess -Runtime $RuntimeDir)
 
+if ($existing.Count -gt 0) {
+    $escapedRoot = [Regex]::Escape($RootDir)
+    $rootMismatch = @($existing | Where-Object {
+        -not $_.CommandLine -or
+        $_.CommandLine -notmatch "--root" -or
+        $_.CommandLine -notmatch $escapedRoot
+    }).Count -gt 0
+    if ($rootMismatch -and -not $Restart) {
+        throw "NODE_ROOT_MISMATCH_RESTART_REQUIRED: existing node is not running with RootDir '$RootDir'. Re-run with -Restart to apply the approved non-OS research root."
+    }
+}
+
 if ($Restart -and $existing.Count -gt 0) {
     Write-Host "Restarting existing RemoteMCP node..."
     foreach ($p in $existing) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
