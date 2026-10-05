@@ -2894,14 +2894,19 @@ class RoutingService:
             normalized_summaries=[]
             allowed={
                 "proxy_job_id","node_job_id","task_id","project_id","state","pid",
-                "command_sha256","argv_sha256","cwd","started_at_ms",
+                "command_sha256","submitted_argv_sha256","normalized_argv_sha256",
+                "execution_key","scientific_gate","cwd","started_at_ms",
                 "last_output_at_ms","last_heartbeat_at_ms",
             }
             for item in active_job_summaries:
                 if not isinstance(item,dict):
                     raise DurableError("INVALID_ARGUMENT","active job summary must be an object")
                 summary={k:item.get(k) for k in allowed if k in item}
-                for key in ("proxy_job_id","node_job_id","task_id","project_id","state","command_sha256","argv_sha256","cwd"):
+                for key in (
+                    "proxy_job_id","node_job_id","task_id","project_id","state",
+                    "command_sha256","submitted_argv_sha256","normalized_argv_sha256",
+                    "execution_key","scientific_gate","cwd"
+                ):
                     value=summary.get(key)
                     if value is not None and (not isinstance(value,str) or len(value)>4096):
                         raise DurableError("INVALID_ARGUMENT",f"invalid active job summary field: {key}")
