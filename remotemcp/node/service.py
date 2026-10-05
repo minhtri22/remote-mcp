@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import subprocess
 import sys
@@ -73,6 +74,26 @@ class NodeService:
         except asyncio.TimeoutError:
             pass
 
+    def _node_attestation(self)->dict:
+        source_root=Path(__file__).resolve().parents[2]
+        marker=source_root/".remotemcp-release.json"
+        release_commit=None
+        if marker.is_file():
+            try:
+                payload=json.loads(marker.read_text(encoding="utf-8-sig"))
+                release_commit=payload.get("commit")
+            except Exception:
+                release_commit=None
+        schema=self.db.get_meta("schema") or {}
+        return {
+            "source_dir":str(source_root),
+            "release_commit":release_commit,
+            "execution_root":str(self.config.root),
+            "runtime_dir":str(self.config.runtime_dir),
+            "schema_version":schema.get("version"),
+            "schema_sha256":schema.get("sha256"),
+        }
+
     def _schedule_self_restart(self):
         source_root=Path(__file__).resolve().parents[2]
         runtime=str(self.config.runtime_dir)
@@ -112,7 +133,18 @@ class NodeService:
                     if now-last_hb>=self.config.heartbeat_seconds:
                         capacity=self.jobs.capacity_snapshot()
                         hb_params=inspect.signature(self.client.heartbeat).parameters
-                        if "unresolved_node_jobs" in hb_params:
+                        if "active_job_summaries" in hb_params:
+                            await self.client.heartbeat(
+                                capacity["active_node_jobs"],
+                                capacity["unresolved_node_jobs"],
+                                capacity["capacity_reconciliation_complete"],
+                                capacity["candidate_nonterminal_routed_jobs"],
+                                capacity.get("active_job_summaries",[]),
+                                self._node_attestation(),
+                            )
+                        elif "unresolved_node_jobs" in hb_params:
+                            # V3.0-compatible custom clients receive reconciled
+                            # counts but not V3.1 provenance/attestation.
                             await self.client.heartbeat(
                                 capacity["active_node_jobs"],
                                 capacity["unresolved_node_jobs"],
