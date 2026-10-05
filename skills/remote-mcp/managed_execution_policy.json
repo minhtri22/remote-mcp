@@ -224,5 +224,22 @@
       "PROJECT_BIND"
     ],
     "command_ttl_must_exceed_gateway_wait": true
+  },
+  "storage_policy": {
+    "windows_production_research_root": "NON_OS_RESEARCH_ROOT",
+    "os_drive_research_project_worktree_storage_forbidden": true,
+    "os_drive_runtime_only_allowed": [
+      "%LOCALAPPDATA%\\RemoteMCP\\runtime",
+      "%LOCALAPPDATA%\\RemoteMCP\\node-venv",
+      "%LOCALAPPDATA%\\RemoteMCP\\gateway-venv",
+      "%LOCALAPPDATA%\\RemoteMCP\\gateway state/logs"
+    ],
+    "userprofile_workspace_default_forbidden": true,
+    "historical_os_drive_workspace_status": "HISTORICAL_ONLY_DO_NOT_REUSE",
+    "new_project_or_worktree_on_os_drive_decision": "BLOCK",
+    "research_root_change_requires_repair_not_repairing": true,
+    "preserve_device_identity_during_root_override": true,
+    "historical_binding_identifiers": "LOCAL_DEPLOYMENT_ONLY",
+    "historical_bindings_must_not_be_reused_for_new_science": true
   }
 }

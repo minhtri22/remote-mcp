@@ -161,6 +161,22 @@ There is no `/deviceList` alias. Use `/devices`.
 
 If a client does not expose a native slash-command picker but sends these strings as ordinary chat text, follow the same semantics.
 
+
+### Windows research-storage policy
+
+On the production Windows research host, the Windows OS drive is **forbidden** for research repositories, managed project roots, managed workspaces, and task worktrees.
+
+- canonical production research root: `NON_OS_RESEARCH_ROOT`;
+- paths under `%USERPROFILE%\RemoteMCP-Workspace` are historical-only and must not be reused as production research roots;
+- `%LOCALAPPDATA%\RemoteMCP` may contain only RemoteMCP runtime identity, durable state, logs, and virtual environments;
+- never create, clone, expose, migrate, or materialize a research repository/worktree on the OS drive as a workaround for `PATH_ESCAPE` or project-root mismatch;
+- do not repair root mismatch by re-pairing, replacing the device identity, or editing `device.json` / node DB by hand;
+- use an explicit same-identity node root override on the approved non-OS research root, then register the canonical project under that root;
+- any historical C-drive project binding must be labeled `HISTORICAL_ONLY_DO_NOT_REUSE` and must not be selected for new scientific work.
+
+If a command, join flow, starter, watchdog, handoff, or agent proposes `C:\...` for a research/project/worktree path, treat it as a policy violation and fail closed. Runtime-only paths under LocalAppData are not research storage and are exempt.
+
+
 ### Secure local dedicated-node pairing
 
 When a dedicated node must be paired on the same host as the gateway, use `device_pair_local_dedicated_node` after `device_pair_begin`.

@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$RuntimeDir,
+    [Parameter(Mandatory=$true)]
+    [string]$RootDir,
     [string]$SourceDir = $PSScriptRoot,
     [Parameter(Mandatory=$true)]
     [string]$NodeSourceDir,
@@ -13,6 +15,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RuntimeDir = (Resolve-Path $RuntimeDir).Path
+$RootDir = (Resolve-Path $RootDir).Path
+$RootDrive = [System.IO.Path]::GetPathRoot($RootDir)
+$OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd('\'))) {
+    throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: supervisor root cannot be on the Windows OS drive."
+}
 $SourceDir = (Resolve-Path $SourceDir).Path
 $NodeSourceDir = (Resolve-Path $NodeSourceDir).Path
 $Watchdog = Join-Path $SourceDir "Watch-RemoteMCP-Node.ps1"
@@ -43,7 +51,7 @@ $IdentitySnapshot = [ordered]@{
     route_generation = [string]$d.route_generation
 }
 
-$arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -RuntimeDir "{1}" -SourceDir "{2}" -NodeSourceDir "{3}"' -f $Watchdog,$RuntimeDir,$SourceDir,$NodeSourceDir
+$arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -RuntimeDir "{1}" -RootDir "{2}" -SourceDir "{3}" -NodeSourceDir "{4}"' -f $Watchdog,$RuntimeDir,$RootDir,$SourceDir,$NodeSourceDir
 
 function Get-NodeProcesses([string]$Runtime) {
     $runtimeEscaped = [Regex]::Escape($Runtime)
@@ -138,6 +146,7 @@ function Install-ScheduledTaskPersistence {
 
 Write-Host "Static deployment candidate:"
 Write-Host ("Runtime    : {0}" -f $RuntimeDir)
+Write-Host ("Root       : {0}" -f $RootDir)
 Write-Host ("Device id  : {0}" -f $IdentitySnapshot.device_id)
 Write-Host ("Generation : {0}" -f $IdentitySnapshot.route_generation)
 Write-Host ("Requested persistence: {0}" -f $PersistenceMode)

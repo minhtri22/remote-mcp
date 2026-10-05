@@ -35,7 +35,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $runtime | Out-Null
           Set-Content -Encoding UTF8 -Path (Join-Path $runtime "device.json") -Value '{"device_id":"dev_example","key_fingerprint_sha256":"fingerprint_example","route_generation":1}'
           Set-Content -Encoding ASCII -Path (Join-Path $runtime "device-ed25519.pem") -Value "test-only-placeholder"
-          .\Install-RemoteMCP-Node-Supervisor.ps1 -RuntimeDir $runtime -SourceDir $PWD -NodeSourceDir $PWD -PlanOnly
+          $root = Join-Path $env:RUNNER_TEMP "research-root"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          .\Install-RemoteMCP-Node-Supervisor.ps1 -RuntimeDir $runtime -RootDir $root -SourceDir $PWD -NodeSourceDir $PWD -PlanOnly
       - name: Per-user Startup fallback construction
         shell: powershell
         run: |
@@ -48,7 +50,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Join-Path $fakeSource "remotemcp\node") | Out-Null
           Set-Content -Encoding UTF8 -Path (Join-Path $fakeSource "remotemcp\node\__main__.py") -Value "# test"
 
-          # Plan-only validates exact source/runtime wiring without mutating persistence.
-          .\Install-RemoteMCP-Node-Supervisor.ps1 -RuntimeDir $runtime -SourceDir $PWD -NodeSourceDir $fakeSource -PersistenceMode Startup -PlanOnly
+          $root = Join-Path $env:RUNNER_TEMP "research-root-startup"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          # Plan-only validates exact source/runtime/root wiring without mutating persistence.
+          .\Install-RemoteMCP-Node-Supervisor.ps1 -RuntimeDir $runtime -RootDir $root -SourceDir $PWD -NodeSourceDir $fakeSource -PersistenceMode Startup -PlanOnly
       - name: Targeted supervisor and hygiene QA
         run: python -m pytest -q tests/test_node_supervisor_scripts.py tests/test_start_node_script.py tests/test_public_repo_hygiene.py

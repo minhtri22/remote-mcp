@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$RuntimeDir,
+    [Parameter(Mandatory=$true)]
+    [string]$RootDir,
     [string]$SourceDir = $PSScriptRoot,
     [Parameter(Mandatory=$true)]
     [string]$NodeSourceDir,
@@ -60,6 +62,12 @@ function Get-LogicalNodeRoots([array]$Processes) {
 }
 
 $RuntimeDir = (Resolve-Path $RuntimeDir).Path
+$RootDir = (Resolve-Path $RootDir).Path
+$RootDrive = [System.IO.Path]::GetPathRoot($RootDir)
+$OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd('\'))) {
+    throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: watchdog root cannot be on the Windows OS drive."
+}
 $SourceDir = (Resolve-Path $SourceDir).Path
 $NodeSourceDir = (Resolve-Path $NodeSourceDir).Path
 if (-not (Test-Path $StartScript)) {
@@ -87,7 +95,7 @@ $interval = [Math]::Max(5,$IntervalSeconds)
 $grace = [Math]::Max(1,$PostStartGraceSeconds)
 $missing = 0
 
-Log $WatchdogLog ("watchdog started device_id={0} runtime={1}" -f $Expected.device_id,$RuntimeDir)
+Log $WatchdogLog ("watchdog started device_id={0} runtime={1} root={2}" -f $Expected.device_id,$RuntimeDir,$RootDir)
 
 while ($true) {
     try {
@@ -121,7 +129,7 @@ while ($true) {
             try {
                 Assert-IdentityUnchanged
                 Log $WatchdogLog "process absence threshold reached; invoking state-preserving node start"
-                & $StartScript -RuntimeDir $RuntimeDir -SourceDir $NodeSourceDir *>> $WatchdogLog
+                & $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $NodeSourceDir *>> $WatchdogLog
                 Start-Sleep -Seconds $grace
                 Assert-IdentityUnchanged
 
