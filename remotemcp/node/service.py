@@ -133,7 +133,7 @@ class NodeService:
                     if now-last_hb>=self.config.heartbeat_seconds:
                         capacity=self.jobs.capacity_snapshot()
                         hb_params=inspect.signature(self.client.heartbeat).parameters
-                        if "unresolved_node_jobs" in hb_params:
+                        if "active_job_summaries" in hb_params:
                             await self.client.heartbeat(
                                 capacity["active_node_jobs"],
                                 capacity["unresolved_node_jobs"],
@@ -141,6 +141,15 @@ class NodeService:
                                 capacity["candidate_nonterminal_routed_jobs"],
                                 capacity.get("active_job_summaries",[]),
                                 self._node_attestation(),
+                            )
+                        elif "unresolved_node_jobs" in hb_params:
+                            # V3.0-compatible custom clients receive reconciled
+                            # counts but not V3.1 provenance/attestation.
+                            await self.client.heartbeat(
+                                capacity["active_node_jobs"],
+                                capacity["unresolved_node_jobs"],
+                                capacity["capacity_reconciliation_complete"],
+                                capacity["candidate_nonterminal_routed_jobs"],
                             )
                         else:
                             # Compatibility for older/custom node clients.
