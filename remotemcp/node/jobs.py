@@ -538,7 +538,8 @@ class NodeJobs:
         active_job_identity_overflow=0
         for row in candidates:
             try:
-                state=self.durable.job_get(row["node_job_id"])["state"]
+                durable_state=self.durable.job_get(row["node_job_id"])
+                state=durable_state["state"]
             except DurableError:
                 unresolved+=1
                 continue
@@ -548,7 +549,9 @@ class NodeJobs:
             else:
                 active+=1
                 if len(active_job_summaries)<64:
-                    active_job_summaries.append(self._active_job_summary(row,state))
+                    active_job_summaries.append(
+                        self._active_job_summary(row,durable_state)
+                    )
                 else:
                     active_job_identity_overflow+=1
         return {
