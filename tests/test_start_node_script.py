@@ -14,5 +14,9 @@ def test_root_start_script_contract():
     assert "cryptography==46.0.6" in text
     assert "remotemcp.node" in text
     assert "--runtime-dir" in text
+    assert "--root" in text
+    assert "[string]$RootDir" in text
+    assert "REMOTEMCP_NODE_ROOT" in text
+    assert "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN" in text
     assert "[switch]$Restart" in text
     assert " pair " not in text.lower()
