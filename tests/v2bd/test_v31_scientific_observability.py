@@ -231,6 +231,7 @@ def test_upgrade_readiness_waits_for_fresh_agents_and_live_work(make_gateway,tmp
         ready=g.routing.device_upgrade_readiness(dev["device_id"])
         assert ready["upgrade_allowed"] is True
         assert ready["blockers"]["fresh_agent_sessions"]==0
+        assert ready["blockers"]["gateway_local_nonterminal_jobs"]==0
 
         await g.multi.agent_register("live-agent","live","live-client",[])
         blocked=g.routing.device_upgrade_readiness(dev["device_id"])
