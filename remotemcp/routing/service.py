@@ -2221,14 +2221,59 @@ class RoutingService:
         central_state=str(row["last_known_state"])
         terminal=central_state in TERMINAL
         heartbeat_fresh=bool(status.get("capacity_signal_fresh"))
+        submitted_argv=payload.get("argv") if isinstance(payload.get("argv"),list) else None
+        central_argv_sha256=(
+            row["argv_sha256"]
+            if "argv_sha256" in row.keys() and row["argv_sha256"]
+            else (
+                self._argv_sha256(submitted_argv)
+                if submitted_argv is not None else None
+            )
+        )
+        central_execution_key=(
+            row["execution_key"] if "execution_key" in row.keys() else None
+        )
+        provenance_checks={
+            "proxy_job_id_match":None,
+            "node_job_id_match":None,
+            "task_id_match":None,
+            "project_id_match":None,
+            "submitted_argv_sha256_match":None,
+            "execution_key_match":None,
+        }
+        if matched is not None:
+            provenance_checks={
+                "proxy_job_id_match":matched.get("proxy_job_id")==proxy_job_id,
+                "node_job_id_match":(
+                    row["node_job_id"] is None
+                    or matched.get("node_job_id")==row["node_job_id"]
+                ),
+                "task_id_match":matched.get("task_id")==task_id,
+                "project_id_match":matched.get("project_id")==binding["project_id"],
+                "submitted_argv_sha256_match":(
+                    central_argv_sha256 is not None
+                    and matched.get("submitted_argv_sha256")==central_argv_sha256
+                ),
+                "execution_key_match":(
+                    matched.get("execution_key")==central_execution_key
+                ),
+            }
+        provenance_match=bool(
+            matched is not None
+            and all(v is True for v in provenance_checks.values())
+        )
         if terminal:
             authoritative_state=central_state
             provenance_resolved=True
             observation_source="CENTRAL_TERMINAL_CACHE"
-        elif heartbeat_fresh and matched is not None:
+        elif heartbeat_fresh and matched is not None and provenance_match:
             authoritative_state=str(matched.get("state") or central_state)
             provenance_resolved=True
             observation_source="SIGNED_NODE_HEARTBEAT_ACTIVE_JOB"
+        elif heartbeat_fresh and matched is not None:
+            authoritative_state="PROVENANCE_MISMATCH"
+            provenance_resolved=False
+            observation_source="SIGNED_NODE_HEARTBEAT_PROVENANCE_MISMATCH"
         elif (
             heartbeat_fresh
             and status.get("authoritative_active_node_jobs")==0
@@ -2246,14 +2291,10 @@ class RoutingService:
                 "operation_id":row["operation_id"],
                 "base_commit":task["base_commit"],
                 "base_ref":task["base_ref"],
-                "argv_sha256":(
-                    row["argv_sha256"]
-                    if "argv_sha256" in row.keys() and row["argv_sha256"]
-                    else (
-                        self._argv_sha256(payload.get("argv") or [])
-                        if isinstance(payload.get("argv"),list) else None
-                    )
-                ),
+                "submitted_argv":submitted_argv,
+                "argv_sha256":central_argv_sha256,
+                "provenance_checks":provenance_checks,
+                "provenance_match":provenance_match,
                 "cwd":(
                     row["cwd"]
                     if "cwd" in row.keys() and row["cwd"] is not None
