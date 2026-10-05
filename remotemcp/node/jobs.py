@@ -399,6 +399,7 @@ class NodeJobs:
         unresolved=0
         reconciled_terminal=0
         active_job_summaries=[]
+        active_job_identity_overflow=0
         for row in candidates:
             try:
                 state=self.durable.job_get(row["node_job_id"])["state"]
@@ -412,13 +413,18 @@ class NodeJobs:
                 active+=1
                 if len(active_job_summaries)<64:
                     active_job_summaries.append(self._active_job_summary(row,state))
+                else:
+                    active_job_identity_overflow+=1
         return {
             "active_node_jobs":active,
             "unresolved_node_jobs":unresolved,
             "candidate_nonterminal_routed_jobs":len(candidates),
             "reconciled_terminal_rows":reconciled_terminal,
-            "capacity_reconciliation_complete":unresolved==0,
+            "capacity_reconciliation_complete":(
+                unresolved==0 and active_job_identity_overflow==0
+            ),
             "active_job_summaries":active_job_summaries,
+            "active_job_identity_overflow":active_job_identity_overflow,
         }
 
     def reconcile_all(self):
