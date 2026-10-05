@@ -46,7 +46,26 @@ $SourceUrl = {_ps_single(url)}
 $Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
 $Runtime = Join-Path $Base "runtime"
 $RuntimePointer = Join-Path $Base "active-runtime.txt"
-$Workspace = Join-Path $env:USERPROFILE "RemoteMCP-Workspace"
+
+# Research/project/worktree storage must be explicitly placed on a non-OS data drive.
+# Never silently fall back to USERPROFILE or the Windows system drive.
+$Workspace = [Environment]::GetEnvironmentVariable("REMOTEMCP_NODE_ROOT","Process")
+if (-not $Workspace) {{
+    $Workspace = [Environment]::GetEnvironmentVariable("REMOTEMCP_NODE_ROOT","User")
+}}
+if (-not $Workspace) {{
+    throw "REMOTEMCP_NODE_ROOT must be set explicitly to a non-OS research/data root. OS-drive research/project/worktree storage is forbidden."
+}}
+if (-not [System.IO.Path]::IsPathFullyQualified($Workspace)) {{
+    throw "REMOTEMCP_NODE_ROOT must be an absolute path."
+}}
+$Workspace = [System.IO.Path]::GetFullPath($Workspace)
+$WorkspaceDrive = [System.IO.Path]::GetPathRoot($Workspace)
+$OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+if ($WorkspaceDrive -and $OsDrive -and ($WorkspaceDrive.TrimEnd('\\') -ieq $OsDrive.TrimEnd('\\'))) {{
+    throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: RemoteMCP project/worktree root cannot be on the Windows OS drive."
+}}
+
 $Source = Join-Path $Base "source"
 $Venv = Join-Path $Base "node-venv"
 $PairFile = Join-Path $Base "pairing.txt"
@@ -149,14 +168,14 @@ if (-not (Test-Path $DeviceJson)) {{
 
 [System.IO.File]::WriteAllText($RuntimePointer,$Runtime,[System.Text.UTF8Encoding]::new($false))
 
-& $NodePython -m remotemcp.node doctor --runtime-dir $Runtime
+& $NodePython -m remotemcp.node doctor --runtime-dir $Runtime --root $Workspace
 if ($LASTEXITCODE -ne 0) {{ throw "RemoteMCP node doctor failed." }}
 
 $Runner = Join-Path $Base "run-node.cmd"
 $RunnerBody = @"
 @echo off
 cd /d "$LocalSource"
-"$NodePython" -m remotemcp.node run --runtime-dir "$Runtime" >> "$LogFile" 2>&1
+"$NodePython" -m remotemcp.node run --runtime-dir "$Runtime" --root "$Workspace" >> "$LogFile" 2>&1
 "@
 [System.IO.File]::WriteAllText($Runner,$RunnerBody,[System.Text.Encoding]::ASCII)
 
@@ -171,7 +190,7 @@ WshShell.Run Chr(34) & "$Runner" & Chr(34), 0, False
 $already = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {{ $_.CommandLine -like "*remotemcp.node*run*--runtime-dir*$Runtime*" }}
 if (-not $already) {{
-    Start-Process -FilePath $NodePython -ArgumentList @("-m","remotemcp.node","run","--runtime-dir",$Runtime) -WorkingDirectory $LocalSource -WindowStyle Hidden | Out-Null
+    Start-Process -FilePath $NodePython -ArgumentList @("-m","remotemcp.node","run","--runtime-dir",$Runtime,"--root",$Workspace) -WorkingDirectory $LocalSource -WindowStyle Hidden | Out-Null
 }}
 
 Start-Sleep -Seconds 2

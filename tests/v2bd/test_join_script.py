@@ -18,6 +18,11 @@ def test_windows_join_script_is_single_file_and_instance_bound():
     assert "cryptography==46.0.6" in script
     assert "RemoteMCP-Node.vbs" in script
     assert "active-runtime.txt" in script
+    assert "REMOTEMCP_NODE_ROOT" in script
+    assert "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN" in script
+    assert "RemoteMCP-Workspace" not in script
+    assert "$env:USERPROFILE" not in script
+    assert "--root $Workspace" in script
     assert "-WindowStyle Hidden" in script
     assert "private.example.invalid" not in script
 

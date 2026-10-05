@@ -146,25 +146,27 @@ These command/backend additions remain source-staged until the corresponding rel
 
 The repository root includes `Start-RemoteMCP-Node.ps1`. Users should use this script instead of reconstructing the Python/venv command manually.
 
-Normal production node:
+Normal production node on Windows must use an explicit non-OS project/worktree root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1
+.\Start-RemoteMCP-Node.ps1 -RootDir "<NON_OS_RESEARCH_ROOT>"
 ```
 
-Restart the same node identity:
+Restart the same node identity without changing the research root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -Restart
+.\Start-RemoteMCP-Node.ps1 -RootDir "<NON_OS_RESEARCH_ROOT>" -Restart
 ```
 
-Use an existing non-default runtime identity:
+Use an existing non-default runtime identity. The runtime directory is small control-plane state and may live under LocalAppData on the OS drive; it is **not** a project/worktree root:
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RuntimeDir "C:\path\to\existing\runtime"
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "<NON_OS_RESEARCH_ROOT>"
 ```
 
 The script reuses the existing device runtime/key, creates or reuses the dedicated RemoteMCP virtual environment, ensures the pinned node dependencies are available, avoids duplicate node processes, starts the node headlessly, and prints local node status. It does **not** pair a new device.
+
+**Storage invariant for production Windows research hosts:** research repositories, managed projects, managed workspaces, and task worktrees are forbidden on the Windows OS drive. Historical `%USERPROFILE%\RemoteMCP-Workspace` paths are not valid production research roots.
 
 Current practical readiness:
 
@@ -530,9 +532,14 @@ The staged fix:
 - keeps the background writer alive across transient `DB_BUSY` collisions;
 - adds regression coverage for writer-lock contention and fail-closed stale-device handling.
 
-Static preflight and an isolated SQLite WAL contention harness passed. Full repository pytest remains pending because external QA runners were unavailable; this source change is **not deployed** yet.
+Static preflight and an isolated SQLite WAL contention harness passed.
 
-Detailed record: [docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md](docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md).
+Executable QA subsequently passed on Windows for the targeted read-path tests plus the full V2-BD, V2-B, V2-A, and frozen V2-0 regression suites. The exact source identity is deployment-locked; production deployment/restart remains a separate maintenance action.
+
+Records:
+
+- [static preflight](docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_STATIC_PREFLIGHT.md)
+- [executable QA and deployment lock](docs/REMOTEMCP_CONTROL_PLANE_READ_PATH_SQLITE_WRITE_CONTENTION_FIX_EXECUTABLE_QA_AND_DEPLOYMENT_LOCK.md)
 
 ### Staged operator/recovery UX (source-next, not yet deployed)
 
