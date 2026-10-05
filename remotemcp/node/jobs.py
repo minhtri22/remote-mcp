@@ -285,12 +285,18 @@ class NodeJobs:
         submitted_argv_sha256=hashlib.sha256(
             json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
         ).hexdigest()
+        evidence_paths_sha256=hashlib.sha256(
+            json.dumps(
+                evidence_paths,ensure_ascii=False,separators=(",",":")
+            ).encode("utf-8")
+        ).hexdigest()
         provenance={
             "schema":"remotemcp.job-provenance.v1",
             "proxy_job_id":proxy_job_id,
             "task_id":task_id,
             "project_id":project_id,
             "submitted_argv_sha256":submitted_argv_sha256,
+            "evidence_paths_sha256":evidence_paths_sha256,
             "cwd":cwd,
             "execution_key":execution_key,
             "scientific_gate":scientific_gate,
@@ -305,9 +311,9 @@ class NodeJobs:
                 existing=json.loads(row["value_json"]) if row is not None else None
                 if existing is not None:
                     same_contract=(
-                        existing.get("task_id")==task_id
-                        and existing.get("project_id")==project_id
+                        existing.get("project_id")==project_id
                         and existing.get("submitted_argv_sha256")==submitted_argv_sha256
+                        and existing.get("evidence_paths_sha256")==evidence_paths_sha256
                         and existing.get("cwd")==cwd
                         and existing.get("scientific_gate")==scientific_gate
                     )
@@ -344,6 +350,7 @@ class NodeJobs:
                         "task_id":task_id,
                         "project_id":project_id,
                         "submitted_argv_sha256":submitted_argv_sha256,
+                        "evidence_paths_sha256":evidence_paths_sha256,
                         "cwd":cwd,
                         "scientific_gate":scientific_gate,
                         "state":"RESERVED",
