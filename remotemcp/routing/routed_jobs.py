@@ -23,14 +23,35 @@ class RoutedJobRepository:
     def by_operation(self,operation_id:str):
         return self.db.query_one("SELECT * FROM routed_jobs WHERE operation_id=?",(operation_id,))
 
-    def create(self,con,operation_id:str,task_id:str,project_id:str,device_id:str):
+    def by_execution_key(self,execution_key:str):
+        if not execution_key:
+            return None
+        return self.db.query_one(
+            "SELECT * FROM routed_jobs WHERE execution_key=?",(execution_key,)
+        )
+
+    def create(
+        self,con,operation_id:str,task_id:str,project_id:str,device_id:str,
+        *,execution_key:str|None=None,argv_sha256:str|None=None,cwd:str|None=None,
+    ):
         old=con.execute("SELECT * FROM routed_jobs WHERE operation_id=?",(operation_id,)).fetchone()
         if old:return old,False
         proxy="rjob_"+secrets.token_hex(16);t=now_ms()
+        if execution_key:
+            existing=con.execute(
+                "SELECT * FROM routed_jobs WHERE execution_key=?",(execution_key,)
+            ).fetchone()
+            if existing:
+                return existing,False
         con.execute(
-            "INSERT INTO routed_jobs(proxy_job_id,operation_id,task_id,project_id,device_id,last_known_state,last_seen_at_ms,created_at_ms,updated_at_ms) "
-            "VALUES(?,?,?,?,?,'QUEUED',?,?,?)",
-            (proxy,operation_id,task_id,project_id,device_id,t,t,t),
+            "INSERT INTO routed_jobs("
+            "proxy_job_id,operation_id,task_id,project_id,device_id,"
+            "execution_key,argv_sha256,cwd,last_known_state,last_seen_at_ms,created_at_ms,updated_at_ms"
+            ") VALUES(?,?,?,?,?,?,?,?, 'QUEUED',?,?,?)",
+            (
+                proxy,operation_id,task_id,project_id,device_id,
+                execution_key,argv_sha256,cwd,t,t,t,
+            ),
         )
         return con.execute("SELECT * FROM routed_jobs WHERE proxy_job_id=?",(proxy,)).fetchone(),True
 
@@ -48,9 +69,14 @@ class RoutedJobRepository:
             con.execute(f"UPDATE routed_jobs SET {','.join(fields)} WHERE proxy_job_id=?",tuple(vals))
         return self.get(proxy_job_id)
 
+    def list_task_rows(self,task_id:str):
+        return self.db.query_all(
+            "SELECT * FROM routed_jobs WHERE task_id=? ORDER BY created_at_ms,proxy_job_id",
+            (task_id,),
+        )
+
     def list_task(self,task_id:str)->list[dict]:
-        rows=self.db.query_all("SELECT * FROM routed_jobs WHERE task_id=? ORDER BY created_at_ms,proxy_job_id",(task_id,))
-        return [self.as_dict(r) for r in rows]
+        return [self.as_dict(r) for r in self.list_task_rows(task_id)]
 
     @staticmethod
     def as_dict(row,device_state=None):
@@ -58,6 +84,9 @@ class RoutedJobRepository:
             "proxy_job_id":row["proxy_job_id"],"job_id":row["proxy_job_id"],
             "task_id":row["task_id"],"project_id":row["project_id"],"device_id":row["device_id"],
             "node_job_id":row["node_job_id"],"state":row["last_known_state"],
+            "execution_key":row["execution_key"] if "execution_key" in row.keys() else None,
+            "argv_sha256":row["argv_sha256"] if "argv_sha256" in row.keys() else None,
+            "cwd":row["cwd"] if "cwd" in row.keys() else None,
             "last_seen_at_ms":int(row["last_seen_at_ms"]),"created_at_ms":int(row["created_at_ms"]),
         }
         if row["terminal_result_json"]:
