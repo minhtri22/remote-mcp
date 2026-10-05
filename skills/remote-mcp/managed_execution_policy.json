@@ -307,6 +307,7 @@
     "require_fresh_agent_sessions_zero": true,
     "require_unexpired_task_leases_zero": true,
     "require_unexpired_device_commands_zero": true,
-    "action_when_not_ready": "WAIT_DO_NOT_RESTART_OR_DEPLOY"
+    "action_when_not_ready": "WAIT_DO_NOT_RESTART_OR_DEPLOY",
+    "require_gateway_local_nonterminal_jobs_zero": true
   }
 }
