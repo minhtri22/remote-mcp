@@ -68,6 +68,10 @@ class NodeJobs:
     def _artifact_meta_key(proxy_job_id:str)->str:
         return f"job-artifacts:{proxy_job_id}"
 
+    @staticmethod
+    def _provenance_meta_key(proxy_job_id:str)->str:
+        return f"job-provenance:{proxy_job_id}"
+
     def _normalize_evidence_paths(self,task_id:str,paths)->list[dict]:
         if paths is None:
             return []
@@ -266,6 +270,19 @@ class NodeJobs:
         supplied_project=payload.get("project_id")
         if supplied_project is not None and str(supplied_project)!=project_id:
             raise DurableError("COMMAND_CONFLICT","routed job project mismatch")
+        submitted_argv_sha256=hashlib.sha256(
+            json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
+        ).hexdigest()
+        provenance={
+            "schema":"remotemcp.job-provenance.v1",
+            "proxy_job_id":proxy_job_id,
+            "task_id":task_id,
+            "project_id":project_id,
+            "submitted_argv_sha256":submitted_argv_sha256,
+            "cwd":cwd,
+            "execution_key":payload.get("execution_key"),
+            "scientific_gate":payload.get("scientific_gate"),
+        }
         operation_id=f"v2bd-node-job:{self.device_id}:{command_id}"
         result=await self.durable.job_submit(
             operation_id,argv,rel,
@@ -294,6 +311,14 @@ class NodeJobs:
                 (
                     self._artifact_meta_key(proxy_job_id),
                     json.dumps(evidence_manifest,ensure_ascii=False,sort_keys=True,separators=(",",":")),
+                ),
+            )
+            con.execute(
+                "INSERT INTO node_meta(key,value_json) VALUES(?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+                (
+                    self._provenance_meta_key(proxy_job_id),
+                    json.dumps(provenance,ensure_ascii=False,sort_keys=True,separators=(",",":")),
                 ),
             )
         return {
@@ -360,9 +385,10 @@ class NodeJobs:
         argv=command.get("argv") if isinstance(command,dict) else None
         if not isinstance(argv,list):
             argv=[]
-        argv_sha256=hashlib.sha256(
+        normalized_argv_sha256=hashlib.sha256(
             json.dumps(argv,ensure_ascii=False,separators=(",",":")).encode("utf-8")
         ).hexdigest()
+        provenance=self.db.get_meta(self._provenance_meta_key(row["proxy_job_id"])) or {}
         try:
             fp=json.loads(durable_row["worker_fingerprint_json"] or "{}")
             if not isinstance(fp,dict):
@@ -377,8 +403,11 @@ class NodeJobs:
             "state":state.get("state"),
             "pid":fp.get("pid"),
             "command_sha256":fp.get("command_sha256"),
-            "argv_sha256":argv_sha256,
-            "cwd":command.get("cwd"),
+            "submitted_argv_sha256":provenance.get("submitted_argv_sha256"),
+            "normalized_argv_sha256":normalized_argv_sha256,
+            "execution_key":provenance.get("execution_key"),
+            "scientific_gate":provenance.get("scientific_gate"),
+            "cwd":provenance.get("cwd",durable_row["cwd_rel"]),
             "started_at_ms":state.get("started_at_ms"),
             "last_output_at_ms":state.get("last_output_at_ms"),
             "last_heartbeat_at_ms":state.get("last_heartbeat_at_ms"),
