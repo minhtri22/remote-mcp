@@ -238,6 +238,19 @@
     "historical_os_drive_workspace_status": "HISTORICAL_ONLY_DO_NOT_REUSE",
     "new_project_or_worktree_on_os_drive_decision": "BLOCK",
     "research_root_change_requires_repair_not_repairing": true,
-    "preserve_device_identity_during_root_override": true
+    "preserve_device_identity_during_root_override": true,
+    "historical_forbidden_project_bindings": [
+      {
+        "project_id": "prj_bbf6a4d0e0226b48cc56b9b9",
+        "node_root_rel": "CQG-J42D1P2-EXEC",
+        "status": "HISTORICAL_J4_2_SUBROOT_DO_NOT_REUSE",
+        "canonical_project_root": "D:\\WORK\\RESEARCH\\2.CQG",
+        "forbidden_for": [
+          "CQG-LLMR",
+          "LLMRNP2",
+          "new scientific tasks"
+        ]
+      }
+    ]
   }
 }
