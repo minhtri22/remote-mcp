@@ -530,6 +530,28 @@ class RoutingService:
             resolved=True
             reason="AUTHORITATIVE_NODE_HEARTBEAT_RECONCILED_DURABLE_STATE"
         active=int(reported) if resolved else None
+        summaries=status.get("active_job_summaries",[]) or []
+        active_job_identity_complete=bool(
+            resolved
+            and active is not None
+            and len(summaries)==active
+        )
+        node_attestation=status.get("node_attestation",{}) or {}
+        gateway_attestation=self._gateway_attestation()
+        node_release=node_attestation.get("release_commit")
+        gateway_release=gateway_attestation.get("release_commit")
+        release_attestation_match=bool(
+            node_release
+            and gateway_release
+            and str(node_release)==str(gateway_release)
+        )
+        scientific_observability_ready=bool(
+            resolved
+            and active_job_identity_complete
+            and release_attestation_match
+            and node_attestation.get("execution_root")
+            and node_attestation.get("runtime_dir")
+        )
         if not resolved:
             recommendation="RECHECK_NODE_CAPACITY"
         elif active==0:
@@ -556,9 +578,12 @@ class RoutingService:
                 "candidate_nonterminal_routed_jobs":status.get(
                     "candidate_nonterminal_routed_jobs"
                 ),
-                "active_job_summaries":status.get("active_job_summaries",[]),
-                "node_attestation":status.get("node_attestation",{}),
-                "gateway_attestation":self._gateway_attestation(),
+                "active_job_summaries":summaries,
+                "active_job_identity_complete":active_job_identity_complete,
+                "node_attestation":node_attestation,
+                "gateway_attestation":gateway_attestation,
+                "release_attestation_match":release_attestation_match,
+                "scientific_observability_ready":scientific_observability_ready,
                 "capacity_signal_age_ms":status.get(
                     "authoritative_active_node_jobs_age_ms"
                 ),
