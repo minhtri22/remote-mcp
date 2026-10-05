@@ -29,7 +29,7 @@ class RoutingService:
     def __init__(self,config:RoutingConfig,durable,multiagent):
         self.config=config; self.durable=durable; self.multi=multiagent
         self.db=durable.db
-        self.db.bootstrap(target_version=4)
+        self.db.bootstrap(target_version=5)
         self.owner_account_id=multiagent.identity.owner_account_id
         with self.db.transaction() as con:
             self.multi.agents.ensure_owner(con)
