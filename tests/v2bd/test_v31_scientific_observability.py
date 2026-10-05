@@ -136,6 +136,9 @@ def test_zero_command_job_inspect_uses_signed_active_job_summary(make_gateway,tm
             assert observed["active_job_match"]["proxy_job_id"]==job["proxy_job_id"]
             assert observed["observation_source"]=="SIGNED_NODE_HEARTBEAT_ACTIVE_JOB"
             assert observed["provenance_resolved"] is True
+            assert observed["provenance_match"] is True
+            assert all(v is True for v in observed["provenance_checks"].values())
+            assert observed["submitted_argv"]
             status=g.routing.device_status(dev["device_id"])
             assert status["node_attestation"]["execution_root"]==str(node.config.root)
             assert status["active_job_summaries"]
@@ -348,4 +351,54 @@ def test_exactly_once_preproxy_recovery_preserves_execution_key(make_gateway,tmp
         assert recovered["exactly_once"] is True
         row=g.routing.routed_jobs.by_operation("recover-science")
         assert row["execution_key"]==frozen["execution_key"]
+    asyncio.run(run())
+
+
+def test_job_inspect_fails_closed_on_signed_provenance_hash_mismatch(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        node,dev,_,task,claim=await _setup_routed_git(g,tmp_path,"observe-mismatch")
+        await node.jobs.durable.start()
+        try:
+            job=await drive(
+                g,node,
+                g.routing.task_job_submit_once_or_local(
+                    "science-mismatch",task["task_id"],claim["lease_token"],
+                    claim["lease_epoch"],"MISMATCH_E",
+                    [sys.executable,"-c","import time; time.sleep(1.0)"],".",[]
+                ),
+            )
+            capacity=node.jobs.capacity_snapshot()
+            summaries=[dict(x) for x in capacity["active_job_summaries"]]
+            assert summaries
+            summaries[0]["submitted_argv_sha256"]="0"*64
+            g.routing.heartbeat_http(
+                g.routing.devices.get(dev["device_id"]),
+                {
+                    "active_node_jobs":capacity["active_node_jobs"],
+                    "active_node_jobs_unresolved":capacity["unresolved_node_jobs"],
+                    "capacity_reconciliation_complete":capacity[
+                        "capacity_reconciliation_complete"
+                    ],
+                    "candidate_nonterminal_routed_jobs":capacity[
+                        "candidate_nonterminal_routed_jobs"
+                    ],
+                    "active_job_summaries":summaries,
+                    "node_attestation":{
+                        "source_dir":"test-source",
+                        "release_commit":"c"*40,
+                        "execution_root":str(node.config.root),
+                        "runtime_dir":str(node.config.runtime_dir),
+                        "schema_version":1,
+                    },
+                },
+            )
+            observed=g.routing.task_job_inspect(task["task_id"],job["proxy_job_id"])
+            assert observed["provenance_resolved"] is False
+            assert observed["provenance_match"] is False
+            assert observed["authoritative_execution_state"]=="PROVENANCE_MISMATCH"
+            assert observed["observation_source"]=="SIGNED_NODE_HEARTBEAT_PROVENANCE_MISMATCH"
+            assert observed["provenance_checks"]["submitted_argv_sha256_match"] is False
+        finally:
+            await node.jobs.durable.stop()
     asyncio.run(run())
