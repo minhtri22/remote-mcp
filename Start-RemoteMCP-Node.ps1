@@ -119,9 +119,9 @@ if (-not $RootDir) { $RootDir = [string]$StoredDevice.root }
 if (-not $RootDir) {
     throw "RemoteMCP node root is missing. Pass -RootDir or set REMOTEMCP_NODE_ROOT."
 }
-# Windows PowerShell 5.1 runs on .NET Framework, which does not provide
-# Path.IsPathFullyQualified(). Use the older-compatible rooted check and
-# explicitly reject drive-relative forms such as "D:folder".
+# Windows PowerShell 5.1 runs on .NET Framework with an older Path API.
+# Use the compatible rooted check and explicitly reject drive-relative
+# forms such as "D:folder".
 if (
     -not [System.IO.Path]::IsPathRooted($RootDir) -or
     $RootDir -match '^[A-Za-z]:[^\\/]'
