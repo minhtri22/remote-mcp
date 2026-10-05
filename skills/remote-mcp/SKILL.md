@@ -116,6 +116,24 @@ After the routed job is terminal:
 5. If status reports `POSTRUN_EVIDENCE_NOT_FOUND`, preserve the terminal job result and classify the artifact as missing post-run evidence. Do not manufacture or regenerate it unless a separate scientific recovery gate explicitly authorizes that.
 6. `JOB_RESULT` and stdout/stderr may establish execution integrity, but they do not silently replace a canonical result file when the scientific protocol requires that file.
 
+### Routed execution lifecycle recovery
+
+Classify the failure phase before taking any recovery action. Use the same logical submit/job identity whenever one already exists.
+
+- **Before proxy creation / admission-dispatch failure:** call `task_job_submit_failure_status(task_id, operation_id)`. New routed submits freeze their exact argv/cwd/evidence intent before predecessor reconciliation, so a later agent can recover without reconstructing scientific parameters from chat history.
+- If status returns `preproxy_recoverable=true`, reclaim the task lease if needed, pin the returned `argv_sha256`, and call `task_job_recover_preproxy_submit`. The tool authoritatively reconciles earlier routed predecessors first, then creates the first proxy for the **same original operation_id** and reuses the frozen argv/cwd/evidence declaration. It must not create a replacement logical one-shot.
+- Older operations created before submit-intent freezing may return `ADOPT_LEGACY_SUBMIT_INTENT`. Use `task_job_adopt_legacy_submit_intent` only when the exact original argv/cwd are available. The tool accepts them only if they reproduce the historical operation request hash; otherwise it fails closed.
+- If the original failure is nonrecoverable, task/device identity changed, an earlier job is still genuinely active, or predecessor state is not authoritative, do not bypass the gate with SQL, a new operation, another proxy, or a second scientific run.
+- Once a proxy exists, switch to the proxy-scoped workflow below. Once a job is terminal, switch to post-run evidence readback. Do not keep using pre-proxy recovery after execution has started.
+
+Decision order:
+
+`task_job_submit_failure_status`
+→ `task_job_recover_preproxy_submit` when eligible
+→ `task_job_recovery_status` / `task_job_recover_path_escape` when a proxy exists but no node job exists
+→ `task_job_get` / `task_job_result` while executing or terminalizing
+→ `task_job_artifact_status` / `task_job_artifact_read` for declared post-run evidence.
+
 ### Pre-execution routed-submit recovery
 
 If a routed scientific job is still `QUEUED` with `node_job_id=null`, do not create a second proxy/job as the first response.
@@ -142,6 +160,22 @@ If a routed scientific job is still `QUEUED` with `node_job_id=null`, do not cre
 There is no `/deviceList` alias. Use `/devices`.
 
 If a client does not expose a native slash-command picker but sends these strings as ordinary chat text, follow the same semantics.
+
+
+### Windows research-storage policy
+
+On the production Windows research host, the Windows OS drive is **forbidden** for research repositories, managed project roots, managed workspaces, and task worktrees.
+
+- canonical production research root: `NON_OS_RESEARCH_ROOT`;
+- paths under `%USERPROFILE%\RemoteMCP-Workspace` are historical-only and must not be reused as production research roots;
+- `%LOCALAPPDATA%\RemoteMCP` may contain only RemoteMCP runtime identity, durable state, logs, and virtual environments;
+- never create, clone, expose, migrate, or materialize a research repository/worktree on the OS drive as a workaround for `PATH_ESCAPE` or project-root mismatch;
+- do not repair root mismatch by re-pairing, replacing the device identity, or editing `device.json` / node DB by hand;
+- use an explicit same-identity node root override on the approved non-OS research root, then register the canonical project under that root;
+- any historical C-drive project binding must be labeled `HISTORICAL_ONLY_DO_NOT_REUSE` and must not be selected for new scientific work.
+
+If a command, join flow, starter, watchdog, handoff, or agent proposes `C:\...` for a research/project/worktree path, treat it as a policy violation and fail closed. Runtime-only paths under LocalAppData are not research storage and are exempt.
+
 
 ### Secure local dedicated-node pairing
 
