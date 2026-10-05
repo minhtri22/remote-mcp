@@ -63,6 +63,11 @@ function Get-LogicalNodeRoots([array]$Processes) {
 
 $RuntimeDir = (Resolve-Path $RuntimeDir).Path
 $RootDir = (Resolve-Path $RootDir).Path
+$RootDrive = [System.IO.Path]::GetPathRoot($RootDir)
+$OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd('\'))) {
+    throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: watchdog root cannot be on the Windows OS drive."
+}
 $SourceDir = (Resolve-Path $SourceDir).Path
 $NodeSourceDir = (Resolve-Path $NodeSourceDir).Path
 if (-not (Test-Path $StartScript)) {
