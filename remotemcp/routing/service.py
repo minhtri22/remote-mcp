@@ -162,6 +162,10 @@ class RoutingService:
         binding=self.bindings.project_binding(project_id)
         if binding is None:
             return result
+        if "lifecycle_state" in binding.keys():
+            result["binding_lifecycle_state"]=binding["lifecycle_state"]
+            result["superseded_by_project_id"]=binding["superseded_by_project_id"]
+            result["eligible_for_new_tasks"]=binding["lifecycle_state"]=="ACTIVE"
         return self._with_routing(
             result,
             binding["device_id"],
@@ -661,6 +665,13 @@ class RoutingService:
                 if existing:
                     if existing["project_kind"]!=kind:
                         raise DurableError("PROJECT_DEVICE_BINDING_CONFLICT","remote project kind changed")
+                    lifecycle=existing["lifecycle_state"] if "lifecycle_state" in existing.keys() else "ACTIVE"
+                    if lifecycle!="ACTIVE":
+                        raise DurableError(
+                            "PROJECT_BINDING_HISTORICAL",
+                            "historical project binding cannot be reused for new work",
+                            project_id=existing["project_id"],
+                        )
                     project_id=existing["project_id"]
                     con.execute("UPDATE projects SET max_active_tasks=?,updated_at_ms=? WHERE project_id=?",(int(max_active_tasks),t,project_id))
                     generation=int(existing["binding_generation"])
@@ -754,10 +765,44 @@ class RoutingService:
         except Exception as exc:
             self._fail_final(operation_id,exc);raise
 
+    def project_binding_deprecate(
+        self,operation_id:str,project_id:str,superseded_by_project_id:str|None=None
+    )->dict:
+        args={
+            "project_id":project_id,
+            "superseded_by_project_id":superseded_by_project_id,
+        }
+        op,created=self._reserve(
+            operation_id,"PROJECT_BINDING_DEPRECATE",args,project_id=project_id
+        )
+        replay=self._operation_replay(op)
+        if replay is not None:
+            return {**replay,"replayed":True}
+        if created:
+            self.durable.operations.mark_executing(operation_id)
+        try:
+            row=self.bindings.deprecate_project(project_id,superseded_by_project_id)
+            result={
+                "project_id":project_id,
+                "binding_lifecycle_state":row["lifecycle_state"],
+                "superseded_by_project_id":row["superseded_by_project_id"],
+                "eligible_for_new_tasks":False,
+                "device_id":row["device_id"],
+                "node_root_rel":row["node_root_rel"],
+                "binding_generation":int(row["binding_generation"]),
+            }
+            self.durable.operations.succeed(operation_id,result)
+            return result
+        except Exception as exc:
+            self._fail_final(operation_id,exc)
+            raise
+
     # ---- task lifecycle ----
 
     async def task_create_or_local(self,operation_id:str,project_id:str,title:str,base_ref:str="HEAD")->dict:
         binding=self.bindings.project_binding(project_id)
+        if binding is not None:
+            self.bindings.require_active_project_binding(project_id)
         if binding is None:
             return await self.multi.task_create(operation_id,project_id,title,base_ref)
         project=self.multi.projects.get(project_id)
