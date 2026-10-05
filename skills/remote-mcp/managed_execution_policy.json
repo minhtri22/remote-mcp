@@ -147,7 +147,15 @@
       "preferred_before_refreshing_get_logs_or_result": true,
       "observability_loss_allows_relaunch": false,
       "pending_readback_decision": "RETURN_OBSERVATION_REFRESH_PENDING_WITH_EXISTING_PROVENANCE",
-      "automatic_scientific_rerun_for_readback_forbidden": true
+      "automatic_scientific_rerun_for_readback_forbidden": true,
+      "scientific_observability_ready_for_fresh_one_shot_requires": [
+        "capacity_resolved",
+        "active_job_identity_complete",
+        "gateway_node_release_attestation_match",
+        "node_execution_root_attested",
+        "node_runtime_dir_attested"
+      ],
+      "rolling_upgrade_rule": "CAPACITY_TRUTH_AND_PROVENANCE_READINESS_ARE_SEPARATE"
     },
     "exactly_once_execution": {
       "enabled": true,
