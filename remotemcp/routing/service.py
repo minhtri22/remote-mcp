@@ -572,6 +572,66 @@ class RoutingService:
             device_id,
         )
 
+    def device_upgrade_readiness(self,device_id:str)->dict:
+        """Fail-closed deployment gate: no live agents, leases, commands, or node jobs."""
+        status=self.devices.status(device_id)
+        capacity=self.device_capacity_status(device_id)
+        t=now_ms()
+        session_cutoff=t-int(self.multi.agents.ttl_ms)
+        fresh_sessions=self.db.query_one(
+            "SELECT COUNT(*) AS n FROM agent_sessions s "
+            "JOIN agents a ON a.agent_id=s.agent_id "
+            "WHERE a.owner_account_id=? AND s.state='ACTIVE' "
+            "AND s.last_heartbeat_at_ms>=?",
+            (self.owner_account_id,session_cutoff),
+        )
+        active_leases=self.db.query_one(
+            "SELECT COUNT(*) AS n FROM task_leases WHERE expires_at_ms>?",
+            (t,),
+        )
+        active_commands=self.db.query_one(
+            "SELECT COUNT(*) AS n FROM device_commands "
+            "WHERE device_id=? AND state IN ('QUEUED','LEASED') "
+            "AND command_expires_at_ms>?",
+            (device_id,t),
+        )
+        blockers={
+            "capacity_unresolved":not bool(capacity.get("capacity_resolved")),
+            "active_node_jobs":int(capacity.get("authoritative_active_node_jobs") or 0),
+            "fresh_agent_sessions":int(fresh_sessions["n"]) if fresh_sessions else 0,
+            "unexpired_task_leases":int(active_leases["n"]) if active_leases else 0,
+            "unexpired_device_commands":int(active_commands["n"]) if active_commands else 0,
+        }
+        ready=(
+            not blockers["capacity_unresolved"]
+            and blockers["active_node_jobs"]==0
+            and blockers["fresh_agent_sessions"]==0
+            and blockers["unexpired_task_leases"]==0
+            and blockers["unexpired_device_commands"]==0
+        )
+        return self._with_routing(
+            {
+                "device_id":device_id,
+                "device_name":status.get("device_name"),
+                "upgrade_allowed":ready,
+                "decision":(
+                    "UPGRADE_WINDOW_OPEN"
+                    if ready else "WAIT_DO_NOT_RESTART_OR_DEPLOY"
+                ),
+                "blockers":blockers,
+                "capacity_reconciliation_complete":bool(
+                    status.get("capacity_reconciliation_complete")
+                ),
+                "authoritative_unresolved_node_jobs":status.get(
+                    "authoritative_unresolved_node_jobs"
+                ),
+                "node_attestation":status.get("node_attestation",{}),
+                "gateway_attestation":self._gateway_attestation(),
+                "agent_session_ttl_ms":int(self.multi.agents.ttl_ms),
+            },
+            device_id,
+        )
+
     async def device_revoke(self,operation_id:str,device_id:str,reason:str="")->dict:
         op,created=self._reserve(operation_id,"DEVICE_REVOKE",{"device_id":device_id,"reason":reason})
         replay=self._operation_replay(op)
