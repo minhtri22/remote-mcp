@@ -591,6 +591,24 @@ async def task_job_submit_with_evidence(
 
 
 @mcp.tool()
+async def task_job_submit_once(
+    operation_id: str,
+    task_id: str,
+    lease_token: str,
+    lease_epoch: int,
+    scientific_gate: str,
+    argv: list[str],
+    evidence_paths: list[str] = [],
+    cwd: str = ".",
+) -> dict:
+    """Submit exactly-once scientific execution keyed by project/base/gate/argv/cwd."""
+    return await routing_service.task_job_submit_once_or_local(
+        operation_id, task_id, lease_token, lease_epoch,
+        scientific_gate, argv, cwd, evidence_paths
+    )
+
+
+@mcp.tool()
 def task_jobs(task_id: str) -> dict:
     return routing_service.task_jobs_or_local(task_id)
 
@@ -686,6 +704,18 @@ async def project_register_on_device(
 ) -> dict:
     return await routing_service.project_register_on_device(
         operation_id, device_id, path, max_active_tasks
+    )
+
+
+@mcp.tool()
+def project_binding_deprecate(
+    operation_id: str,
+    project_id: str,
+    superseded_by_project_id: str | None = None,
+) -> dict:
+    """Mark a project binding historical so it cannot accept new tasks."""
+    return routing_service.project_binding_deprecate(
+        operation_id, project_id, superseded_by_project_id
     )
 
 
@@ -830,6 +860,15 @@ async def task_job_artifact_read(
     return await routing_service.task_job_artifact_read(
         task_id, proxy_job_id, path, expected_sha256, offset, limit
     )
+
+
+@mcp.tool()
+def task_job_inspect(
+    task_id: str,
+    proxy_job_id: str,
+) -> dict:
+    """Observe routed-job provenance from durable registry + signed heartbeat without routing a new command."""
+    return routing_service.task_job_inspect(task_id, proxy_job_id)
 
 
 @mcp.tool()
