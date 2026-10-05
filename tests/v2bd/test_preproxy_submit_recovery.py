@@ -32,8 +32,10 @@ async def _setup(make_gateway,tmp_path,name="node"):
         ),
     )
     agent=await g.multi.agent_register("agent-op","agent","install",[])
-    task=await g.routing.task_create_or_local(
-        "task-op",project["project_id"],"task"
+    task=await drive(
+        g,node,g.routing.task_create_or_local(
+            "task-op",project["project_id"],"task"
+        )
     )
     claim=await drive(
         g,node,g.routing.task_claim_or_local(

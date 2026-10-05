@@ -16,6 +16,9 @@ def test_device_restart_routes_to_same_identity(make_gateway,tmp_path):
                 "capabilities":{"outbound_node":True},
                 "platform":{"hostname":"restart-node","system":"Windows"},
                 "active_node_jobs":0,
+                "active_node_jobs_unresolved":0,
+                "capacity_reconciliation_complete":True,
+                "candidate_nonterminal_routed_jobs":0,
             },
         )
 

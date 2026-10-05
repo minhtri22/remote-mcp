@@ -41,12 +41,18 @@ def test_signed_heartbeat_is_authoritative_capacity_signal(make_gateway,tmp_path
             "capabilities":{"outbound_node":True},
             "platform":{"hostname":"node-a-host","system":"Windows"},
             "active_node_jobs":3,
+            "active_node_jobs_unresolved":0,
+            "capacity_reconciliation_complete":True,
+            "candidate_nonterminal_routed_jobs":5,
         },
     )
     status=b.routing.device_status(did)
     assert status["authoritative_active_node_jobs"]==3
     assert status["capacity_signal_fresh"] is True
-    assert status["capacity_signal_source"]=="SIGNED_NODE_HEARTBEAT"
+    assert status["capacity_signal_source"]=="SIGNED_NODE_HEARTBEAT_RECONCILED_DURABLE_STATE"
+    assert status["capacity_reconciliation_complete"] is True
+    assert status["authoritative_unresolved_node_jobs"]==0
+    assert status["candidate_nonterminal_routed_jobs"]==5
     assert status["active_routed_jobs_is_capacity_signal"] is False
 
     capacity=b.routing.device_capacity_status(did)
@@ -55,3 +61,32 @@ def test_signed_heartbeat_is_authoritative_capacity_signal(make_gateway,tmp_path
     assert capacity["registry_count_is_capacity_signal"] is False
     assert capacity["resource_gate_rule"]=="USE_AUTHORITATIVE_NODE_COUNT_ONLY"
     assert "RECHECK_CPU_RAM" in capacity["recommendation"]
+
+
+def test_old_unreconciled_heartbeat_is_not_capacity_truth(make_gateway,tmp_path):
+    import asyncio
+    b=make_gateway()
+    node,dev=asyncio.run(pair_node(
+        b,tmp_path/"old-capacity-node",tmp_path/"old-capacity-node-rt","old-capacity-node"
+    ))
+    did=node.identity.device["device_id"]
+    row=b.routing.devices.get(did)
+    b.routing.heartbeat_http(
+        row,
+        {
+            "node_time_ms":now_ms(),
+            "capabilities":{"outbound_node":True},
+            "platform":{"hostname":"node-a-host","system":"Windows"},
+            "active_node_jobs":9,
+        },
+    )
+    status=b.routing.device_status(did)
+    assert status["authoritative_active_node_jobs"]==9
+    assert status["capacity_reconciliation_complete"] is False
+    assert status["capacity_signal_fresh"] is False
+    assert status["capacity_signal_source"]=="SIGNED_NODE_HEARTBEAT_UNRECONCILED"
+
+    capacity=b.routing.device_capacity_status(did)
+    assert capacity["capacity_resolved"] is False
+    assert capacity["capacity_reason"]=="NODE_HEARTBEAT_CAPACITY_UNRECONCILED"
+    assert capacity["authoritative_active_node_jobs"] is None

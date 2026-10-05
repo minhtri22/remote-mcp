@@ -15,7 +15,7 @@ class RoutingConfig:
     offline_after_seconds: int = 60
     poll_long_wait_seconds: int = 25
     command_lease_seconds: int = 45
-    mutation_ttl_seconds: int = 30
+    mutation_ttl_seconds: int = 120
     gateway_wait_seconds: int = 55
     nonce_retention_seconds: int = 600
     signed_timestamp_window_seconds: int = 60

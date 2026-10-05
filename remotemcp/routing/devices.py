@@ -158,6 +158,13 @@ class DeviceRepository:
             capabilities={}
         reported_active_node_jobs=capabilities.get("_remotemcp_active_node_jobs")
         observed_at_ms=capabilities.get("_remotemcp_active_node_jobs_observed_at_ms")
+        unresolved_node_jobs=capabilities.get("_remotemcp_active_node_jobs_unresolved")
+        reconciliation_complete=capabilities.get(
+            "_remotemcp_capacity_reconciliation_complete"
+        )
+        candidate_nonterminal=capabilities.get(
+            "_remotemcp_candidate_nonterminal_routed_jobs"
+        )
         try:
             reported_active_node_jobs=int(reported_active_node_jobs)
             if reported_active_node_jobs<0:
@@ -168,6 +175,23 @@ class DeviceRepository:
             observed_at_ms=int(observed_at_ms)
         except Exception:
             observed_at_ms=None
+        try:
+            unresolved_node_jobs=int(unresolved_node_jobs)
+            if unresolved_node_jobs<0:
+                raise ValueError()
+        except Exception:
+            unresolved_node_jobs=None
+        try:
+            candidate_nonterminal=int(candidate_nonterminal)
+            if candidate_nonterminal<0:
+                raise ValueError()
+        except Exception:
+            candidate_nonterminal=None
+        reconciliation_complete=(
+            reconciliation_complete
+            if isinstance(reconciliation_complete,bool)
+            else False
+        )
         age_ms=(
             max(0,now_ms()-observed_at_ms)
             if observed_at_ms is not None else None
@@ -177,6 +201,8 @@ class DeviceRepository:
             and reported_active_node_jobs is not None
             and age_ms is not None
             and age_ms<=self.offline_ms
+            and reconciliation_complete
+            and unresolved_node_jobs==0
         )
         registry_jobs=int(jobs["n"])
         return {
@@ -196,8 +222,14 @@ class DeviceRepository:
             "authoritative_active_node_jobs_observed_at_ms":observed_at_ms,
             "authoritative_active_node_jobs_age_ms":age_ms,
             "capacity_signal_fresh":capacity_fresh,
+            "capacity_reconciliation_complete":reconciliation_complete,
+            "authoritative_unresolved_node_jobs":unresolved_node_jobs,
+            "candidate_nonterminal_routed_jobs":candidate_nonterminal,
             "capacity_signal_source":(
-                "SIGNED_NODE_HEARTBEAT"
-                if reported_active_node_jobs is not None else None
+                "SIGNED_NODE_HEARTBEAT_RECONCILED_DURABLE_STATE"
+                if capacity_fresh else (
+                    "SIGNED_NODE_HEARTBEAT_UNRECONCILED"
+                    if reported_active_node_jobs is not None else None
+                )
             ),
         }
