@@ -146,6 +146,34 @@ If a routed scientific job is still `QUEUED` with `node_job_id=null`, do not cre
 6. If status is not eligible, the argv hash does not match, the node probe is ambiguous, the device is offline, or cwd semantics cannot be proven equivalent, fail closed. Do not repair with SQL, node-database edits, raw node internals, a replacement proxy, or a second scientific one-shot.
 7. After recovery returns a `node_job_id`, track only that same proxy through `task_job_get`, `task_job_logs`, and `task_job_result`. Do not launch another recovery or replacement run.
 
+### V3.1 scientific execution observability
+
+For a consequential scientific one-shot, prefer `task_job_submit_once` rather than creating a fresh operation with `task_job_submit`. The exactly-once key is derived from the managed project, immutable base commit, scientific gate label, argv, cwd, and declared evidence paths. If the same execution already exists, RemoteMCP must return/adopt that execution instead of spawning another process.
+
+For observation:
+
+- call `task_job_inspect(task_id, proxy_job_id)` first when execution may already exist;
+- `task_job_inspect` is zero-command observation: it does not acquire a lease, route a node command, or create a replacement execution;
+- signed heartbeat active-job summaries are authoritative provenance only when capacity reconciliation is complete and fresh;
+- if `task_job_get`, `task_job_logs`, or `task_job_result` cannot refresh because the control-plane command is pending, treat `OBSERVATION_REFRESH_PENDING` as an observation limitation, not as execution failure;
+- never create a second scientific run to repair readback or observability.
+
+Historical project bindings must be preserved rather than deleted. Use `project_binding_deprecate` to mark an obsolete binding historical and optionally point at its active successor. Historical bindings may retain old tasks/evidence but must not accept new tasks.
+
+### Deployment / upgrade gate
+
+Do not deploy or restart a production RemoteMCP node merely because a new release is ready. Before any production upgrade call `device_upgrade_readiness(device_id)` and require:
+
+- `upgrade_allowed=true`;
+- authoritative active node jobs = 0;
+- authoritative unresolved node jobs = 0;
+- capacity reconciliation complete;
+- fresh active agent sessions = 0;
+- unexpired task leases = 0;
+- unexpired device commands = 0.
+
+If any condition is non-zero/unresolved, wait. Do not cancel science or shorten TTLs just to open the upgrade window.
+
 ## Operator commands
 
 - `/status`: show a compact gateway/device health summary.
