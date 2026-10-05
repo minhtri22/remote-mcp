@@ -22,10 +22,30 @@ class NodeDatabase:
         con.execute("PRAGMA foreign_keys=ON")
         return con
 
+    @staticmethod
+    def _schema_checksum_candidates(sql_bytes:bytes)->set[str]:
+        """Return raw and newline-equivalent SHA-256 identities.
+
+        Node schema history is content-immutable, but Windows checkouts can
+        materialize the same UTF-8 SQL text with CRLF while git archives use
+        LF. Accept only that line-ending equivalence; all other content drift
+        remains startup-fatal.
+        """
+        candidates={hashlib.sha256(sql_bytes).hexdigest()}
+        try:
+            text=sql_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return candidates
+        normalized=text.replace("\r\n","\n").replace("\r","\n")
+        candidates.add(hashlib.sha256(normalized.encode("utf-8")).hexdigest())
+        candidates.add(hashlib.sha256(normalized.replace("\n","\r\n").encode("utf-8")).hexdigest())
+        return candidates
+
     def bootstrap(self):
         self.runtime_dir.mkdir(parents=True,exist_ok=True)
         raw=self.schema_path.read_bytes()
         checksum=hashlib.sha256(raw).hexdigest()
+        checksum_candidates=self._schema_checksum_candidates(raw)
         con=self.connect()
         try:
             con.execute("PRAGMA journal_mode=WAL")
@@ -53,7 +73,7 @@ class NodeDatabase:
                 if row is None:
                     raise DurableError("NODE_SCHEMA_MISMATCH","node schema metadata missing")
                 meta=json.loads(row[0])
-                if int(meta.get("version",0))!=1 or meta.get("sha256")!=checksum:
+                if int(meta.get("version",0))!=1 or meta.get("sha256") not in checksum_candidates:
                     raise DurableError("NODE_SCHEMA_MISMATCH","node schema checksum mismatch")
             else:
                 raise DurableError("NODE_SCHEMA_MISMATCH","unsupported node schema version",version=version)
