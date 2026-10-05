@@ -472,11 +472,35 @@ class RoutingService:
         self.durable.operations.succeed(operation_id,result)
         return result
 
+    def _gateway_attestation(self)->dict:
+        source_root=Path(__file__).resolve().parents[2]
+        marker=source_root/".remotemcp-release.json"
+        release_commit=None
+        if marker.is_file():
+            try:
+                payload=json.loads(marker.read_text(encoding="utf-8-sig"))
+                release_commit=payload.get("commit")
+            except Exception:
+                release_commit=None
+        return {
+            "source_dir":str(source_root),
+            "release_commit":release_commit,
+            "schema_target_version":5,
+        }
+
     def device_list(self)->dict:
-        return {"devices":[self.devices.status(r["device_id"]) for r in self.devices.list()]}
+        return {
+            "devices":[
+                {**self.devices.status(r["device_id"]),"gateway_attestation":self._gateway_attestation()}
+                for r in self.devices.list()
+            ]
+        }
 
     def device_status(self,device_id:str)->dict:
-        return self.devices.status(device_id)
+        return {
+            **self.devices.status(device_id),
+            "gateway_attestation":self._gateway_attestation(),
+        }
 
     def device_capacity_status(self,device_id:str)->dict:
         """Return the signed node-heartbeat capacity truth.
@@ -532,6 +556,9 @@ class RoutingService:
                 "candidate_nonterminal_routed_jobs":status.get(
                     "candidate_nonterminal_routed_jobs"
                 ),
+                "active_job_summaries":status.get("active_job_summaries",[]),
+                "node_attestation":status.get("node_attestation",{}),
+                "gateway_attestation":self._gateway_attestation(),
                 "capacity_signal_age_ms":status.get(
                     "authoritative_active_node_jobs_age_ms"
                 ),
@@ -1999,6 +2026,90 @@ class RoutingService:
         return await self.task_job_submit_or_local(
             operation_id,task_id,lease_token,lease_epoch,argv,cwd,
             evidence_paths,scientific_gate=scientific_gate,
+        )
+
+    def task_job_inspect(self,task_id:str,proxy_job_id:str)->dict:
+        """Observe a routed job without routing a command or acquiring a new lease."""
+        binding,row=self._task_proxy(task_id,proxy_job_id)
+        status=self.devices.status(binding["device_id"])
+        task=self.multi.tasks.get(task_id)
+        command,payload=self._original_routed_submit(row)
+        payload=payload or {}
+        summaries=status.get("active_job_summaries") or []
+        matched=None
+        for item in summaries:
+            if not isinstance(item,dict):
+                continue
+            if (
+                item.get("proxy_job_id")==proxy_job_id
+                or (
+                    row["node_job_id"]
+                    and item.get("node_job_id")==row["node_job_id"]
+                )
+            ):
+                matched=dict(item)
+                break
+        central_state=str(row["last_known_state"])
+        terminal=central_state in TERMINAL
+        heartbeat_fresh=bool(status.get("capacity_signal_fresh"))
+        if terminal:
+            authoritative_state=central_state
+            provenance_resolved=True
+            observation_source="CENTRAL_TERMINAL_CACHE"
+        elif heartbeat_fresh and matched is not None:
+            authoritative_state=str(matched.get("state") or central_state)
+            provenance_resolved=True
+            observation_source="SIGNED_NODE_HEARTBEAT_ACTIVE_JOB"
+        elif (
+            heartbeat_fresh
+            and status.get("authoritative_active_node_jobs")==0
+        ):
+            authoritative_state="NOT_ACTIVE_ON_NODE"
+            provenance_resolved=False
+            observation_source="SIGNED_NODE_HEARTBEAT_NO_ACTIVE_MATCH"
+        else:
+            authoritative_state="UNRESOLVED"
+            provenance_resolved=False
+            observation_source="CENTRAL_REGISTRY_ONLY"
+        return self._with_routing(
+            {
+                **self.routed_jobs.as_dict(row,status["state"]),
+                "operation_id":row["operation_id"],
+                "base_commit":task["base_commit"],
+                "base_ref":task["base_ref"],
+                "argv_sha256":(
+                    row["argv_sha256"]
+                    if "argv_sha256" in row.keys() and row["argv_sha256"]
+                    else (
+                        self._argv_sha256(payload.get("argv") or [])
+                        if isinstance(payload.get("argv"),list) else None
+                    )
+                ),
+                "cwd":(
+                    row["cwd"]
+                    if "cwd" in row.keys() and row["cwd"] is not None
+                    else payload.get("cwd")
+                ),
+                "execution_key":(
+                    row["execution_key"] if "execution_key" in row.keys() else None
+                ),
+                "active_job_match":matched,
+                "authoritative_execution_state":authoritative_state,
+                "provenance_resolved":provenance_resolved,
+                "observation_source":observation_source,
+                "observation_refresh_command_created":False,
+                "lease_required":False,
+                "scientific_rerun_required":False,
+                "automatic_scientific_rerun_for_readback_forbidden":True,
+                "capacity_signal_fresh":heartbeat_fresh,
+                "authoritative_active_node_jobs":status.get(
+                    "authoritative_active_node_jobs"
+                ),
+                "node_attestation":status.get("node_attestation",{}),
+                "gateway_attestation":self._gateway_attestation(),
+            },
+            binding["device_id"],project_id=binding["project_id"],task_id=task_id,
+            binding_generation=int(binding["binding_generation"]),
         )
 
     def task_jobs_or_local(self,task_id:str)->dict:
