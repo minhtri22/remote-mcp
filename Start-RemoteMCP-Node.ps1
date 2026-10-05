@@ -126,7 +126,7 @@ $RootDir = [System.IO.Path]::GetFullPath($RootDir)
 $RootDrive = [System.IO.Path]::GetPathRoot($RootDir)
 $OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
 if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd('\'))) {
-    throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: project/worktree root cannot be on the Windows OS drive. Use a data/research drive such as D:\WORK\RESEARCH."
+    throw "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN: project/worktree root cannot be on the Windows OS drive. Use an approved non-OS data/research root."
 }
 New-Item -ItemType Directory -Force -Path $RootDir | Out-Null
 Write-Host "Node root: $RootDir"
