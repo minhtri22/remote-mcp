@@ -17,6 +17,8 @@ def test_root_start_script_contract():
     assert "--root" in text
     assert "[string]$RootDir" in text
     assert "REMOTEMCP_NODE_ROOT" in text
+    assert "IsPathFullyQualified" not in text
+    assert "IsPathRooted" in text
     assert "OS_DRIVE_RESEARCH_ROOT_FORBIDDEN" in text
     assert "NODE_ROOT_MISMATCH_RESTART_REQUIRED" in text
     assert "[switch]$Restart" in text
