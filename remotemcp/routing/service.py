@@ -685,7 +685,8 @@ class RoutingService:
             deterministic="prj_"+hashlib.sha256(f"{self.owner_account_id}|{operation_id}|{device_id}|{node_root_rel}".encode()).hexdigest()[:24]
             with self.db.transaction() as con:
                 existing=con.execute(
-                    "SELECT p.*,b.device_id,b.node_root_rel,b.binding_generation FROM project_device_bindings b "
+                    "SELECT p.*,b.device_id,b.node_root_rel,b.binding_generation,"
+                    "b.lifecycle_state,b.superseded_by_project_id FROM project_device_bindings b "
                     "JOIN projects p ON p.project_id=b.project_id WHERE b.device_id=? AND b.node_root_rel=?",
                     (device_id,node_root_rel),
                 ).fetchone()
@@ -742,6 +743,8 @@ class RoutingService:
     async def project_bind_device(self,operation_id:str,project_id:str,device_id:str)->dict:
         project=self.multi.projects.get(project_id)
         current=self.bindings.project_binding(project_id)
+        if current is not None:
+            self.bindings.require_active_project_binding(project_id)
         if current and current["device_id"]==device_id:
             result={
                 **self.multi.projects.status(project_id),
@@ -1851,31 +1854,12 @@ class RoutingService:
         dev=self.devices.require_online(binding["device_id"])
         lease=self.multi.leases.validate(task_id,lease_token,lease_epoch)
         execution_key=None
+        existing_execution=None
         if scientific_gate is not None:
             execution_key=self._scientific_execution_key(
                 task_id,scientific_gate,argv,cwd,evidence_paths
             )
-            existing=self.routed_jobs.by_execution_key(execution_key)
-            if existing is not None:
-                existing_binding=self.bindings.task_binding(existing["task_id"])
-                device_state=self.devices.status(existing["device_id"])["state"]
-                response={
-                    **self.routed_jobs.as_dict(existing,device_state),
-                    "exactly_once":True,
-                    "adopted_existing_execution":True,
-                    "scientific_gate":str(scientific_gate),
-                    "existing_task_id":existing["task_id"],
-                    "requested_task_id":task_id,
-                    "scientific_rerun_required":False,
-                }
-                return self._with_routing(
-                    response,existing["device_id"],
-                    project_id=existing["project_id"],task_id=existing["task_id"],
-                    binding_generation=(
-                        int(existing_binding["binding_generation"])
-                        if existing_binding is not None else None
-                    ),
-                )
+            existing_execution=self.routed_jobs.by_execution_key(execution_key)
         args={
             "task_id":task_id,"lease_epoch":int(lease_epoch),
             "argv":argv,"cwd":cwd,"evidence_paths":evidence_paths,
@@ -1901,6 +1885,31 @@ class RoutingService:
             return {**replay,"replayed":True}
         if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
             self._operation_replay(op)
+        if existing_execution is not None:
+            if created:
+                self.durable.operations.mark_executing(operation_id)
+            existing_binding=self.bindings.task_binding(existing_execution["task_id"])
+            device_state=self.devices.status(existing_execution["device_id"])["state"]
+            response={
+                **self.routed_jobs.as_dict(existing_execution,device_state),
+                "exactly_once":True,
+                "adopted_existing_execution":True,
+                "scientific_gate":str(scientific_gate),
+                "existing_task_id":existing_execution["task_id"],
+                "requested_task_id":task_id,
+                "scientific_rerun_required":False,
+            }
+            response=self._with_routing(
+                response,existing_execution["device_id"],
+                project_id=existing_execution["project_id"],
+                task_id=existing_execution["task_id"],
+                binding_generation=(
+                    int(existing_binding["binding_generation"])
+                    if existing_binding is not None else None
+                ),
+            )
+            self.durable.operations.succeed(operation_id,response)
+            return response
 
         existing_admission=self.job_admissions.by_operation(operation_id)
         existing_proxy=self.routed_jobs.by_operation(operation_id)
