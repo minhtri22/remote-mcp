@@ -47,11 +47,13 @@ The script:
 - prints the persisted local device status;
 - never performs a new pairing.
 
-For an existing identity stored elsewhere:
+For an existing identity stored elsewhere, `-RuntimeDir` refers only to the small RemoteMCP runtime/identity directory; it is **not** a research/project root. Runtime state may live under LocalAppData on the OS drive.
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RuntimeDir "C:\path\to\runtime"
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "NON_OS_RESEARCH_ROOT"
 ```
+
+For this production Windows research deployment, research repositories, managed project roots, managed workspaces, and task worktrees must stay under `NON_OS_RESEARCH_ROOT`. The OS drive is forbidden for research storage.
 
 To deliberately restart only that RemoteMCP node process:
 
@@ -213,13 +215,21 @@ The current physical V2-BD qualification uses disposable roots under:
 
 Those identities are evidence fixtures, not production project hosts. Do not bind real research repositories into those pilot roots before qualification closes.
 
-For a real deployment, choose a node root that contains the projects that node is allowed to execute. The generated one-file join flow currently defaults to:
+For a real deployment, choose an explicit non-OS data/research root that contains the projects that node is allowed to execute. The generated one-file join flow **does not default to USERPROFILE or the OS drive**. It requires `REMOTEMCP_NODE_ROOT`.
+
+For a production Windows research host:
+
+```text
+REMOTEMCP_NODE_ROOT=NON_OS_RESEARCH_ROOT
+```
+
+The following historical path is **forbidden for new research/project/worktree use**:
 
 ```text
 %USERPROFILE%\RemoteMCP-Workspace
 ```
 
-Projects must live under the configured node root. If existing repositories live elsewhere, either place/clone them under the production node root or use an explicit production pairing configuration with the desired `--root`.
+It is historical infrastructure only and must not be reused as a canonical research root. Projects must live under the configured non-OS node root. Do not clone or expose a canonical research repository onto the OS drive to work around a root mismatch; fix the node root while preserving the existing device identity.
 
 ## 9. Recommended ChatGPT operating sequence
 
