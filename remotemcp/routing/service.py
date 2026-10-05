@@ -2787,6 +2787,16 @@ class RoutingService:
                             raise DurableError("INVALID_ARGUMENT",f"invalid active job summary field: {key}") from exc
                 normalized_summaries.append(summary)
             active_job_summaries=normalized_summaries
+        if (
+            capacity_complete is True
+            and active_node_jobs is not None
+            and active_job_summaries is not None
+            and len(active_job_summaries)!=active_node_jobs
+        ):
+            raise DurableError(
+                "INVALID_ARGUMENT",
+                "reconciled active_job_summaries must identify every active node job",
+            )
         if node_attestation is not None:
             if not isinstance(node_attestation,dict):
                 raise DurableError("INVALID_ARGUMENT","node_attestation must be an object")
