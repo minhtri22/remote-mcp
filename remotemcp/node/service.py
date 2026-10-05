@@ -76,12 +76,13 @@ class NodeService:
     def _schedule_self_restart(self):
         source_root=Path(__file__).resolve().parents[2]
         runtime=str(self.config.runtime_dir)
+        root=str(self.config.root)
         helper=(
             "import subprocess,sys,time;"
             "time.sleep(1.5);"
             "flags=(getattr(subprocess,'CREATE_NO_WINDOW',0)|"
             "getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0)) if sys.platform.startswith('win') else 0;"
-            "subprocess.Popen([sys.argv[1],'-m','remotemcp.node','run','--runtime-dir',sys.argv[3]],"
+            "subprocess.Popen([sys.argv[1],'-m','remotemcp.node','run','--runtime-dir',sys.argv[3],'--root',sys.argv[4]],"
             "cwd=sys.argv[2],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,"
             "creationflags=flags)"
         )
@@ -89,7 +90,7 @@ class NodeService:
         if os.name=="nt":
             flags=getattr(subprocess,"CREATE_NO_WINDOW",0)|getattr(subprocess,"CREATE_NEW_PROCESS_GROUP",0)
         subprocess.Popen(
-            [sys.executable,"-c",helper,sys.executable,str(source_root),runtime],
+            [sys.executable,"-c",helper,sys.executable,str(source_root),runtime,root],
             cwd=str(source_root),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
