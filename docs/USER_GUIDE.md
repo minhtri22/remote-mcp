@@ -50,10 +50,10 @@ The script:
 For an existing identity stored elsewhere, `-RuntimeDir` refers only to the small RemoteMCP runtime/identity directory; it is **not** a research/project root. Runtime state may live under LocalAppData on the OS drive.
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "D:\WORK\RESEARCH"
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "NON_OS_RESEARCH_ROOT"
 ```
 
-For this production Windows research deployment, research repositories, managed project roots, managed workspaces, and task worktrees must stay under `D:\WORK\RESEARCH`. The OS drive is forbidden for research storage.
+For this production Windows research deployment, research repositories, managed project roots, managed workspaces, and task worktrees must stay under `NON_OS_RESEARCH_ROOT`. The OS drive is forbidden for research storage.
 
 To deliberately restart only that RemoteMCP node process:
 
@@ -217,10 +217,10 @@ Those identities are evidence fixtures, not production project hosts. Do not bin
 
 For a real deployment, choose an explicit non-OS data/research root that contains the projects that node is allowed to execute. The generated one-file join flow **does not default to USERPROFILE or the OS drive**. It requires `REMOTEMCP_NODE_ROOT`.
 
-For the current production Windows research host:
+For a production Windows research host:
 
 ```text
-REMOTEMCP_NODE_ROOT=D:\WORK\RESEARCH
+REMOTEMCP_NODE_ROOT=NON_OS_RESEARCH_ROOT
 ```
 
 The following historical path is **forbidden for new research/project/worktree use**:
