@@ -54,7 +54,7 @@ if (-not $Workspace) {{
     $Workspace = [Environment]::GetEnvironmentVariable("REMOTEMCP_NODE_ROOT","User")
 }}
 if (-not $Workspace) {{
-    throw "REMOTEMCP_NODE_ROOT must be set explicitly to a non-OS research/data root (for this deployment: D:\\WORK\\RESEARCH). OS-drive research/project/worktree storage is forbidden."
+    throw "REMOTEMCP_NODE_ROOT must be set explicitly to a non-OS research/data root. OS-drive research/project/worktree storage is forbidden."
 }}
 if (-not [System.IO.Path]::IsPathFullyQualified($Workspace)) {{
     throw "REMOTEMCP_NODE_ROOT must be an absolute path."
