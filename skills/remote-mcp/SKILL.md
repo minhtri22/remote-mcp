@@ -170,7 +170,11 @@ Do not deploy or restart a production RemoteMCP node merely because a new releas
 - capacity reconciliation complete;
 - fresh active agent sessions = 0;
 - unexpired task leases = 0;
-- unexpired device commands = 0.
+- unexpired device commands = 0;
+- signed physical-process safety is resolved and fresh;
+- physical-process blockers = 0, including residual process trees from terminal RemoteMCP jobs and explicitly declared long-lived model/server processes.
+
+`authoritative_active_node_jobs=0` is necessary but not sufficient for maintenance. It does not prove the host process table is idle. If the physical-process snapshot is missing, stale, unresolved, or reports blockers, wait and fail closed. Do not kill unclassified processes merely to open the upgrade window.
 
 If any condition is non-zero/unresolved, wait. Do not cancel science or shorten TTLs just to open the upgrade window.
 
@@ -196,7 +200,9 @@ On the production Windows research host, the Windows OS drive is **forbidden** f
 
 - canonical production research root: `NON_OS_RESEARCH_ROOT`;
 - paths under `%USERPROFILE%\RemoteMCP-Workspace` are historical-only and must not be reused as production research roots;
-- `%LOCALAPPDATA%\RemoteMCP` may contain only RemoteMCP runtime identity, durable state, logs, and virtual environments;
+- the Windows OS drive is also forbidden for RemoteMCP node runtime identity/state, node virtual environments, node logs, TEMP/TMP, caches, managed workspaces/worktrees, and scientific outputs;
+- use an explicitly approved non-OS RemoteMCP infrastructure root for runtime/venv/log/tmp/cache/control state;
+- gateway components that cannot yet satisfy Zero-C must be treated as migration blockers rather than silently exempted;
 - never create, clone, expose, migrate, or materialize a research repository/worktree on the OS drive as a workaround for `PATH_ESCAPE` or project-root mismatch;
 - do not repair root mismatch by re-pairing, replacing the device identity, or editing `device.json` / node DB by hand;
 - use an explicit same-identity node root override on the approved non-OS research root, then register the canonical project under that root;
@@ -233,6 +239,8 @@ Before a fresh one-shot, resource-sensitive execution, or node restart:
 7. if the heartbeat is from an older node, unreconciled, stale, unavailable, contains unresolved rows, or the device is offline, treat capacity as unresolved and fail closed.
 
 A large `registry_nonterminal_routed_jobs` value by itself must never block a scientific transition. It is an inventory/audit signal, not a capacity signal. Likewise, an unreconciled node-routed count must never be presented as authoritative capacity.
+
+For restart/deployment/migration decisions, capacity truth must be combined with the signed physical-process safety snapshot. The node must trace process trees from durable worker PIDs and evaluate explicitly declared long-lived process patterns. Residual descendants of terminal jobs and declared long-lived model/server processes are maintenance blockers even when durable active jobs are zero.
 
 
 ### Managed task base pinning and claim recovery

@@ -13,6 +13,7 @@ class RoutingConfig:
     pairing_ttl_seconds: int = 600
     heartbeat_seconds: int = 15
     offline_after_seconds: int = 60
+    physical_process_max_age_seconds: int = 45
     poll_long_wait_seconds: int = 25
     command_lease_seconds: int = 45
     mutation_ttl_seconds: int = 120

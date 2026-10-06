@@ -7,6 +7,7 @@ param(
     [string]$TempDir = "",
     [string]$CacheDir = "",
     [string]$ControlDir = "",
+    [string]$DeclaredLongLivedProcessPatterns = "",
     [switch]$ZeroC,
     [switch]$Restart
 )
@@ -210,6 +211,7 @@ $env:REMOTEMCP_TEMP_DIR = $TempDir
 $env:REMOTEMCP_CACHE_DIR = $CacheDir
 $env:REMOTEMCP_CONTROL_DIR = $ControlDir
 $env:REMOTEMCP_ZERO_C = if ($ZeroC) { "1" } else { "0" }
+$env:REMOTEMCP_LONG_LIVED_PROCESS_PATTERNS = $DeclaredLongLivedProcessPatterns
 $env:TEMP = $TempDir
 $env:TMP = $TempDir
 $env:XDG_CACHE_HOME = $CacheDir

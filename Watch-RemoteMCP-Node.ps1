@@ -11,6 +11,7 @@ param(
     [string]$TempDir = "",
     [string]$CacheDir = "",
     [string]$ControlDir = "",
+    [string]$DeclaredLongLivedProcessPatterns = "",
     [switch]$ZeroC,
     [int]$IntervalSeconds = 15,
     [int]$MissingProcessThreshold = 2,
@@ -177,11 +178,12 @@ while ($true) {
                         TempDir = $TempDir
                         CacheDir = $CacheDir
                         ControlDir = $ControlDir
+                        DeclaredLongLivedProcessPatterns = $DeclaredLongLivedProcessPatterns
                         ZeroC = $true
                     }
                     & $StartScript @startArgs *>> $WatchdogLog
                 } else {
-                    & $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $NodeSourceDir *>> $WatchdogLog
+                    & $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $NodeSourceDir -DeclaredLongLivedProcessPatterns $DeclaredLongLivedProcessPatterns *>> $WatchdogLog
                 }
                 Start-Sleep -Seconds $grace
                 Assert-IdentityUnchanged
