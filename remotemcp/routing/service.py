@@ -537,6 +537,21 @@ class RoutingService:
             and len(summaries)==active
         )
         node_attestation=status.get("node_attestation",{}) or {}
+        try:
+            physical_process_safety_resolved=bool(
+                int(node_attestation.get("physical_process_safety_resolved",0))==1
+                and fresh
+            )
+            physical_process_blocker_count=int(
+                node_attestation.get("physical_process_blocker_count",-1)
+            )
+        except (TypeError,ValueError):
+            physical_process_safety_resolved=False
+            physical_process_blocker_count=-1
+        physical_process_safe=bool(
+            physical_process_safety_resolved
+            and physical_process_blocker_count==0
+        )
         gateway_attestation=self._gateway_attestation()
         node_release=node_attestation.get("release_commit")
         gateway_release=gateway_attestation.get("release_commit")
@@ -581,6 +596,21 @@ class RoutingService:
                 "active_job_summaries":summaries,
                 "active_job_identity_complete":active_job_identity_complete,
                 "node_attestation":node_attestation,
+                "physical_process_safety_resolved":physical_process_safety_resolved,
+                "physical_process_blocker_count":physical_process_blocker_count,
+                "physical_process_safe":physical_process_safe,
+                "physical_process_residual_job_count":node_attestation.get(
+                    "physical_process_residual_job_count"
+                ),
+                "physical_process_declared_long_lived_count":node_attestation.get(
+                    "physical_process_declared_long_lived_count"
+                ),
+                "physical_process_active_job_tree_count":node_attestation.get(
+                    "physical_process_active_job_tree_count"
+                ),
+                "physical_process_snapshot_sha256":node_attestation.get(
+                    "physical_process_snapshot_sha256"
+                ),
                 "gateway_attestation":gateway_attestation,
                 "release_attestation_match":release_attestation_match,
                 "scientific_observability_ready":scientific_observability_ready,
@@ -598,7 +628,7 @@ class RoutingService:
         )
 
     def device_upgrade_readiness(self,device_id:str)->dict:
-        """Fail-closed deployment gate: no live agents, leases, commands, or node jobs."""
+        """Fail-closed deployment gate including signed physical-process safety."""
         status=self.devices.status(device_id)
         capacity=self.device_capacity_status(device_id)
         t=now_ms()
