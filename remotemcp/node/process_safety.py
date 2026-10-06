@@ -227,9 +227,9 @@ class ProcessSafetyProbe:
         terminal=root.get("terminal_at_ms")
         if created is None or started is None:
             return True
-        if created < started-60_000:
+        if created < started-5_000:
             return False
-        if terminal is not None and created > terminal+300_000:
+        if terminal is not None and created > terminal+5_000:
             return False
         return True
 
