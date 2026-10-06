@@ -42,6 +42,10 @@ jobs:
         run: python -m pytest -q tests/v2bd/test_node_reconnect.py
       - name: V3.1 upgrade and restart gate QA
         run: python -m pytest -q tests/v2bd/test_v31_scientific_observability.py
+      - name: Full V2-B regression
+        run: python -m pytest -q tests/v2b
+      - name: Full V2-BD regression
+        run: python -m pytest -q tests/v2bd
       - name: Python syntax preflight
         run: python -m py_compile remotemcp/node/process_safety.py remotemcp/node/service.py remotemcp/routing/config.py remotemcp/routing/service.py
       - name: PowerShell parse preflight
