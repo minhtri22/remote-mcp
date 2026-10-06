@@ -3009,7 +3009,9 @@ class RoutingService:
                 raise DurableError("INVALID_ARGUMENT","node_attestation must be an object")
             allowed_attestation={
                 "source_dir","release_commit","execution_root","runtime_dir",
-                "schema_version","schema_sha256",
+                "schema_version","schema_sha256","python_prefix",
+                "infrastructure_root","log_dir","temp_dir","cache_dir",
+                "control_dir","zero_c_mode",
             }
             node_attestation={
                 k:node_attestation.get(k)
