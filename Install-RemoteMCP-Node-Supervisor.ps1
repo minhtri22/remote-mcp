@@ -6,13 +6,37 @@ param(
     [string]$SourceDir = $PSScriptRoot,
     [Parameter(Mandatory=$true)]
     [string]$NodeSourceDir,
+    [string]$VenvDir = "",
+    [string]$LogDir = "",
+    [string]$TempDir = "",
+    [string]$CacheDir = "",
+    [string]$ControlDir = "",
+    [switch]$ZeroC,
     [switch]$StartNow,
     [switch]$PlanOnly,
-    [ValidateSet("Auto","ScheduledTask","Startup")]
+    [ValidateSet("Auto","ScheduledTask","RegistryRun","Startup")]
     [string]$PersistenceMode = "Auto"
 )
 
 $ErrorActionPreference = "Stop"
+
+function Assert-NonOsPath {
+    param([string]$Path,[string]$Label)
+    if (-not $Path) { throw "$Label is required." }
+    if (
+        -not [System.IO.Path]::IsPathRooted($Path) -or
+        $Path -match '^[A-Za-z]:[^\\/]'
+    ) {
+        throw "$Label must be an absolute path."
+    }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $drive = [System.IO.Path]::GetPathRoot($full)
+    $osDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+    if ($drive -and $osDrive -and ($drive.TrimEnd('\') -ieq $osDrive.TrimEnd('\'))) {
+        throw "OS_DRIVE_REMOTEMCP_INFRA_FORBIDDEN: $Label cannot be on the Windows OS drive."
+    }
+    return $full
+}
 
 $RuntimeDir = (Resolve-Path $RuntimeDir).Path
 $RootDir = (Resolve-Path $RootDir).Path
@@ -23,6 +47,14 @@ if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd
 }
 $SourceDir = (Resolve-Path $SourceDir).Path
 $NodeSourceDir = (Resolve-Path $NodeSourceDir).Path
+if ($ZeroC) {
+    $RuntimeDir = Assert-NonOsPath -Path $RuntimeDir -Label "RuntimeDir"
+    $VenvDir = Assert-NonOsPath -Path $VenvDir -Label "VenvDir"
+    $LogDir = Assert-NonOsPath -Path $LogDir -Label "LogDir"
+    $TempDir = Assert-NonOsPath -Path $TempDir -Label "TempDir"
+    $CacheDir = Assert-NonOsPath -Path $CacheDir -Label "CacheDir"
+    $ControlDir = Assert-NonOsPath -Path $ControlDir -Label "ControlDir"
+}
 $Watchdog = Join-Path $SourceDir "Watch-RemoteMCP-Node.ps1"
 
 if (-not (Test-Path $Watchdog)) {
@@ -52,6 +84,12 @@ $IdentitySnapshot = [ordered]@{
 }
 
 $arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -RuntimeDir "{1}" -RootDir "{2}" -SourceDir "{3}" -NodeSourceDir "{4}"' -f $Watchdog,$RuntimeDir,$RootDir,$SourceDir,$NodeSourceDir
+if ($VenvDir) { $arg += ' -VenvDir "' + $VenvDir + '"' }
+if ($LogDir) { $arg += ' -LogDir "' + $LogDir + '"' }
+if ($TempDir) { $arg += ' -TempDir "' + $TempDir + '"' }
+if ($CacheDir) { $arg += ' -CacheDir "' + $CacheDir + '"' }
+if ($ControlDir) { $arg += ' -ControlDir "' + $ControlDir + '"' }
+if ($ZeroC) { $arg += ' -ZeroC' }
 
 function Get-NodeProcesses([string]$Runtime) {
     $runtimeEscaped = [Regex]::Escape($Runtime)
@@ -127,6 +165,23 @@ function Install-StartupPersistence {
     return $StartupFile
 }
 
+function Install-RegistryRunPersistence {
+    $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    if (-not (Test-Path $RunKey)) {
+        New-Item -Path $RunKey -Force | Out-Null
+    }
+    $ValueName = $TaskName
+    $Value = 'powershell.exe ' + $arg
+    New-ItemProperty -Path $RunKey -Name $ValueName -Value $Value -PropertyType String -Force | Out-Null
+    $verify = (Get-ItemProperty -Path $RunKey -Name $ValueName -ErrorAction Stop).$ValueName
+    if ([string]$verify -ne [string]$Value) {
+        throw "Registry Run persistence verification failed: $ValueName"
+    }
+    Write-Host "Persistence : RegistryRun"
+    Write-Host ("Registry value: HKCU\Software\Microsoft\Windows\CurrentVersion\Run\{0}" -f $ValueName)
+    return $ValueName
+}
+
 function Install-ScheduledTaskPersistence {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
     $trigger = New-ScheduledTaskTrigger -AtLogOn
@@ -183,7 +238,15 @@ if ($PersistenceMode -in @("Auto","ScheduledTask")) {
     }
 }
 
+if (-not $InstalledMode -and ($PersistenceMode -eq "RegistryRun" -or ($PersistenceMode -eq "Auto" -and $ZeroC))) {
+    Install-RegistryRunPersistence | Out-Null
+    $InstalledMode = "RegistryRun"
+}
+
 if (-not $InstalledMode) {
+    if ($ZeroC) {
+        throw "ZERO_C_PERSISTENCE_UNAVAILABLE: Startup-folder persistence is forbidden in ZeroC mode."
+    }
     Install-StartupPersistence | Out-Null
     $InstalledMode = "Startup"
 }

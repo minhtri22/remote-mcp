@@ -1,0 +1,48 @@
+name: Zero-C node infrastructure QA
+
+on:
+  pull_request:
+    paths:
+      - "Start-RemoteMCP-Node.ps1"
+      - "Watch-RemoteMCP-Node.ps1"
+      - "Install-RemoteMCP-Node-Supervisor.ps1"
+      - "Migrate-RemoteMCP-Node-ZeroC.ps1"
+      - "remotemcp/node/service.py"
+      - "remotemcp/routing/service.py"
+      - "tests/test_zero_c_node_infrastructure.py"
+      - ".github/workflows/zero-c-node-infra-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zero-c-qa:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Zero-C static contract QA
+        run: python -m pytest -q tests/test_zero_c_node_infrastructure.py
+      - name: Python syntax preflight
+        run: python -m py_compile remotemcp/node/service.py remotemcp/routing/service.py
+      - name: PowerShell parse preflight
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          foreach ($p in @(
+            ".\Start-RemoteMCP-Node.ps1",
+            ".\Watch-RemoteMCP-Node.ps1",
+            ".\Install-RemoteMCP-Node-Supervisor.ps1",
+            ".\Migrate-RemoteMCP-Node-ZeroC.ps1"
+          )) {
+            [scriptblock]::Create((Get-Content -Raw $p)) | Out-Null
+          }
