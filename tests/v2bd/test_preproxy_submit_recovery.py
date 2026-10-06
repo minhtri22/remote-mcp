@@ -20,6 +20,19 @@ async def _wait_terminal(node,node_job_id):
     raise AssertionError("job did not reach terminal state")
 
 
+def _blocking_argv(release_path,tail=""):
+    code=(
+        "from pathlib import Path\n"
+        "import time\n"
+        f"p=Path({str(release_path)!r})\n"
+        "while not p.exists():\n"
+        "    time.sleep(0.02)\n"
+    )
+    if tail:
+        code+=str(tail)+"\n"
+    return [sys.executable,"-c",code]
+
+
 async def _setup(make_gateway,tmp_path,name="node"):
     g=make_gateway()
     root=tmp_path/name
@@ -49,15 +62,17 @@ def test_preproxy_admission_failure_recovers_same_logical_submit(make_gateway,tm
     async def run():
         g,node,dev,project,agent,task,claim=await _setup(make_gateway,tmp_path)
 
+        first_release=tmp_path/"release-first"
         first=await drive(
             g,node,g.routing.task_job_submit_or_local(
                 "first-op",
                 task["task_id"],
                 claim["lease_token"],
                 claim["lease_epoch"],
-                [sys.executable,"-c","import time; time.sleep(0.35); print('first')"],
+                _blocking_argv(first_release,"print('first')"),
                 ".",
             ),
+            timeout=20,
         )
         assert first["node_job_id"].startswith("job_")
 
@@ -96,6 +111,7 @@ def test_preproxy_admission_failure_recovers_same_logical_submit(make_gateway,tm
         frozen=status["frozen_submit_intent"]
         assert frozen["argv_sha256"]
 
+        first_release.write_text("go",encoding="utf-8")
         assert await _wait_terminal(node,first["node_job_id"])=="SUCCEEDED"
 
         recovered=await drive(
@@ -159,15 +175,17 @@ def test_preproxy_recovery_waits_for_authoritative_predecessor(make_gateway,tmp_
             make_gateway,tmp_path,"node-wait"
         )
 
+        first_release=tmp_path/"release-first-wait"
         first=await drive(
             g,node,g.routing.task_job_submit_or_local(
                 "first-op",
                 task["task_id"],
                 claim["lease_token"],
                 claim["lease_epoch"],
-                [sys.executable,"-c","import time; time.sleep(0.4)"],
+                _blocking_argv(first_release),
                 ".",
             ),
+            timeout=20,
         )
         with pytest.raises(DurableError):
             await drive(
@@ -196,6 +214,7 @@ def test_preproxy_recovery_waits_for_authoritative_predecessor(make_gateway,tmp_
         assert exc.value.code=="PREDECESSOR_JOB_NOT_TERMINAL"
         assert g.routing.routed_jobs.by_operation("blocked-op") is None
 
+        first_release.write_text("go",encoding="utf-8")
         assert await _wait_terminal(node,first["node_job_id"])=="SUCCEEDED"
         await node.jobs.durable.stop()
 
@@ -208,15 +227,17 @@ def test_legacy_preproxy_intent_can_only_be_adopted_by_exact_request_hash(make_g
             make_gateway,tmp_path,"node-legacy-preproxy"
         )
 
+        first_release=tmp_path/"release-first-legacy"
         first=await drive(
             g,node,g.routing.task_job_submit_or_local(
                 "first-op",
                 task["task_id"],
                 claim["lease_token"],
                 claim["lease_epoch"],
-                [sys.executable,"-c","import time; time.sleep(0.3)"],
+                _blocking_argv(first_release),
                 ".",
             ),
+            timeout=20,
         )
         original_argv=[sys.executable,"-c","print('legacy-qa')"]
         with pytest.raises(DurableError):
@@ -265,6 +286,7 @@ def test_legacy_preproxy_intent_can_only_be_adopted_by_exact_request_hash(make_g
         assert adopted["intent_adopted"] is True
         assert adopted["argv_sha256"]
 
+        first_release.write_text("go",encoding="utf-8")
         assert await _wait_terminal(node,first["node_job_id"])=="SUCCEEDED"
         recovered=await drive(
             g,node,g.routing.task_job_recover_preproxy_submit(
@@ -288,15 +310,17 @@ def test_preproxy_recovery_rejects_wrong_argv_hash(make_gateway,tmp_path):
         g,node,dev,project,agent,task,claim=await _setup(
             make_gateway,tmp_path,"node-hash"
         )
+        first_release=tmp_path/"release-first-hash"
         first=await drive(
             g,node,g.routing.task_job_submit_or_local(
                 "first-op",
                 task["task_id"],
                 claim["lease_token"],
                 claim["lease_epoch"],
-                [sys.executable,"-c","import time; time.sleep(0.3)"],
+                _blocking_argv(first_release),
                 ".",
             ),
+            timeout=20,
         )
         with pytest.raises(DurableError):
             await drive(
@@ -309,6 +333,7 @@ def test_preproxy_recovery_rejects_wrong_argv_hash(make_gateway,tmp_path):
                     ".",
                 ),
             )
+        first_release.write_text("go",encoding="utf-8")
         assert await _wait_terminal(node,first["node_job_id"])=="SUCCEEDED"
 
         with pytest.raises(DurableError) as exc:
