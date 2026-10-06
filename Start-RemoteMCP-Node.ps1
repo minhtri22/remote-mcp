@@ -2,7 +2,12 @@ param(
     [string]$RuntimeDir = "",
     [string]$RootDir = "",
     [string]$SourceDir = $PSScriptRoot,
-    [string]$VenvDir = (Join-Path $env:LOCALAPPDATA "RemoteMCP\node-venv"),
+    [string]$VenvDir = "",
+    [string]$LogDir = "",
+    [string]$TempDir = "",
+    [string]$CacheDir = "",
+    [string]$ControlDir = "",
+    [switch]$ZeroC,
     [switch]$Restart
 )
 
@@ -10,7 +15,33 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
-$RuntimePointer = Join-Path $Base "active-runtime.txt"
+
+function Assert-NonOsPath {
+    param([string]$Path,[string]$Label)
+    if (-not $Path) { throw "$Label is required." }
+    if (
+        -not [System.IO.Path]::IsPathRooted($Path) -or
+        $Path -match '^[A-Za-z]:[^\\/]'
+    ) {
+        throw "$Label must be an absolute path."
+    }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $drive = [System.IO.Path]::GetPathRoot($full)
+    $osDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+    if ($drive -and $osDrive -and ($drive.TrimEnd('\') -ieq $osDrive.TrimEnd('\'))) {
+        throw "OS_DRIVE_REMOTEMCP_INFRA_FORBIDDEN: $Label cannot be on the Windows OS drive."
+    }
+    return $full
+}
+
+if ($ZeroC) {
+    if (-not $ControlDir) { throw "ZeroC requires -ControlDir on a non-OS drive." }
+    $ControlDir = Assert-NonOsPath -Path $ControlDir -Label "ControlDir"
+    New-Item -ItemType Directory -Force -Path $ControlDir | Out-Null
+    $RuntimePointer = Join-Path $ControlDir "active-runtime.txt"
+} else {
+    $RuntimePointer = Join-Path $Base "active-runtime.txt"
+}
 
 function Find-RemoteMCPPython {
     $candidates = @()
@@ -106,8 +137,13 @@ if (-not (Test-Path (Join-Path $SourceDir "remotemcp\node\__main__.py"))) {
     throw "RemoteMCP source not found under: $SourceDir"
 }
 
-New-Item -ItemType Directory -Force -Path $Base | Out-Null
+if (-not $ZeroC) {
+    New-Item -ItemType Directory -Force -Path $Base | Out-Null
+}
 $RuntimeDir = Resolve-RemoteMCPRuntime -Requested $RuntimeDir
+if ($ZeroC) {
+    $RuntimeDir = Assert-NonOsPath -Path $RuntimeDir -Label "RuntimeDir"
+}
 [System.IO.File]::WriteAllText($RuntimePointer,$RuntimeDir,[System.Text.UTF8Encoding]::new($false))
 
 # Resolve the project/worktree execution root explicitly. Runtime identity may remain
@@ -136,6 +172,52 @@ if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd
 }
 New-Item -ItemType Directory -Force -Path $RootDir | Out-Null
 Write-Host "Node root: $RootDir"
+
+if (-not $VenvDir) {
+    $VenvDir = if ($env:REMOTEMCP_NODE_VENV) { $env:REMOTEMCP_NODE_VENV } else { Join-Path $Base "node-venv" }
+}
+if (-not $LogDir) {
+    $LogDir = if ($env:REMOTEMCP_LOG_DIR) { $env:REMOTEMCP_LOG_DIR } else { $Base }
+}
+if (-not $TempDir) {
+    $TempDir = if ($env:REMOTEMCP_TEMP_DIR) { $env:REMOTEMCP_TEMP_DIR } else { [System.IO.Path]::GetTempPath() }
+}
+if (-not $CacheDir) {
+    $CacheDir = if ($env:REMOTEMCP_CACHE_DIR) { $env:REMOTEMCP_CACHE_DIR } else { Join-Path $Base "cache" }
+}
+if (-not $ControlDir) {
+    $ControlDir = if ($env:REMOTEMCP_CONTROL_DIR) { $env:REMOTEMCP_CONTROL_DIR } else { $Base }
+}
+
+if ($ZeroC) {
+    $VenvDir = Assert-NonOsPath -Path $VenvDir -Label "VenvDir"
+    $LogDir = Assert-NonOsPath -Path $LogDir -Label "LogDir"
+    $TempDir = Assert-NonOsPath -Path $TempDir -Label "TempDir"
+    $CacheDir = Assert-NonOsPath -Path $CacheDir -Label "CacheDir"
+    $ControlDir = Assert-NonOsPath -Path $ControlDir -Label "ControlDir"
+}
+
+foreach ($p in @($VenvDir,$LogDir,$TempDir,$CacheDir,$ControlDir)) {
+    New-Item -ItemType Directory -Force -Path $p | Out-Null
+}
+
+# Child processes inherit these explicit non-OS infrastructure locations.
+$env:REMOTEMCP_INFRA_ROOT = (Split-Path $RuntimeDir -Parent)
+$env:REMOTEMCP_NODE_VENV = $VenvDir
+$env:REMOTEMCP_LOG_DIR = $LogDir
+$env:REMOTEMCP_TEMP_DIR = $TempDir
+$env:REMOTEMCP_CACHE_DIR = $CacheDir
+$env:REMOTEMCP_CONTROL_DIR = $ControlDir
+$env:TEMP = $TempDir
+$env:TMP = $TempDir
+$env:XDG_CACHE_HOME = $CacheDir
+$env:PIP_CACHE_DIR = (Join-Path $CacheDir "pip")
+$env:PYTHONPYCACHEPREFIX = (Join-Path $CacheDir "pycache")
+$env:HF_HOME = (Join-Path $CacheDir "huggingface")
+$env:TORCH_HOME = (Join-Path $CacheDir "torch")
+foreach ($p in @($env:PIP_CACHE_DIR,$env:PYTHONPYCACHEPREFIX,$env:HF_HOME,$env:TORCH_HOME)) {
+    New-Item -ItemType Directory -Force -Path $p | Out-Null
+}
 
 New-Item -ItemType Directory -Force -Path (Split-Path $VenvDir -Parent) | Out-Null
 
@@ -185,8 +267,8 @@ if ($Restart -and $existing.Count -gt 0) {
 }
 
 if ($existing.Count -eq 0) {
-    $logFile = Join-Path $Base "node.log"
-    $errFile = Join-Path $Base "node-error.log"
+    $logFile = Join-Path $LogDir "node.log"
+    $errFile = Join-Path $LogDir "node-error.log"
     Write-Host "Starting RemoteMCP node..."
     Start-Process -FilePath $NodePython -ArgumentList @("-m","remotemcp.node","run","--runtime-dir",$RuntimeDir,"--root",$RootDir) -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile | Out-Null
     Start-Sleep -Seconds 2
