@@ -15,6 +15,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
+$LegacyDefaultVenvDir = (Join-Path $env:LOCALAPPDATA "RemoteMCP\node-venv")
 
 function Assert-NonOsPath {
     param([string]$Path,[string]$Label)
@@ -174,7 +175,7 @@ New-Item -ItemType Directory -Force -Path $RootDir | Out-Null
 Write-Host "Node root: $RootDir"
 
 if (-not $VenvDir) {
-    $VenvDir = if ($env:REMOTEMCP_NODE_VENV) { $env:REMOTEMCP_NODE_VENV } else { Join-Path $Base "node-venv" }
+    $VenvDir = if ($env:REMOTEMCP_NODE_VENV) { $env:REMOTEMCP_NODE_VENV } else { $LegacyDefaultVenvDir }
 }
 if (-not $LogDir) {
     $LogDir = if ($env:REMOTEMCP_LOG_DIR) { $env:REMOTEMCP_LOG_DIR } else { $Base }
