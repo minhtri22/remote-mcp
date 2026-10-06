@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedDeviceId,
     [Parameter(Mandatory=$true)][string]$ExpectedFingerprint,
     [Parameter(Mandatory=$true)][int]$ExpectedRouteGeneration,
+    [string]$DeclaredLongLivedProcessPatterns = "",
     [int]$DelaySeconds = 0
 )
 
@@ -103,10 +104,10 @@ Assert-Identity $AfterCopy
 $Start=Join-Path $SourceDir "Start-RemoteMCP-Node.ps1"
 $Supervisor=Join-Path $SourceDir "Install-RemoteMCP-Node-Supervisor.ps1"
 
-& $Start -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $SourceDir -VenvDir $VenvDir -LogDir $LogDir -TempDir $TempDir -CacheDir $CacheDir -ControlDir $ControlDir -ZeroC -Restart
+& $Start -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $SourceDir -VenvDir $VenvDir -LogDir $LogDir -TempDir $TempDir -CacheDir $CacheDir -ControlDir $ControlDir -DeclaredLongLivedProcessPatterns $DeclaredLongLivedProcessPatterns -ZeroC -Restart
 if ($LASTEXITCODE -ne 0) { throw "ZERO_C_NODE_START_FAILED" }
 
-& $Supervisor -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $SourceDir -NodeSourceDir $SourceDir -VenvDir $VenvDir -LogDir $LogDir -TempDir $TempDir -CacheDir $CacheDir -ControlDir $ControlDir -ZeroC -PersistenceMode Auto -StartNow
+& $Supervisor -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $SourceDir -NodeSourceDir $SourceDir -VenvDir $VenvDir -LogDir $LogDir -TempDir $TempDir -CacheDir $CacheDir -ControlDir $ControlDir -DeclaredLongLivedProcessPatterns $DeclaredLongLivedProcessPatterns -ZeroC -PersistenceMode Auto -StartNow
 if ($LASTEXITCODE -ne 0) { throw "ZERO_C_SUPERVISOR_INSTALL_FAILED" }
 
 Start-Sleep -Seconds 5
