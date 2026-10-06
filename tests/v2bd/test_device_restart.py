@@ -19,6 +19,18 @@ def test_device_restart_routes_to_same_identity(make_gateway,tmp_path):
                 "active_node_jobs_unresolved":0,
                 "capacity_reconciliation_complete":True,
                 "candidate_nonterminal_routed_jobs":0,
+                "node_attestation":{
+                    "physical_process_safety_resolved":1,
+                    "physical_process_blocker_count":0,
+                    "physical_process_residual_job_count":0,
+                    "physical_process_declared_long_lived_count":0,
+                    "physical_process_active_job_tree_count":0,
+                    "physical_process_declared_pattern_count":0,
+                    "physical_process_observed_at_ms":__import__("time").time_ns()//1_000_000,
+                    "physical_process_snapshot_sha256":"a"*64,
+                    "physical_process_blocker_summary_json":"[]",
+                    "physical_process_error":"",
+                },
             },
         )
 
