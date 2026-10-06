@@ -68,7 +68,10 @@
     "gateway_failure_is_node_failure": false,
     "root_mismatch_is_node_failure": false,
     "active_jobs_require_explicit_confirmation": true,
-    "verify_same_identity_after_restart": true
+    "verify_same_identity_after_restart": true,
+    "physical_process_safety_required": true,
+    "physical_process_blockers_require_zero": true,
+    "authoritative_active_jobs_zero_is_sufficient": false
   },
   "scientific_job": {
     "observability_loss_allows_relaunch": false,
@@ -231,7 +234,12 @@
     "device_restart_must_use_authoritative_capacity": true,
     "registry_count_must_not_block_science_by_itself": true,
     "active_job_identity_signal": "signed_node_heartbeat.active_job_summaries",
-    "reconciled_heartbeat_must_identify_every_active_job": true
+    "reconciled_heartbeat_must_identify_every_active_job": true,
+    "physical_process_safety_signal": "signed_node_heartbeat.node_attestation.physical_process_*",
+    "physical_process_safety_required_for_restart_or_upgrade": true,
+    "terminal_job_process_tree_residuals_block_maintenance": true,
+    "declared_long_lived_processes_block_maintenance": true,
+    "missing_or_unresolved_process_snapshot_decision": "unresolved_fail_closed"
   },
   "managed_task_base_pinning": {
     "enabled": true,
@@ -264,19 +272,17 @@
   "storage_policy": {
     "windows_production_research_root": "NON_OS_RESEARCH_ROOT",
     "os_drive_research_project_worktree_storage_forbidden": true,
-    "os_drive_runtime_only_allowed": [
-      "%LOCALAPPDATA%\\RemoteMCP\\runtime",
-      "%LOCALAPPDATA%\\RemoteMCP\\node-venv",
-      "%LOCALAPPDATA%\\RemoteMCP\\gateway-venv",
-      "%LOCALAPPDATA%\\RemoteMCP\\gateway state/logs"
-    ],
+    "os_drive_runtime_only_allowed": [],
     "userprofile_workspace_default_forbidden": true,
     "historical_os_drive_workspace_status": "HISTORICAL_ONLY_DO_NOT_REUSE",
     "new_project_or_worktree_on_os_drive_decision": "BLOCK",
     "research_root_change_requires_repair_not_repairing": true,
     "preserve_device_identity_during_root_override": true,
     "historical_binding_identifiers": "LOCAL_DEPLOYMENT_ONLY",
-    "historical_bindings_must_not_be_reused_for_new_science": true
+    "historical_bindings_must_not_be_reused_for_new_science": true,
+    "os_drive_remotemcp_node_runtime_forbidden": true,
+    "os_drive_remotemcp_venv_logs_temp_cache_forbidden": true,
+    "non_os_remotemcp_infrastructure_root_required": true
   },
   "project_binding_lifecycle": {
     "historical_binding_tool": "project_binding_deprecate",
@@ -292,7 +298,12 @@
       "execution_root",
       "runtime_dir",
       "schema_version",
-      "schema_sha256"
+      "schema_sha256",
+      "physical_process_safety_resolved",
+      "physical_process_blocker_count",
+      "physical_process_residual_job_count",
+      "physical_process_declared_long_lived_count",
+      "physical_process_snapshot_sha256"
     ],
     "device_status_surfaces_node_attestation": true,
     "device_status_surfaces_gateway_attestation": true,
@@ -308,6 +319,9 @@
     "require_unexpired_task_leases_zero": true,
     "require_unexpired_device_commands_zero": true,
     "action_when_not_ready": "WAIT_DO_NOT_RESTART_OR_DEPLOY",
-    "require_gateway_local_nonterminal_jobs_zero": true
+    "require_gateway_local_nonterminal_jobs_zero": true,
+    "require_physical_process_safety_resolved": true,
+    "require_physical_process_blockers_zero": true,
+    "authoritative_active_jobs_zero_is_sufficient": false
   }
 }
