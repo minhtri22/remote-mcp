@@ -549,7 +549,7 @@ class RoutingService:
             physical_process_safety_resolved=bool(
                 int(node_attestation.get("physical_process_safety_resolved",0))==1
                 and fresh
-                and physical_process_age_ms<=self.devices.offline_ms
+                and physical_process_age_ms<=int(self.config.physical_process_max_age_seconds)*1000
             )
             physical_process_blocker_count=int(
                 node_attestation.get("physical_process_blocker_count",-1)
@@ -692,7 +692,7 @@ class RoutingService:
             physical_resolved
             and status.get("capacity_signal_fresh")
             and physical_age_ms is not None
-            and physical_age_ms<=self.devices.offline_ms
+            and physical_age_ms<=int(self.config.physical_process_max_age_seconds)*1000
         )
         blockers={
             "capacity_unresolved":not bool(capacity.get("capacity_resolved")),
@@ -829,7 +829,7 @@ class RoutingService:
             physical_resolved
             and status.get("capacity_signal_fresh")
             and restart_physical_age_ms is not None
-            and restart_physical_age_ms<=self.devices.offline_ms
+            and restart_physical_age_ms<=int(self.config.physical_process_max_age_seconds)*1000
         ):
             raise DurableError(
                 "DEVICE_PHYSICAL_PROCESS_SAFETY_UNRESOLVED",
