@@ -92,6 +92,13 @@ class NodeService:
             "runtime_dir":str(self.config.runtime_dir),
             "schema_version":schema.get("version"),
             "schema_sha256":schema.get("sha256"),
+            "python_prefix":str(Path(sys.prefix).resolve()),
+            "infrastructure_root":os.environ.get("REMOTEMCP_INFRA_ROOT"),
+            "log_dir":os.environ.get("REMOTEMCP_LOG_DIR"),
+            "temp_dir":os.environ.get("REMOTEMCP_TEMP_DIR") or os.environ.get("TEMP"),
+            "cache_dir":os.environ.get("REMOTEMCP_CACHE_DIR") or os.environ.get("XDG_CACHE_HOME"),
+            "control_dir":os.environ.get("REMOTEMCP_CONTROL_DIR"),
+            "zero_c_mode":os.environ.get("REMOTEMCP_ZERO_C")=="1",
         }
 
     def _schedule_self_restart(self):
