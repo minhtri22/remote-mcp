@@ -6,6 +6,12 @@ param(
     [string]$SourceDir = $PSScriptRoot,
     [Parameter(Mandatory=$true)]
     [string]$NodeSourceDir,
+    [string]$VenvDir = "",
+    [string]$LogDir = "",
+    [string]$TempDir = "",
+    [string]$CacheDir = "",
+    [string]$ControlDir = "",
+    [switch]$ZeroC,
     [int]$IntervalSeconds = 15,
     [int]$MissingProcessThreshold = 2,
     [int]$PostStartGraceSeconds = 3
@@ -16,6 +22,24 @@ $ProgressPreference = "SilentlyContinue"
 
 $Base = Join-Path $env:LOCALAPPDATA "RemoteMCP"
 $StartScript = Join-Path $SourceDir "Start-RemoteMCP-Node.ps1"
+
+function Assert-NonOsPath {
+    param([string]$Path,[string]$Label)
+    if (-not $Path) { throw "$Label is required." }
+    if (
+        -not [System.IO.Path]::IsPathRooted($Path) -or
+        $Path -match '^[A-Za-z]:[^\\/]'
+    ) {
+        throw "$Label must be an absolute path."
+    }
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $drive = [System.IO.Path]::GetPathRoot($full)
+    $osDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
+    if ($drive -and $osDrive -and ($drive.TrimEnd('\') -ieq $osDrive.TrimEnd('\'))) {
+        throw "OS_DRIVE_REMOTEMCP_INFRA_FORBIDDEN: $Label cannot be on the Windows OS drive."
+    }
+    return $full
+}
 
 function Log([string]$Path,[string]$Message) {
     Add-Content -Encoding UTF8 -Path $Path -Value ("{0} {1}" -f (Get-Date).ToString("o"),$Message)
@@ -63,6 +87,14 @@ function Get-LogicalNodeRoots([array]$Processes) {
 
 $RuntimeDir = (Resolve-Path $RuntimeDir).Path
 $RootDir = (Resolve-Path $RootDir).Path
+if ($ZeroC) {
+    $RuntimeDir = Assert-NonOsPath -Path $RuntimeDir -Label "RuntimeDir"
+    $VenvDir = Assert-NonOsPath -Path $VenvDir -Label "VenvDir"
+    $LogDir = Assert-NonOsPath -Path $LogDir -Label "LogDir"
+    $TempDir = Assert-NonOsPath -Path $TempDir -Label "TempDir"
+    $CacheDir = Assert-NonOsPath -Path $CacheDir -Label "CacheDir"
+    $ControlDir = Assert-NonOsPath -Path $ControlDir -Label "ControlDir"
+}
 $RootDrive = [System.IO.Path]::GetPathRoot($RootDir)
 $OsDrive = [System.IO.Path]::GetPathRoot($env:SystemRoot)
 if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd('\'))) {
@@ -78,8 +110,14 @@ if (-not (Test-Path (Join-Path $NodeSourceDir "remotemcp\node\__main__.py"))) {
 }
 
 $Expected = Read-Identity -Runtime $RuntimeDir
-New-Item -ItemType Directory -Force -Path $Base | Out-Null
-$WatchdogLog = Join-Path $Base ("node-watchdog-" + $Expected.device_id + ".log")
+if (-not $LogDir) { $LogDir = $Base }
+if ($ZeroC) {
+    $LogDir = Assert-NonOsPath -Path $LogDir -Label "LogDir"
+} else {
+    New-Item -ItemType Directory -Force -Path $Base | Out-Null
+}
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$WatchdogLog = Join-Path $LogDir ("node-watchdog-" + $Expected.device_id + ".log")
 
 function Assert-IdentityUnchanged {
     $Current = Read-Identity -Runtime $RuntimeDir
@@ -129,7 +167,18 @@ while ($true) {
             try {
                 Assert-IdentityUnchanged
                 Log $WatchdogLog "process absence threshold reached; invoking state-preserving node start"
-                & $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $NodeSourceDir *>> $WatchdogLog
+                $startArgs = @{
+                    RuntimeDir = $RuntimeDir
+                    RootDir = $RootDir
+                    SourceDir = $NodeSourceDir
+                }
+                if ($VenvDir) { $startArgs["VenvDir"] = $VenvDir }
+                if ($LogDir) { $startArgs["LogDir"] = $LogDir }
+                if ($TempDir) { $startArgs["TempDir"] = $TempDir }
+                if ($CacheDir) { $startArgs["CacheDir"] = $CacheDir }
+                if ($ControlDir) { $startArgs["ControlDir"] = $ControlDir }
+                if ($ZeroC) { $startArgs["ZeroC"] = $true }
+                & $StartScript @startArgs *>> $WatchdogLog
                 Start-Sleep -Seconds $grace
                 Assert-IdentityUnchanged
 
