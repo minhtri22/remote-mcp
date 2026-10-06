@@ -40,6 +40,13 @@ def test_node_survives_transient_gateway_disconnect(make_gateway,tmp_path,monkey
         monkeypatch.setattr(node,"RECONNECT_MAX_SECONDS",0.02)
         flaky=FlakyClient(node)
         node.client=flaky
+
+        def forbidden_probe():
+            raise AssertionError(
+                "legacy heartbeat compatibility path must not enumerate OS processes"
+            )
+
+        monkeypatch.setattr(node.process_safety,"snapshot",forbidden_probe)
         await asyncio.wait_for(node.run_forever(),timeout=2)
         assert flaky.heartbeat_calls >= 2
         assert flaky.poll_calls == 1
