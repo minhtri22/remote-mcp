@@ -19,6 +19,7 @@ from .identity import NodeIdentity
 from .jobs import NodeJobs
 from .projects import NodeProjects
 from .runtime_lock import RuntimeLock
+from .process_safety import ProcessSafetyProbe
 from .worktrees import NodeWorktrees
 
 
@@ -41,6 +42,7 @@ class NodeService:
         self.worktrees=NodeWorktrees(self.db,config.root,self.projects)
         self.journal=NodeCommandJournal(self.db)
         self.jobs=NodeJobs(config,self.db,self.identity,self.projects,self.worktrees)
+        self.process_safety=ProcessSafetyProbe(self.jobs)
         self.cas=NodeCas(self.db,self.worktrees,self.journal)
         self.executor=NodeExecutor(config,self.journal,self.projects,self.worktrees,self.cas,self.jobs)
         from .client import NodeClient
@@ -74,7 +76,7 @@ class NodeService:
         except asyncio.TimeoutError:
             pass
 
-    def _node_attestation(self)->dict:
+    def _node_attestation(self,process_safety:dict|None=None)->dict:
         source_root=Path(__file__).resolve().parents[2]
         marker=source_root/".remotemcp-release.json"
         release_commit=None
@@ -85,7 +87,7 @@ class NodeService:
             except Exception:
                 release_commit=None
         schema=self.db.get_meta("schema") or {}
-        return {
+        out={
             "source_dir":str(source_root),
             "release_commit":release_commit,
             "execution_root":str(self.config.root),
@@ -100,6 +102,9 @@ class NodeService:
             "control_dir":os.environ.get("REMOTEMCP_CONTROL_DIR"),
             "zero_c_mode":os.environ.get("REMOTEMCP_ZERO_C")=="1",
         }
+        if isinstance(process_safety,dict):
+            out.update(process_safety)
+        return out
 
     def _schedule_self_restart(self):
         source_root=Path(__file__).resolve().parents[2]
@@ -139,6 +144,7 @@ class NodeService:
                     now=loop.time()
                     if now-last_hb>=self.config.heartbeat_seconds:
                         capacity=self.jobs.capacity_snapshot()
+                        process_safety=self.process_safety.snapshot()
                         hb_params=inspect.signature(self.client.heartbeat).parameters
                         if "active_job_summaries" in hb_params:
                             await self.client.heartbeat(
@@ -147,7 +153,7 @@ class NodeService:
                                 capacity["capacity_reconciliation_complete"],
                                 capacity["candidate_nonterminal_routed_jobs"],
                                 capacity.get("active_job_summaries",[]),
-                                self._node_attestation(),
+                                self._node_attestation(process_safety),
                             )
                         elif "unresolved_node_jobs" in hb_params:
                             # V3.0-compatible custom clients receive reconciled
