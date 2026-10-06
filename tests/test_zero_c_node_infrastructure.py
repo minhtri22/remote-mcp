@@ -29,12 +29,12 @@ def test_zero_c_watchdog_replays_exact_paths_without_localappdata_logs():
     s=read("Watch-RemoteMCP-Node.ps1")
     for token in (
         "[switch]$ZeroC",
-        '$startArgs["VenvDir"]',
-        '$startArgs["LogDir"]',
-        '$startArgs["TempDir"]',
-        '$startArgs["CacheDir"]',
-        '$startArgs["ControlDir"]',
-        '$startArgs["ZeroC"]',
+        "VenvDir = $VenvDir",
+        "LogDir = $LogDir",
+        "TempDir = $TempDir",
+        "CacheDir = $CacheDir",
+        "ControlDir = $ControlDir",
+        "ZeroC = $true",
         '$WatchdogLog = Join-Path $LogDir',
     ):
         assert token in s
