@@ -11,6 +11,7 @@ param(
     [string]$TempDir = "",
     [string]$CacheDir = "",
     [string]$ControlDir = "",
+    [string]$DeclaredLongLivedProcessPatterns = "",
     [switch]$ZeroC,
     [switch]$StartNow,
     [switch]$PlanOnly,
@@ -47,6 +48,10 @@ if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd
 }
 $SourceDir = (Resolve-Path $SourceDir).Path
 $NodeSourceDir = (Resolve-Path $NodeSourceDir).Path
+if ($DeclaredLongLivedProcessPatterns -match '["
+]') {
+    throw "DeclaredLongLivedProcessPatterns must not contain quotes or newlines."
+}
 if ($ZeroC) {
     $RuntimeDir = Assert-NonOsPath -Path $RuntimeDir -Label "RuntimeDir"
     $VenvDir = Assert-NonOsPath -Path $VenvDir -Label "VenvDir"
@@ -89,6 +94,7 @@ if ($LogDir) { $arg += ' -LogDir "' + $LogDir + '"' }
 if ($TempDir) { $arg += ' -TempDir "' + $TempDir + '"' }
 if ($CacheDir) { $arg += ' -CacheDir "' + $CacheDir + '"' }
 if ($ControlDir) { $arg += ' -ControlDir "' + $ControlDir + '"' }
+if ($DeclaredLongLivedProcessPatterns) { $arg += ' -DeclaredLongLivedProcessPatterns "' + $DeclaredLongLivedProcessPatterns + '"' }
 if ($ZeroC) { $arg += ' -ZeroC' }
 
 function Get-NodeProcesses([string]$Runtime) {
