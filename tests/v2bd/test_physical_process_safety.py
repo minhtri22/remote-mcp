@@ -1,4 +1,5 @@
 import json
+import os
 
 from remotemcp.node.process_safety import ProcessSafetyProbe
 
@@ -159,3 +160,11 @@ def test_probe_failure_is_fail_closed(monkeypatch):
     assert out["physical_process_safety_resolved"]==0
     assert out["physical_process_blocker_count"]==-1
     assert out["physical_process_error"]=="RuntimeError"
+
+
+def test_platform_process_enumeration_smoke():
+    probe=ProcessSafetyProbe.__new__(ProcessSafetyProbe)
+    probe.max_processes=8192
+    rows=probe._enumerate_processes()
+    assert rows
+    assert any(int(row["pid"])==os.getpid() for row in rows)
