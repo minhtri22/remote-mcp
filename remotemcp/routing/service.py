@@ -537,10 +537,19 @@ class RoutingService:
             and len(summaries)==active
         )
         node_attestation=status.get("node_attestation",{}) or {}
+        physical_process_observed_at_ms=None
+        physical_process_age_ms=None
         try:
+            physical_process_observed_at_ms=int(
+                node_attestation.get("physical_process_observed_at_ms")
+            )
+            physical_process_age_ms=max(
+                0,now_ms()-physical_process_observed_at_ms
+            )
             physical_process_safety_resolved=bool(
                 int(node_attestation.get("physical_process_safety_resolved",0))==1
                 and fresh
+                and physical_process_age_ms<=self.devices.offline_ms
             )
             physical_process_blocker_count=int(
                 node_attestation.get("physical_process_blocker_count",-1)
@@ -611,6 +620,8 @@ class RoutingService:
                 "physical_process_snapshot_sha256":node_attestation.get(
                     "physical_process_snapshot_sha256"
                 ),
+                "physical_process_observed_at_ms":physical_process_observed_at_ms,
+                "physical_process_age_ms":physical_process_age_ms,
                 "gateway_attestation":gateway_attestation,
                 "release_attestation_match":release_attestation_match,
                 "scientific_observability_ready":scientific_observability_ready,
@@ -667,10 +678,21 @@ class RoutingService:
             )
         except (TypeError,ValueError):
             physical_blockers=-1
+        physical_observed_at_ms=None
+        physical_age_ms=None
+        try:
+            physical_observed_at_ms=int(
+                node_attestation.get("physical_process_observed_at_ms")
+            )
+            physical_age_ms=max(0,t-physical_observed_at_ms)
+        except (TypeError,ValueError):
+            physical_observed_at_ms=None
+            physical_age_ms=None
         physical_fresh=bool(
             physical_resolved
             and status.get("capacity_signal_fresh")
-            and node_attestation.get("physical_process_observed_at_ms") is not None
+            and physical_age_ms is not None
+            and physical_age_ms<=self.devices.offline_ms
         )
         blockers={
             "capacity_unresolved":not bool(capacity.get("capacity_resolved")),
@@ -726,6 +748,8 @@ class RoutingService:
                     "snapshot_sha256":node_attestation.get(
                         "physical_process_snapshot_sha256"
                     ),
+                    "observed_at_ms":physical_observed_at_ms,
+                    "age_ms":physical_age_ms,
                     "blocker_summary_json":node_attestation.get(
                         "physical_process_blocker_summary_json","[]"
                     ),
@@ -792,10 +816,20 @@ class RoutingService:
         except (TypeError,ValueError):
             physical_resolved=False
             physical_blockers=-1
+        restart_physical_age_ms=None
+        try:
+            restart_physical_age_ms=max(
+                0,now_ms()-int(
+                    node_attestation.get("physical_process_observed_at_ms")
+                )
+            )
+        except (TypeError,ValueError):
+            restart_physical_age_ms=None
         if not (
             physical_resolved
             and status.get("capacity_signal_fresh")
-            and node_attestation.get("physical_process_observed_at_ms") is not None
+            and restart_physical_age_ms is not None
+            and restart_physical_age_ms<=self.devices.offline_ms
         ):
             raise DurableError(
                 "DEVICE_PHYSICAL_PROCESS_SAFETY_UNRESOLVED",
