@@ -624,6 +624,24 @@ class RoutingService:
             "SELECT COUNT(*) AS n FROM jobs "
             "WHERE state IN ('QUEUED','STARTING','RUNNING','CANCELLING')"
         )
+        node_attestation=status.get("node_attestation",{}) or {}
+        try:
+            physical_resolved=int(
+                node_attestation.get("physical_process_safety_resolved",0)
+            )==1
+        except (TypeError,ValueError):
+            physical_resolved=False
+        try:
+            physical_blockers=int(
+                node_attestation.get("physical_process_blocker_count",-1)
+            )
+        except (TypeError,ValueError):
+            physical_blockers=-1
+        physical_fresh=bool(
+            physical_resolved
+            and status.get("capacity_signal_fresh")
+            and node_attestation.get("physical_process_observed_at_ms") is not None
+        )
         blockers={
             "capacity_unresolved":not bool(capacity.get("capacity_resolved")),
             "active_node_jobs":int(capacity.get("authoritative_active_node_jobs") or 0),
@@ -633,6 +651,8 @@ class RoutingService:
             "gateway_local_nonterminal_jobs":(
                 int(gateway_local_jobs["n"]) if gateway_local_jobs else 0
             ),
+            "physical_process_safety_unresolved":not physical_fresh,
+            "physical_process_blockers":physical_blockers,
         }
         ready=(
             not blockers["capacity_unresolved"]
@@ -641,6 +661,8 @@ class RoutingService:
             and blockers["unexpired_task_leases"]==0
             and blockers["unexpired_device_commands"]==0
             and blockers["gateway_local_nonterminal_jobs"]==0
+            and not blockers["physical_process_safety_unresolved"]
+            and blockers["physical_process_blockers"]==0
         )
         return self._with_routing(
             {
@@ -658,7 +680,27 @@ class RoutingService:
                 "authoritative_unresolved_node_jobs":status.get(
                     "authoritative_unresolved_node_jobs"
                 ),
-                "node_attestation":status.get("node_attestation",{}),
+                "node_attestation":node_attestation,
+                "physical_process_safety":{
+                    "resolved":physical_fresh,
+                    "blocker_count":physical_blockers,
+                    "residual_job_process_count":node_attestation.get(
+                        "physical_process_residual_job_count"
+                    ),
+                    "declared_long_lived_process_count":node_attestation.get(
+                        "physical_process_declared_long_lived_count"
+                    ),
+                    "active_job_tree_process_count":node_attestation.get(
+                        "physical_process_active_job_tree_count"
+                    ),
+                    "snapshot_sha256":node_attestation.get(
+                        "physical_process_snapshot_sha256"
+                    ),
+                    "blocker_summary_json":node_attestation.get(
+                        "physical_process_blocker_summary_json","[]"
+                    ),
+                    "error":node_attestation.get("physical_process_error",""),
+                },
                 "gateway_attestation":self._gateway_attestation(),
                 "agent_session_ttl_ms":int(self.multi.agents.ttl_ms),
             },
@@ -708,6 +750,37 @@ class RoutingService:
                 registry_nonterminal_routed_jobs=capacity[
                     "registry_nonterminal_routed_jobs"
                 ],
+            )
+        node_attestation=status.get("node_attestation",{}) or {}
+        try:
+            physical_resolved=int(
+                node_attestation.get("physical_process_safety_resolved",0)
+            )==1
+            physical_blockers=int(
+                node_attestation.get("physical_process_blocker_count",-1)
+            )
+        except (TypeError,ValueError):
+            physical_resolved=False
+            physical_blockers=-1
+        if not (
+            physical_resolved
+            and status.get("capacity_signal_fresh")
+            and node_attestation.get("physical_process_observed_at_ms") is not None
+        ):
+            raise DurableError(
+                "DEVICE_PHYSICAL_PROCESS_SAFETY_UNRESOLVED",
+                "physical process safety snapshot is unavailable or stale; restart fails closed",
+                device_id=device_id,
+            )
+        if physical_blockers!=0:
+            raise DurableError(
+                "DEVICE_PHYSICAL_PROCESS_BUSY",
+                "physical process safety blockers are present; restart fails closed",
+                device_id=device_id,
+                physical_process_blocker_count=physical_blockers,
+                physical_process_snapshot_sha256=node_attestation.get(
+                    "physical_process_snapshot_sha256"
+                ),
             )
         args={
             "device_id":device_id,
@@ -3012,6 +3085,16 @@ class RoutingService:
                 "schema_version","schema_sha256","python_prefix",
                 "infrastructure_root","log_dir","temp_dir","cache_dir",
                 "control_dir","zero_c_mode",
+                "physical_process_safety_resolved",
+                "physical_process_blocker_count",
+                "physical_process_residual_job_count",
+                "physical_process_declared_long_lived_count",
+                "physical_process_active_job_tree_count",
+                "physical_process_declared_pattern_count",
+                "physical_process_observed_at_ms",
+                "physical_process_snapshot_sha256",
+                "physical_process_blocker_summary_json",
+                "physical_process_error",
             }
             node_attestation={
                 k:node_attestation.get(k)
@@ -3021,6 +3104,8 @@ class RoutingService:
             for key,value in node_attestation.items():
                 if value is not None and not isinstance(value,(str,int)):
                     raise DurableError("INVALID_ARGUMENT",f"invalid node attestation field: {key}")
+                if isinstance(value,str) and len(value)>16384:
+                    raise DurableError("INVALID_ARGUMENT",f"node attestation field too large: {key}")
 
         if (
             isinstance(capabilities,dict)
