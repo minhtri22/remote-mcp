@@ -228,6 +228,16 @@ def test_upgrade_readiness_waits_for_fresh_agents_and_live_work(make_gateway,tmp
                     "execution_root":str(node.config.root),
                     "runtime_dir":str(node.config.runtime_dir),
                     "schema_version":1,
+                    "physical_process_safety_resolved":1,
+                    "physical_process_blocker_count":0,
+                    "physical_process_residual_job_count":0,
+                    "physical_process_declared_long_lived_count":0,
+                    "physical_process_active_job_tree_count":0,
+                    "physical_process_declared_pattern_count":0,
+                    "physical_process_observed_at_ms":__import__("time").time_ns()//1_000_000,
+                    "physical_process_snapshot_sha256":"c"*64,
+                    "physical_process_blocker_summary_json":"[]",
+                    "physical_process_error":"",
                 },
             },
         )
@@ -241,6 +251,88 @@ def test_upgrade_readiness_waits_for_fresh_agents_and_live_work(make_gateway,tmp
         assert blocked["upgrade_allowed"] is False
         assert blocked["blockers"]["fresh_agent_sessions"]==1
         assert blocked["decision"]=="WAIT_DO_NOT_RESTART_OR_DEPLOY"
+    asyncio.run(run())
+
+
+def test_upgrade_readiness_blocks_physical_process_residuals(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"physical"
+        root.mkdir()
+        node,dev=await pair_node(g,root,tmp_path/"physical-rt","physical")
+        g.routing.heartbeat_http(
+            g.routing.devices.get(dev["device_id"]),
+            {
+                "active_node_jobs":0,
+                "active_node_jobs_unresolved":0,
+                "capacity_reconciliation_complete":True,
+                "candidate_nonterminal_routed_jobs":0,
+                "active_job_summaries":[],
+                "node_attestation":{
+                    "source_dir":"test-source",
+                    "release_commit":"b"*40,
+                    "execution_root":str(node.config.root),
+                    "runtime_dir":str(node.config.runtime_dir),
+                    "schema_version":1,
+                    "physical_process_safety_resolved":1,
+                    "physical_process_blocker_count":2,
+                    "physical_process_residual_job_count":1,
+                    "physical_process_declared_long_lived_count":1,
+                    "physical_process_active_job_tree_count":0,
+                    "physical_process_declared_pattern_count":1,
+                    "physical_process_observed_at_ms":__import__("time").time_ns()//1_000_000,
+                    "physical_process_snapshot_sha256":"d"*64,
+                    "physical_process_blocker_summary_json":"[]",
+                    "physical_process_error":"",
+                },
+            },
+        )
+        readiness=g.routing.device_upgrade_readiness(dev["device_id"])
+        assert readiness["upgrade_allowed"] is False
+        assert readiness["blockers"]["physical_process_safety_unresolved"] is False
+        assert readiness["blockers"]["physical_process_blockers"]==2
+        assert readiness["physical_process_safety"]["residual_job_process_count"]==1
+        assert readiness["physical_process_safety"]["declared_long_lived_process_count"]==1
+
+        with pytest.raises(DurableError) as exc:
+            await g.routing.device_restart("restart-physical",dev["device_id"])
+        assert exc.value.code=="DEVICE_PHYSICAL_PROCESS_BUSY"
+    asyncio.run(run())
+
+
+def test_upgrade_readiness_fails_closed_without_physical_process_snapshot(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"physical-missing"
+        root.mkdir()
+        node,dev=await pair_node(
+            g,root,tmp_path/"physical-missing-rt","physical-missing"
+        )
+        g.routing.heartbeat_http(
+            g.routing.devices.get(dev["device_id"]),
+            {
+                "active_node_jobs":0,
+                "active_node_jobs_unresolved":0,
+                "capacity_reconciliation_complete":True,
+                "candidate_nonterminal_routed_jobs":0,
+                "active_job_summaries":[],
+                "node_attestation":{
+                    "source_dir":"test-source",
+                    "release_commit":"b"*40,
+                    "execution_root":str(node.config.root),
+                    "runtime_dir":str(node.config.runtime_dir),
+                    "schema_version":1,
+                },
+            },
+        )
+        readiness=g.routing.device_upgrade_readiness(dev["device_id"])
+        assert readiness["upgrade_allowed"] is False
+        assert readiness["blockers"]["physical_process_safety_unresolved"] is True
+        assert readiness["blockers"]["physical_process_blockers"]==-1
+
+        with pytest.raises(DurableError) as exc:
+            await g.routing.device_restart("restart-missing",dev["device_id"])
+        assert exc.value.code=="DEVICE_PHYSICAL_PROCESS_SAFETY_UNRESOLVED"
     asyncio.run(run())
 
 
