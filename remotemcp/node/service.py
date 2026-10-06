@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -26,6 +27,7 @@ from .worktrees import NodeWorktrees
 class NodeService:
     RECONNECT_INITIAL_SECONDS = 1.0
     RECONNECT_MAX_SECONDS = 15.0
+    PHYSICAL_PROCESS_REFRESH_MS = 15_000
     TERMINAL_ROUTE_ERRORS = {
         "DEVICE_REVOKED",
         "DEVICE_ROUTE_GENERATION_MISMATCH",
@@ -43,6 +45,8 @@ class NodeService:
         self.journal=NodeCommandJournal(self.db)
         self.jobs=NodeJobs(config,self.db,self.identity,self.projects,self.worktrees)
         self.process_safety=ProcessSafetyProbe(self.jobs)
+        self._process_safety_snapshot=None
+        self._process_safety_task=None
         self.cas=NodeCas(self.db,self.worktrees,self.journal)
         self.executor=NodeExecutor(config,self.journal,self.projects,self.worktrees,self.cas,self.jobs)
         from .client import NodeClient
@@ -75,6 +79,54 @@ class NodeService:
             await asyncio.wait_for(self._stop.wait(),timeout=max(0.0,float(seconds)))
         except asyncio.TimeoutError:
             pass
+
+    @staticmethod
+    def _pending_process_safety(reason:str="PROCESS_SAFETY_REFRESH_PENDING")->dict:
+        return {
+            "physical_process_safety_resolved":0,
+            "physical_process_blocker_count":-1,
+            "physical_process_residual_job_count":-1,
+            "physical_process_declared_long_lived_count":-1,
+            "physical_process_active_job_tree_count":-1,
+            "physical_process_declared_pattern_count":0,
+            "physical_process_observed_at_ms":time.time_ns()//1_000_000,
+            "physical_process_snapshot_sha256":"pending",
+            "physical_process_blocker_summary_json":"[]",
+            "physical_process_error":reason,
+        }
+
+    async def _process_safety_for_heartbeat(self)->dict:
+        task=self._process_safety_task
+        if task is not None and task.done():
+            try:
+                result=task.result()
+                if isinstance(result,dict):
+                    self._process_safety_snapshot=result
+            except Exception as exc:
+                self._process_safety_snapshot=self._pending_process_safety(
+                    type(exc).__name__
+                )
+            self._process_safety_task=None
+
+        now_ms=time.time_ns()//1_000_000
+        cached=self._process_safety_snapshot
+        observed=None
+        if isinstance(cached,dict):
+            try:
+                observed=int(cached.get("physical_process_observed_at_ms"))
+            except (TypeError,ValueError):
+                observed=None
+        stale=(
+            observed is None
+            or max(0,now_ms-observed)>int(self.PHYSICAL_PROCESS_REFRESH_MS)
+        )
+        if stale and self._process_safety_task is None:
+            self._process_safety_task=asyncio.create_task(
+                asyncio.to_thread(self.process_safety.snapshot)
+            )
+        if isinstance(cached,dict):
+            return cached
+        return self._pending_process_safety()
 
     def _node_attestation(self,process_safety:dict|None=None)->dict:
         source_root=Path(__file__).resolve().parents[2]
@@ -144,9 +196,9 @@ class NodeService:
                     now=loop.time()
                     if now-last_hb>=self.config.heartbeat_seconds:
                         capacity=self.jobs.capacity_snapshot()
-                        process_safety=self.process_safety.snapshot()
                         hb_params=inspect.signature(self.client.heartbeat).parameters
                         if "active_job_summaries" in hb_params:
+                            process_safety=await self._process_safety_for_heartbeat()
                             await self.client.heartbeat(
                                 capacity["active_node_jobs"],
                                 capacity["unresolved_node_jobs"],
