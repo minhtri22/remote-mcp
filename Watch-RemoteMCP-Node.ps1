@@ -167,18 +167,22 @@ while ($true) {
             try {
                 Assert-IdentityUnchanged
                 Log $WatchdogLog "process absence threshold reached; invoking state-preserving node start"
-                $startArgs = @{
-                    RuntimeDir = $RuntimeDir
-                    RootDir = $RootDir
-                    SourceDir = $NodeSourceDir
+                if ($ZeroC) {
+                    $startArgs = @{
+                        RuntimeDir = $RuntimeDir
+                        RootDir = $RootDir
+                        SourceDir = $NodeSourceDir
+                        VenvDir = $VenvDir
+                        LogDir = $LogDir
+                        TempDir = $TempDir
+                        CacheDir = $CacheDir
+                        ControlDir = $ControlDir
+                        ZeroC = $true
+                    }
+                    & $StartScript @startArgs *>> $WatchdogLog
+                } else {
+                    & $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $NodeSourceDir *>> $WatchdogLog
                 }
-                if ($VenvDir) { $startArgs["VenvDir"] = $VenvDir }
-                if ($LogDir) { $startArgs["LogDir"] = $LogDir }
-                if ($TempDir) { $startArgs["TempDir"] = $TempDir }
-                if ($CacheDir) { $startArgs["CacheDir"] = $CacheDir }
-                if ($ControlDir) { $startArgs["ControlDir"] = $ControlDir }
-                if ($ZeroC) { $startArgs["ZeroC"] = $true }
-                & $StartScript @startArgs *>> $WatchdogLog
                 Start-Sleep -Seconds $grace
                 Assert-IdentityUnchanged
 
