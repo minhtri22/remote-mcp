@@ -336,6 +336,63 @@ def test_upgrade_readiness_fails_closed_without_physical_process_snapshot(make_g
     asyncio.run(run())
 
 
+
+def test_upgrade_and_restart_reject_stale_physical_snapshot_before_device_offline(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"physical-stale"
+        root.mkdir()
+        node,dev=await pair_node(
+            g,root,tmp_path/"physical-stale-rt","physical-stale"
+        )
+        now=__import__("time").time_ns()//1_000_000
+        assert g.routing.config.physical_process_max_age_seconds < g.routing.config.offline_after_seconds
+        g.routing.heartbeat_http(
+            g.routing.devices.get(dev["device_id"]),
+            {
+                "active_node_jobs":0,
+                "active_node_jobs_unresolved":0,
+                "capacity_reconciliation_complete":True,
+                "candidate_nonterminal_routed_jobs":0,
+                "active_job_summaries":[],
+                "node_attestation":{
+                    "source_dir":"test-source",
+                    "release_commit":"b"*40,
+                    "execution_root":str(node.config.root),
+                    "runtime_dir":str(node.config.runtime_dir),
+                    "schema_version":1,
+                    "physical_process_safety_resolved":1,
+                    "physical_process_blocker_count":0,
+                    "physical_process_residual_job_count":0,
+                    "physical_process_declared_long_lived_count":0,
+                    "physical_process_active_job_tree_count":0,
+                    "physical_process_declared_pattern_count":0,
+                    "physical_process_observed_at_ms":(
+                        now-(g.routing.config.physical_process_max_age_seconds*1000)-1
+                    ),
+                    "physical_process_snapshot_sha256":"e"*64,
+                    "physical_process_blocker_summary_json":"[]",
+                    "physical_process_error":"",
+                },
+            },
+        )
+        status=g.routing.device_capacity_status(dev["device_id"])
+        assert status["capacity_resolved"] is True
+        assert status["capacity_signal_fresh"] is True
+        assert status["physical_process_safety_resolved"] is False
+
+        readiness=g.routing.device_upgrade_readiness(dev["device_id"])
+        assert readiness["upgrade_allowed"] is False
+        assert readiness["blockers"]["physical_process_safety_unresolved"] is True
+        assert readiness["physical_process_safety"]["age_ms"] > (
+            g.routing.config.physical_process_max_age_seconds*1000
+        )
+
+        with pytest.raises(DurableError) as exc:
+            await g.routing.device_restart("restart-stale",dev["device_id"])
+        assert exc.value.code=="DEVICE_PHYSICAL_PROCESS_SAFETY_UNRESOLVED"
+    asyncio.run(run())
+
 def test_exactly_once_key_deduplicates_across_two_tasks_same_base(make_gateway,tmp_path):
     async def run():
         g=make_gateway()
