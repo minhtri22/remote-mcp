@@ -7,6 +7,7 @@ on:
       - "remotemcp/durable/process.py"
       - "remotemcp/durable/worker.py"
       - "tests/v2a/test_managed_env_passthrough.py"
+      - "tests/v2a/test_legacy_run_command.py"
       - "docs/REMOTEMCP_MANAGED_EXECUTION_ENVIRONMENT_PROPAGATION_STATIC_QUALIFICATION.md"
       - ".github/workflows/managed-env-propagation-qa.yml"
   workflow_dispatch:
@@ -33,5 +34,9 @@ jobs:
         run: python -m pytest -q tests/v2a/test_managed_env_passthrough.py
       - name: Full V2-A regression
         run: python scripts/run_v2a_tests.py
+      - name: Full V2-B regression
+        run: python scripts/run_v2b_tests.py
+      - name: Full V2-BD regression
+        run: python scripts/run_v2bd_tests.py
       - name: Python syntax
         run: python -m py_compile remotemcp/durable/config.py remotemcp/durable/process.py remotemcp/durable/worker.py
