@@ -68,7 +68,9 @@ The patch must pass on Windows and Ubuntu:
 3. configured additional allowlist pass-through;
 4. Windows persistent-environment fallback;
 5. end-to-end durable worker -> managed subprocess propagation;
-6. full V2-A regression.
+6. full V2-A regression;
+7. full V2-B regression;
+8. full V2-BD regression.
 
 Only after QA PASS may the patch be merged into the qualified release source. Live
 deployment remains separately gated by the active long-run/maintenance-window
