@@ -1324,11 +1324,31 @@ class RoutingService:
             "unresolved_commands":self._task_unresolved_commands(task_id,binding["device_id"]),
             "jobs":[
                 {"proxy_job_id":j["proxy_job_id"],"node_job_id":j["node_job_id"],
-                 "state":j["last_known_state"],"terminal_evidence_available":bool(j["terminal_result_json"])}
+                 "state":j["last_known_state"],"terminal_evidence_available":bool(j["terminal_result_json"]),
+                 "terminal_evidence_verified":self._terminal_job_evidence_verified(j)}
                 for j in jobs
             ],
             "resolution_is_read_only":True,"worktree_deletion_authorized":False,
         }
+
+    @staticmethod
+    def _terminal_job_evidence_verified(row)->bool:
+        """Only accept terminal proof bound to the exact existing proxy and node job."""
+        if row["last_known_state"] not in ("SUCCEEDED","FAILED","CANCELLED"):
+            return False
+        if not row["node_job_id"] or not row["terminal_result_json"]:
+            return False
+        try:
+            evidence=json.loads(row["terminal_result_json"])
+        except (TypeError,ValueError):
+            return False
+        return (
+            isinstance(evidence,dict)
+            and evidence.get("terminal") is True
+            and evidence.get("proxy_job_id")==row["proxy_job_id"]
+            and evidence.get("node_job_id")==row["node_job_id"]
+            and evidence.get("state")==row["last_known_state"]
+        )
 
     def _require_cleanup_quiescent(self,task_id:str,binding:dict,*,exclude_operation_id:str|None=None)->None:
         outstanding=self._task_unresolved_commands(task_id,binding["device_id"],exclude_operation_id)
@@ -1339,11 +1359,7 @@ class RoutingService:
                 command_ids=[x["command_id"] for x in outstanding],
             )
         jobs=self.routed_jobs.list_task_rows(task_id)
-        if any(
-            j["last_known_state"] not in ("SUCCEEDED","FAILED","CANCELLED")
-            or not j["node_job_id"] or not j["terminal_result_json"]
-            for j in jobs
-        ):
+        if any(not self._terminal_job_evidence_verified(j) for j in jobs):
             raise DurableError(
                 "TASK_JOB_EVIDENCE_UNRESOLVED",
                 "a routed job lacks independently retrievable terminal evidence",
