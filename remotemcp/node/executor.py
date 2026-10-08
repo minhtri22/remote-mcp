@@ -69,6 +69,10 @@ class NodeExecutor:
         try:
             if t=="PROJECT_PROBE": result=self.projects.probe(str(p["path"]))
             elif t=="PROJECT_BIND": result=self.projects.bind(str(p["project_id"]),int(p["binding_generation"]),str(p["root_rel"]),str(p["project_kind"]))
+            elif t=="PROJECT_MATERIALIZE_GIT": result=self.projects.materialize_git(
+                str(p["project_id"]),int(p["binding_generation"]),
+                str(p["remote_url"]),str(p["remote_ref"]),str(p["expected_commit_sha"]),
+            )
             elif t=="TASK_BASE_RESOLVE": result=self.worktrees.resolve_base(p)
             elif t=="TASK_WORKTREE_ENSURE": result=self.worktrees.ensure(p)
             elif t=="TASK_WORKTREE_STATUS": result=self.worktrees.status(str(p["task_id"]))

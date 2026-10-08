@@ -714,6 +714,24 @@ async def project_register_on_device(
 
 
 @mcp.tool()
+async def project_materialize_git_on_device(
+    operation_id: str,
+    project_id: str,
+    remote_url: str,
+    remote_ref: str,
+    expected_commit_sha: str,
+) -> dict:
+    """Convert a bootstrap-only NON_GIT project into an exact Git checkout."""
+    return await routing_service.project_materialize_git_on_device(
+        operation_id,
+        project_id,
+        remote_url,
+        remote_ref,
+        expected_commit_sha,
+    )
+
+
+@mcp.tool()
 def project_binding_deprecate(
     operation_id: str,
     project_id: str,
