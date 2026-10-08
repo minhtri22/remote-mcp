@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 
 import pytest
@@ -98,6 +99,115 @@ def test_routed_different_task_lanes_can_admit_concurrently(make_gateway,tmp_pat
             j1=await drive(g,node,g.routing.task_job_submit_or_local("a1",t1["task_id"],c1["lease_token"],c1["lease_epoch"],args,"."))
             j2=await drive(g,node,g.routing.task_job_submit_or_local("b1",t2["task_id"],c2["lease_token"],c2["lease_epoch"],args,"."))
             assert j1["proxy_job_id"]!=j2["proxy_job_id"]
+        finally:
+            await node.jobs.durable.stop()
+    asyncio.run(run())
+
+
+def test_routed_terminal_predecessor_recovers_missing_node_proxy_mapping(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-recover";root.mkdir();init_git_repo(root/"repo","NODE")
+        node,dev=await pair_node(g,root,tmp_path/"rt-recover","node-recover")
+        _,t,c=await _routed_lane(g,node,dev)
+        await node.jobs.durable.start()
+        try:
+            j1=await drive(g,node,g.routing.task_job_submit_or_local(
+                "recover-j1",t["task_id"],c["lease_token"],c["lease_epoch"],
+                [sys.executable,"-c","print('done')"],".",
+            ))
+            for _ in range(300):
+                st=node.jobs.durable.job_get(j1["node_job_id"])
+                if st["state"] in {"SUCCEEDED","FAILED","CANCELLED","LOST"}:
+                    break
+                await asyncio.sleep(.02)
+            assert st["state"]=="SUCCEEDED"
+
+            # Simulate the observability gap: durable truth and provenance survive,
+            # but the node-local proxy mapping is missing.
+            with node.jobs.db.transaction() as con:
+                con.execute(
+                    "DELETE FROM node_routed_jobs WHERE proxy_job_id=?",
+                    (j1["proxy_job_id"],),
+                )
+
+            j2=await drive(g,node,g.routing.task_job_submit_or_local(
+                "recover-j2",t["task_id"],c["lease_token"],c["lease_epoch"],
+                [sys.executable,"-c","print('successor')"],".",
+            ))
+            assert j2["proxy_job_id"]!=j1["proxy_job_id"]
+
+            restored=node.jobs.db.query_one(
+                "SELECT * FROM node_routed_jobs WHERE proxy_job_id=?",
+                (j1["proxy_job_id"],),
+            )
+            assert restored is not None
+            assert restored["node_job_id"]==j1["node_job_id"]
+            assert restored["task_id"]==t["task_id"]
+
+            central=g.routing.routed_jobs.get(j1["proxy_job_id"])
+            assert central["last_known_state"]=="SUCCEEDED"
+            assert central["terminal_result_json"]
+            admission=g.durable.db.query_one(
+                "SELECT * FROM task_job_admissions WHERE operation_id='recover-j1'"
+            )
+            assert admission["state"]=="TERMINAL"
+            assert admission["terminal_evidence_json"]
+        finally:
+            await node.jobs.durable.stop()
+    asyncio.run(run())
+
+
+def test_routed_predecessor_recovery_fails_closed_on_provenance_mismatch(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-mismatch";root.mkdir();init_git_repo(root/"repo","NODE")
+        node,dev=await pair_node(g,root,tmp_path/"rt-mismatch","node-mismatch")
+        _,t,c=await _routed_lane(g,node,dev)
+        await node.jobs.durable.start()
+        try:
+            j1=await drive(g,node,g.routing.task_job_submit_or_local(
+                "mismatch-j1",t["task_id"],c["lease_token"],c["lease_epoch"],
+                [sys.executable,"-c","print('done')"],".",
+            ))
+            for _ in range(300):
+                st=node.jobs.durable.job_get(j1["node_job_id"])
+                if st["state"] in {"SUCCEEDED","FAILED","CANCELLED","LOST"}:
+                    break
+                await asyncio.sleep(.02)
+            assert st["state"]=="SUCCEEDED"
+
+            provenance_key=node.jobs._provenance_meta_key(j1["proxy_job_id"])
+            provenance=node.jobs.db.get_meta(provenance_key)
+            assert isinstance(provenance,dict)
+            provenance["task_id"]="tsk_wrong"
+            with node.jobs.db.transaction() as con:
+                con.execute(
+                    "UPDATE node_meta SET value_json=? WHERE key=?",
+                    (
+                        json.dumps(
+                            provenance,ensure_ascii=False,sort_keys=True,
+                            separators=(",",":"),
+                        ),
+                        provenance_key,
+                    ),
+                )
+                con.execute(
+                    "DELETE FROM node_routed_jobs WHERE proxy_job_id=?",
+                    (j1["proxy_job_id"],),
+                )
+
+            with pytest.raises(DurableError) as exc:
+                await drive(g,node,g.routing.task_job_submit_or_local(
+                    "mismatch-j2",t["task_id"],c["lease_token"],c["lease_epoch"],
+                    [sys.executable,"-c","print('must-not-run')"],".",
+                ))
+            assert exc.value.code=="PREDECESSOR_STATE_UNRESOLVED"
+            assert g.routing.routed_jobs.by_operation("mismatch-j2") is None
+            assert node.jobs.db.query_one(
+                "SELECT * FROM node_routed_jobs WHERE proxy_job_id=?",
+                (j1["proxy_job_id"],),
+            ) is None
         finally:
             await node.jobs.durable.stop()
     asyncio.run(run())
