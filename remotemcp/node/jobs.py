@@ -448,6 +448,157 @@ class NodeJobs:
             **state,
         }
 
+    def recover_routed_job(self,payload:dict)->dict:
+        """Recover an exact proxy->durable-job mapping without launching work.
+
+        Recovery is fail-closed.  The caller must already know the exact
+        node_job_id and the node must independently prove the proxy/task/project
+        contract from preserved provenance or exactly-once science metadata.
+        """
+        proxy_job_id=str(payload.get("proxy_job_id") or "").strip()
+        node_job_id=str(payload.get("node_job_id") or "").strip()
+        task_id=str(payload.get("task_id") or "").strip()
+        project_id=str(payload.get("project_id") or "").strip()
+        expected_argv_sha256=payload.get("argv_sha256")
+        expected_cwd=payload.get("cwd")
+        expected_execution_key=payload.get("execution_key")
+        if not proxy_job_id or not node_job_id or not task_id or not project_id:
+            raise DurableError(
+                "PREDECESSOR_STATE_UNRESOLVED",
+                "exact routed-job recovery identity is incomplete",
+            )
+
+        durable_row=self.durable.jobs.get(node_job_id)
+        durable_op=self.durable.operations.get(durable_row["operation_id"])
+        if (
+            durable_op is None
+            or str(durable_op["task_id"] or "")!=task_id
+            or str(durable_op["project_id"] or "")!=project_id
+        ):
+            raise DurableError(
+                "PREDECESSOR_STATE_UNRESOLVED",
+                "durable predecessor task/project identity mismatch",
+                proxy_job_id=proxy_job_id,
+                node_job_id=node_job_id,
+            )
+
+        provenance=self.db.get_meta(self._provenance_meta_key(proxy_job_id))
+        provenance_ok=isinstance(provenance,dict)
+        if provenance_ok:
+            checks={
+                "proxy_job_id":proxy_job_id,
+                "task_id":task_id,
+                "project_id":project_id,
+            }
+            for key,expected in checks.items():
+                if str(provenance.get(key) or "")!=str(expected):
+                    provenance_ok=False
+                    break
+            if provenance_ok and expected_argv_sha256 is not None:
+                provenance_ok=(
+                    str(provenance.get("submitted_argv_sha256") or "")
+                    ==str(expected_argv_sha256)
+                )
+            if provenance_ok and expected_cwd is not None:
+                provenance_ok=str(provenance.get("cwd") or "")==str(expected_cwd)
+            if provenance_ok and expected_execution_key is not None:
+                provenance_ok=(
+                    str(provenance.get("execution_key") or "")
+                    ==str(expected_execution_key)
+                )
+
+        science_ok=False
+        if expected_execution_key:
+            science=self.db.get_meta(
+                self._science_execution_meta_key(str(expected_execution_key))
+            )
+            science_ok=isinstance(science,dict)
+            if science_ok:
+                required={
+                    "proxy_job_id":proxy_job_id,
+                    "node_job_id":node_job_id,
+                    "task_id":task_id,
+                    "project_id":project_id,
+                }
+                for key,expected in required.items():
+                    if str(science.get(key) or "")!=str(expected):
+                        science_ok=False
+                        break
+                if science_ok and expected_argv_sha256 is not None:
+                    science_ok=(
+                        str(science.get("submitted_argv_sha256") or "")
+                        ==str(expected_argv_sha256)
+                    )
+                if science_ok and expected_cwd is not None:
+                    science_ok=str(science.get("cwd") or "")==str(expected_cwd)
+
+        if not provenance_ok and not science_ok:
+            raise DurableError(
+                "PREDECESSOR_STATE_UNRESOLVED",
+                "preserved node provenance cannot prove the requested routed-job mapping",
+                proxy_job_id=proxy_job_id,
+                node_job_id=node_job_id,
+            )
+
+        state=self.durable.job_get(node_job_id)
+        t=now_ms()
+        with self.db.transaction() as con:
+            existing=con.execute(
+                "SELECT * FROM node_routed_jobs WHERE proxy_job_id=?",
+                (proxy_job_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["node_job_id"]!=node_job_id
+                    or existing["task_id"]!=task_id
+                    or existing["project_id"]!=project_id
+                ):
+                    raise DurableError(
+                        "PREDECESSOR_STATE_UNRESOLVED",
+                        "existing routed-job mapping conflicts with recovery identity",
+                        proxy_job_id=proxy_job_id,
+                    )
+                con.execute(
+                    "UPDATE node_routed_jobs SET state=?,updated_at_ms=?,"
+                    "terminal_at_ms=CASE WHEN ? THEN COALESCE(terminal_at_ms,?) ELSE terminal_at_ms END "
+                    "WHERE proxy_job_id=?",
+                    (
+                        state["state"],t,
+                        1 if state["state"] in {"SUCCEEDED","FAILED","CANCELLED","LOST"} else 0,
+                        t,proxy_job_id,
+                    ),
+                )
+                recovered_mapping=False
+            else:
+                terminal=state["state"] in {"SUCCEEDED","FAILED","CANCELLED","LOST"}
+                con.execute(
+                    "INSERT INTO node_routed_jobs("
+                    "proxy_job_id,node_job_id,task_id,project_id,state,created_at_ms,updated_at_ms,terminal_at_ms"
+                    ") VALUES(?,?,?,?,?,?,?,?)",
+                    (
+                        proxy_job_id,node_job_id,task_id,project_id,state["state"],t,t,
+                        t if terminal else None,
+                    ),
+                )
+                recovered_mapping=True
+
+        terminal=state["state"] in {"SUCCEEDED","FAILED","CANCELLED","LOST"}
+        if terminal:
+            result=self.durable.job_result(node_job_id)
+        else:
+            result={**state,"terminal":False}
+        return {
+            **result,
+            "proxy_job_id":proxy_job_id,
+            "node_job_id":node_job_id,
+            "task_id":task_id,
+            "project_id":project_id,
+            "terminal":terminal,
+            "recovered_mapping":recovered_mapping,
+            "identity_proof":"PROVENANCE" if provenance_ok else "SCIENCE_EXECUTION",
+            "scientific_rerun_required":False,
+        }
+
     def logs(self,proxy_job_id:str,stream:str,cursor:int,max_bytes:int)->dict:
         row=self._row(proxy_job_id)
         out=self.durable.job_logs(row["node_job_id"],stream,cursor,max_bytes)
