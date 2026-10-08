@@ -1431,6 +1431,12 @@ class RoutingService:
             return await self.multi.task_claim(operation_id,task_id,agent_id,session_id)
         self.devices.require_online(binding["device_id"])
         self.multi.agents.validate_active(agent_id,session_id)
+        # Refuse a fresh claim before recording an operation or minting a lease
+        # if the same task has stranded commands/unproven job evidence.
+        # Existing operation_id replays must still be able to reconcile.
+        prior=self.db.query_one("SELECT 1 FROM operations WHERE operation_id=?",(operation_id,))
+        if prior is None:
+            self._require_cleanup_quiescent(task_id,binding)
         args={"task_id":task_id,"agent_id":agent_id,"session_id":session_id}
         op,created=self._reserve(operation_id,"TASK_CLAIM",args,agent_id=agent_id,task_id=task_id)
         if op["state"]==OperationState.SUCCEEDED.value:
@@ -1444,9 +1450,6 @@ class RoutingService:
         if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
             self._operation_replay(op)
         if created:
-            # Do not mint a new lease while an earlier routed command is unresolved.
-            # The gateway-only check creates no extra node traffic and preserves exact job identity.
-            self._require_cleanup_quiescent(task_id,binding)
             self.durable.operations.mark_executing(operation_id)
             lease=self.multi.leases.claim_phase1(task_id,agent_id,session_id)
         else:
