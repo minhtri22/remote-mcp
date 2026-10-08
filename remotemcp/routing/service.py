@@ -1312,7 +1312,11 @@ class RoutingService:
             "device_id":binding["device_id"],"binding_generation":int(binding["binding_generation"]),
             "state":task["state"],"cleanup_pending":bool(task["cleanup_pending"]),
             "lease_epoch":int(task["lease_epoch"]),
-            "lease_active":task["lease_expires_at_ms"] is not None,
+            "lease_active":(
+                task["lease_expires_at_ms"] is not None
+                and int(task["lease_expires_at_ms"])>now_ms()
+            ),
+            "lease_record_present":task["lease_expires_at_ms"] is not None,
             "base_commit":task["base_commit"],"branch_name":task["branch_name"],
             "worktree_rel":task["worktree_rel"],
             "unresolved_commands":self._task_unresolved_commands(task_id,binding["device_id"]),
@@ -1354,14 +1358,19 @@ class RoutingService:
         current=self.multi.tasks.status(task_id)
         args={"task_id":task_id,"epoch":int(expected_lease_epoch),
               "base_commit":expected_base_commit,"head_commit":expected_head_commit}
-        op,created=self._reserve(
-            operation_id,"TASK_CLEANUP_PENDING_RESOLVE",args,
-            project_id=current["project_id"],task_id=task_id,
-        )
-        if op["state"]==OperationState.SUCCEEDED.value:
-            return {**(self.durable.operations.replay_result(op) or {}),"replayed":True}
-        if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
-            self._operation_replay(op)
+        # A completed operation can be replayed after cleanup_pending becomes 0.
+        # For a fresh invalid request, validate first: no orphan RESERVED op.
+        op=None
+        prior=self.db.query_one("SELECT 1 FROM operations WHERE operation_id=?",(operation_id,))
+        if prior is not None:
+            op,created=self._reserve(
+                operation_id,"TASK_CLEANUP_PENDING_RESOLVE",args,
+                project_id=current["project_id"],task_id=task_id,
+            )
+            if op["state"]==OperationState.SUCCEEDED.value:
+                return {**(self.durable.operations.replay_result(op) or {}),"replayed":True}
+            if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
+                self._operation_replay(op)
         if current["state"]!="RECOVERABLE" or not current["cleanup_pending"]:
             raise DurableError("TASK_CLEANUP_STATE_CONFLICT","task must be RECOVERABLE with cleanup_pending")
         if current["lease_expires_at_ms"] is not None or current["owner_agent_id"] is not None:
@@ -1373,6 +1382,15 @@ class RoutingService:
         ):
             raise DurableError("INVALID_ARGUMENT","expected_head_commit must be exact SHA-1")
         self._require_cleanup_quiescent(task_id,binding,exclude_operation_id=operation_id)
+        if op is None:
+            op,created=self._reserve(
+                operation_id,"TASK_CLEANUP_PENDING_RESOLVE",args,
+                project_id=current["project_id"],task_id=task_id,
+            )
+            if op["state"]==OperationState.SUCCEEDED.value:
+                return {**(self.durable.operations.replay_result(op) or {}),"replayed":True}
+            if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
+                self._operation_replay(op)
         if created:
             self.durable.operations.mark_executing(operation_id)
         try:
