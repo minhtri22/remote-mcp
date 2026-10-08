@@ -83,3 +83,11 @@ Frozen blobs:
 Any change to the hardened updater, its targeted tests, or its QA workflow requires executable QA again before maintenance retry.
 
 No production gateway, execution node, device identity, task, or scientific job was mutated by this hardening QA.
+
+## Schema-v5 production-state compatibility recovery
+
+During the protected rolling-upgrade preflight on 2026-10-08, production `runtime.db` was observed with a contiguous migration ledger `[1,2,3,4,5]`. The earlier updater probe was still hard-coded to accept only pre-v4/v4 ledgers and therefore failed closed before any live mutation.
+
+The updater now treats `[1,2,3]`, `[1,2,3,4]`, and `[1,2,3,4,5]` as valid starting prefixes for the current release, migrates only a backup to target schema v5, verifies existing ledger entries are byte-identity preserving, validates the v4 admission schema and v5 observability/binding-lifecycle schema, and confirms all pre-existing row data is unchanged across the probe. An already-v5 production backup must remain exactly v5 and must not be rewritten.
+
+Windows executable QA includes both a pre-v4 synthetic runtime and an already-v5 synthetic runtime. `-PreflightOnly` must leave the live synthetic database hash unchanged in both cases.

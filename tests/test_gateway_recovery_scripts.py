@@ -44,11 +44,14 @@ def test_gateway_recovery_scripts_are_out_of_band_and_state_preserving():
     assert "REMOTEMCP_GATEWAY_PRODUCTION_STATE_PROBE=PASS" in update
     assert "REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS" in update
     assert "src.backup(dst)" in update
-    assert "db.bootstrap(target_version=4)" in update
+    assert "db.bootstrap(target_version=5)" in update
     assert "REMOTEMCP_LEGACY_ROUTED_JOB_INVENTORY=PASS" in update
     assert "REMOTEMCP_SCHEMA_V4_BACKUP_PROBE=PASS" in update
-    assert "schema v4 was not appended exactly once" in update
-    assert "legacy production tables changed during v4 migration probe" in update
+    assert "REMOTEMCP_SCHEMA_V5_BACKUP_PROBE=PASS" in update
+    assert "candidate did not converge to exact schema ledger [1,2,3,4,5]" in update
+    assert "legacy production row data changed during schema migration probe" in update
+    assert "schema v5 routed_jobs observability columns are incomplete" in update
+    assert "schema v5 project binding lifecycle columns are incomplete" in update
     assert "task_job_admissions" in update
     assert update.index("Invoke-ProductionRuntimeMigrationProbe") < update.index("if ($PreflightOnly)")
     assert update.index("if ($PreflightOnly)") < update.index("$BackupFile =")

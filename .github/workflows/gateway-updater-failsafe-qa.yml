@@ -101,6 +101,23 @@ jobs:
             throw "PreflightOnly did not persist a legacy routed-job inventory report"
           }
 
+          # Exercise the production shape that triggered the real maintenance
+          # blocker: runtime already migrated through schema v5.
+          $env:REMOTEMCP_SYNTH_RUNTIME = $runtime
+          @'
+          import os
+          from pathlib import Path
+          from remotemcp.durable.db import Database
+          Database(Path(os.environ["REMOTEMCP_SYNTH_RUNTIME"])).bootstrap(target_version=5)
+          '@ | python -
+
+          $beforeV5Hash = (Get-FileHash -Algorithm SHA256 $dbPath).Hash
+          .\Update-RemoteMCP-Gateway.ps1 -SourceRepo $PWD -Ref HEAD -SkipFetch -PreflightOnly
+          $afterV5Hash = (Get-FileHash -Algorithm SHA256 $dbPath).Hash
+          if ($beforeV5Hash -ne $afterV5Hash) {
+            throw "PreflightOnly mutated an already-schema-v5 synthetic runtime.db"
+          }
+
       - name: Targeted recovery and public-hygiene QA
         shell: powershell
         run: |

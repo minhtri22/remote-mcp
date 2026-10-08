@@ -193,14 +193,21 @@ def table_exists(con, name):
         (name,),
     ).fetchone() is not None
 
-def table_fingerprint(con, name):
+def table_columns(con, name):
+    if not table_exists(con, name):
+        return []
+    return [r["name"] for r in con.execute(f"PRAGMA table_info({name})")]
+
+def table_data_fingerprint(con, name, columns):
     if not table_exists(con, name):
         return None
-    cols = [r["name"] for r in con.execute(f"PRAGMA table_info({name})")]
     h = hashlib.sha256()
-    h.update(json.dumps(cols, separators=(",", ":")).encode())
-    for row in con.execute(f"SELECT * FROM {name} ORDER BY rowid"):
-        payload = [row[c] for c in cols]
+    h.update(json.dumps(columns, separators=(",", ":")).encode())
+    if not columns:
+        return h.hexdigest()
+    select_cols = ",".join('"' + c.replace('"', '""') + '"' for c in columns)
+    for row in con.execute(f"SELECT {select_cols} FROM {name} ORDER BY rowid"):
+        payload = [row[c] for c in columns]
         h.update(
             json.dumps(
                 payload,
@@ -224,15 +231,20 @@ try:
     ).fetchall()
     before_tuples = [tuple(r) for r in before]
     versions = [int(r["version"]) for r in before]
-    if versions not in ([1, 2, 3], [1, 2, 3, 4]):
-        raise SystemExit(f"unexpected production migration ledger before v4 probe: {versions}")
-    before_fp = {name: table_fingerprint(con, name) for name in legacy_tables}
+    allowed = ([1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5])
+    if versions not in allowed:
+        raise SystemExit(f"unexpected production migration ledger before schema-v5 probe: {versions}")
+    before_cols = {name: table_columns(con, name) for name in legacy_tables}
+    before_fp = {
+        name: table_data_fingerprint(con, name, before_cols[name])
+        for name in legacy_tables
+    }
     admission_existed_before = table_exists(con, "task_job_admissions")
 finally:
     con.close()
 
 db = Database(runtime_dir)
-db.bootstrap(target_version=4)
+db.bootstrap(target_version=5)
 
 con = connect()
 try:
@@ -244,18 +256,27 @@ try:
         "FROM schema_migrations ORDER BY version"
     ).fetchall()
     after_tuples = [tuple(r) for r in after]
+    after_versions = [int(r["version"]) for r in after]
 
-    if before_tuples[:3] != after_tuples[:3]:
-        raise SystemExit("existing migration ledger entries changed during v4 compatibility probe")
+    if after_versions != [1, 2, 3, 4, 5]:
+        raise SystemExit(f"candidate did not converge to exact schema ledger [1,2,3,4,5]: {after_versions}")
 
-    if versions == [1, 2, 3]:
-        if [int(r["version"]) for r in after] != [1, 2, 3, 4]:
-            raise SystemExit("schema v4 was not appended exactly once")
-        expected_v4 = hashlib.sha256(db.migration_v4_path.read_bytes()).hexdigest()
-        if after_tuples[3][2] != expected_v4:
-            raise SystemExit("schema v4 checksum does not match candidate migration")
-    elif after_tuples != before_tuples:
-        raise SystemExit("existing schema-v4 migration ledger changed during compatibility probe")
+    if before_tuples != after_tuples[:len(before_tuples)]:
+        raise SystemExit("existing migration ledger entries changed during schema-v5 compatibility probe")
+
+    migration_paths = {
+        4: db.migration_v4_path,
+        5: db.migration_v5_path,
+    }
+    for version in (4, 5):
+        row = after_tuples[version - 1]
+        path = migration_paths[version]
+        raw = path.read_bytes()
+        candidates = Database._migration_checksum_candidates(raw)
+        if row[2] not in candidates:
+            raise SystemExit(f"schema v{version} checksum does not match candidate migration")
+        if version not in versions and row[0] != version:
+            raise SystemExit(f"schema v{version} was not appended exactly once")
 
     cols = {r["name"] for r in con.execute("PRAGMA table_info(task_job_admissions)")}
     required_cols = {
@@ -275,22 +296,60 @@ try:
         if int(count) != 0:
             raise SystemExit("schema v4 migration unexpectedly backfilled admission rows")
 
-    after_fp = {name: table_fingerprint(con, name) for name in legacy_tables}
-    if before_fp != after_fp:
-        changed = [name for name in legacy_tables if before_fp.get(name) != after_fp.get(name)]
-        raise SystemExit("legacy production tables changed during v4 migration probe: " + ",".join(changed))
+    routed_cols = {r["name"] for r in con.execute("PRAGMA table_info(routed_jobs)")}
+    if not {"execution_key","argv_sha256","cwd"}.issubset(routed_cols):
+        raise SystemExit("schema v5 routed_jobs observability columns are incomplete")
+    routed_indexes = {r["name"] for r in con.execute("PRAGMA index_list(routed_jobs)")}
+    if "uq_routed_jobs_execution_key" not in routed_indexes:
+        raise SystemExit("schema v5 routed_jobs execution-key index is missing")
+
+    binding_cols = {r["name"] for r in con.execute("PRAGMA table_info(project_device_bindings)")}
+    if not {"lifecycle_state","superseded_by_project_id"}.issubset(binding_cols):
+        raise SystemExit("schema v5 project binding lifecycle columns are incomplete")
+    binding_indexes = {r["name"] for r in con.execute("PRAGMA index_list(project_device_bindings)")}
+    if "idx_project_device_bindings_lifecycle" not in binding_indexes:
+        raise SystemExit("schema v5 project binding lifecycle index is missing")
+
+    for name in legacy_tables:
+        after_cols = table_columns(con, name)
+        missing = [col for col in before_cols[name] if col not in after_cols]
+        if missing:
+            raise SystemExit(
+                "legacy production table lost pre-existing columns during migration: "
+                + name + ":" + ",".join(missing)
+            )
+        after_fp = table_data_fingerprint(con, name, before_cols[name])
+        if before_fp[name] != after_fp:
+            raise SystemExit(
+                "legacy production row data changed during schema migration probe: " + name
+            )
+
+    if 5 not in versions:
+        non_null_exec = con.execute(
+            "SELECT COUNT(*) FROM routed_jobs "
+            "WHERE execution_key IS NOT NULL OR argv_sha256 IS NOT NULL OR cwd IS NOT NULL"
+        ).fetchone()[0]
+        if int(non_null_exec) != 0:
+            raise SystemExit("schema v5 migration unexpectedly backfilled routed-job observability fields")
+        bad_lifecycle = con.execute(
+            "SELECT COUNT(*) FROM project_device_bindings "
+            "WHERE lifecycle_state <> 'ACTIVE' OR superseded_by_project_id IS NOT NULL"
+        ).fetchone()[0]
+        if int(bad_lifecycle) != 0:
+            raise SystemExit("schema v5 migration unexpectedly changed existing binding lifecycle state")
 finally:
     con.close()
 
 print("REMOTEMCP_PRODUCTION_RUNTIME_MIGRATION_COMPAT=PASS")
 print("REMOTEMCP_SCHEMA_V4_BACKUP_PROBE=PASS")
+print("REMOTEMCP_SCHEMA_V5_BACKUP_PROBE=PASS")
 '@
         $ProbeScript = Join-Path $ProbeBase "probe_migration_compat.py"
         [IO.File]::WriteAllText($ProbeScript,$ProbeCode,(New-Object Text.UTF8Encoding($false)))
         & $PythonExe $ProbeScript $SourceDir $ProbeRuntime
         if ($LASTEXITCODE -ne 0) {
             throw (
-                "Candidate schema-v4 compatibility failed against a consistent backup of production runtime.db " +
+                "Candidate schema compatibility failed against a consistent backup of production runtime.db " +
                 "for release " + $ReleaseShort
             )
         }
