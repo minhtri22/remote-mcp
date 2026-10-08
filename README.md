@@ -158,10 +158,10 @@ Restart the same node identity without changing the research root:
 .\Start-RemoteMCP-Node.ps1 -RootDir "<NON_OS_RESEARCH_ROOT>" -Restart
 ```
 
-Use an existing non-default runtime identity. The runtime directory is small control-plane state and may live under LocalAppData on the OS drive; it is **not** a project/worktree root:
+Use an existing non-default runtime identity. For the current V3.1 production target, the Windows OS drive is reserved for the operating system; node runtime, virtual environment, logs, temporary files, cache, control state, managed projects, workspaces, and task worktrees belong under the approved non-OS RemoteMCP infrastructure root. A legacy LocalAppData runtime may remain temporarily in place only while an already-running workload still depends on it; migrate it only after that workload is independently proven safe to detach.
 
 ```powershell
-.\Start-RemoteMCP-Node.ps1 -RuntimeDir "$env:LOCALAPPDATA\RemoteMCP\runtime" -RootDir "<NON_OS_RESEARCH_ROOT>"
+.\Start-RemoteMCP-Node.ps1 -RuntimeDir "<NON_OS_REMOTEMCP_RUNTIME>" -RootDir "<NON_OS_RESEARCH_ROOT>"
 ```
 
 The script reuses the existing device runtime/key, creates or reuses the dedicated RemoteMCP virtual environment, ensures the pinned node dependencies are available, avoids duplicate node processes, starts the node headlessly, and prints local node status. It does **not** pair a new device.
@@ -178,6 +178,34 @@ Current practical readiness:
 - physical offline/no-failover and remaining restart/replay recovery gates: still pending.
 
 The routing capability is ready for **supervised project deployments**, but the two current physical pilot identities remain pilot-only and must not be rebound to real research projects before the pilot is formally closed. Unattended multi-device production readiness is not yet formally closed.
+
+## V3.1 qualified source and rolling-upgrade boundary
+
+The V3.1 production-recovery source adds fail-closed controls for scientific and multi-agent operation without changing the core placement rule that a task inherits its project's device.
+
+Qualified source capabilities include:
+
+- **branch-serial admission per `task_id`** — only jobs in the same task lane serialize; a long-running job in another task or project does not create a machine-wide mutex;
+- **signed physical-process safety** — maintenance readiness combines durable state with an independently sampled process snapshot instead of assuming `active_node_jobs=0` means the Windows process table is idle;
+- **managed environment propagation** — `NVIDIA_API_KEY` is an explicitly allowlisted managed-execution variable, with operator-controlled additional names through `REMOTEMCP_MANAGED_ENV_ALLOWLIST`; arbitrary parent secrets remain excluded;
+- **routed predecessor terminal-evidence recovery** — a successor may recover exact terminal evidence from an existing durable job when gateway cache or proxy mapping was lost, but only after task/project/provenance identity is proven; recovery never reruns the predecessor;
+- **bootstrap project Git materialization** — an existing bound `NON_GIT` project whose canonical root is bootstrap-only can be converted in place to an exact Git checkout with the same project/device binding. The node stages, fetches and verifies the requested commit before cut-over; projects with existing task state are rejected;
+- **Zero-C node infrastructure target** — source, runtime, venv, logs, temp, cache and control state have a non-OS-drive target layout.
+
+Source qualification and live deployment are separate states. A merged/qualified commit does not mean a currently running node or gateway has been upgraded.
+
+### Long-running process preservation during maintenance
+
+A long-running Windows process may exist outside RemoteMCP's current durable-job inventory. Therefore:
+
+1. do not infer physical idleness from central routed-job rows or durable active-job count alone;
+2. identify and preserve any explicitly protected OS PID/process tree before cut-over;
+3. never reboot Windows or terminate the protected process tree as part of RemoteMCP maintenance;
+4. stage candidate source/venv/releases side by side instead of overwriting files used by the protected process;
+5. a gateway/control-plane cut-over may proceed only when it does not move/delete the runtime or executable environment still used by that process;
+6. defer runtime/Zero-C migration of any path still referenced by a protected process until that process is terminal.
+
+See [V3.1 technical architecture and rolling-upgrade guide](docs/V3_1_TECHNICAL_ARCHITECTURE_AND_ROLLING_UPGRADE.md).
 
 ## v2 direction
 
