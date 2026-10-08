@@ -32,6 +32,9 @@ class NodeJobs:
             config=_Cfg()
             config.root=Path(root).resolve()
             config.runtime_dir=Path(runtime_dir).resolve()
+            config.legacy_roots=tuple(
+                getattr(getattr(worktrees,"projects",None),"legacy_roots",())
+            )
             self.config=config
             self.db=db
             self.device_id=str(device_id)
