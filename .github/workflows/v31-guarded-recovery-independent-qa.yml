@@ -1,0 +1,38 @@
+name: V3.1 guarded recovery independent QA
+
+on:
+  pull_request:
+    paths:
+      - "remotemcp/routing/service.py"
+      - "remotemcp/routing/commands.py"
+      - "remotemcp/node/worktrees.py"
+      - "server.py"
+      - "tests/v2bd/test_task_binding.py"
+      - "tests/v2bd/test_command_queue.py"
+      - ".github/workflows/v31-guarded-recovery-independent-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  independent-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install isolated QA dependencies
+        run: python -m pip install --disable-pip-version-check pytest "mcp[cli]<2" uvicorn httpx==0.28.1 cryptography==46.0.6
+      - name: Syntax preflight for changed source and tests
+        run: python -m py_compile remotemcp/routing/service.py remotemcp/routing/commands.py remotemcp/node/worktrees.py server.py tests/v2bd/test_task_binding.py
+      - name: Guarded claim, worktree and cancelled-delivery adversarial QA
+        run: python -m pytest -q tests/v2bd/test_task_binding.py
+      - name: Gateway command idempotency and expiration QA
+        run: python -m pytest -q tests/v2bd/test_command_queue.py
