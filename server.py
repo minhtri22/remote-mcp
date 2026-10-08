@@ -707,21 +707,24 @@ async def project_register_on_device(
     device_id: str,
     path: str,
     max_active_tasks: int = 4,
-    remote_url: str = "",
-    remote_ref: str = "",
-    expected_commit_sha: str = "",
 ) -> dict:
-    """Register a routed project and optionally materialize bootstrap-only Git source.
-
-    When remote_url, remote_ref and expected_commit_sha are all supplied for an
-    existing or new NON_GIT bootstrap root, RemoteMCP stages and verifies the
-    exact Git commit before changing project semantics to GIT.
-    """
     return await routing_service.project_register_on_device(
+        operation_id, device_id, path, max_active_tasks
+    )
+
+
+@mcp.tool()
+async def project_materialize_git_on_device(
+    operation_id: str,
+    project_id: str,
+    remote_url: str,
+    remote_ref: str,
+    expected_commit_sha: str,
+) -> dict:
+    """Convert a bootstrap-only NON_GIT project into an exact Git checkout."""
+    return await routing_service.project_materialize_git_on_device(
         operation_id,
-        device_id,
-        path,
-        max_active_tasks,
+        project_id,
         remote_url,
         remote_ref,
         expected_commit_sha,
