@@ -29,11 +29,26 @@ class NodeConfig:
     origin:str
     root:Path
     runtime_dir:Path
+    legacy_roots:tuple[Path,...]=()
     heartbeat_seconds:int=15
     poll_wait_seconds:int=25
 
     @classmethod
-    def create(cls,origin:str,root:Path,runtime_dir:Path):
+    def create(cls,origin:str,root:Path,runtime_dir:Path,legacy_roots=()):
         root=root.resolve();runtime_dir=runtime_dir.resolve()
         root.mkdir(parents=True,exist_ok=True);runtime_dir.mkdir(parents=True,exist_ok=True)
-        return cls(validate_origin(origin),root,runtime_dir)
+        resolved=[]
+        seen={str(root).casefold()}
+        for raw in legacy_roots or ():
+            p=Path(raw).resolve()
+            key=str(p).casefold()
+            if key in seen:
+                continue
+            if not p.is_dir():
+                raise DurableError(
+                    "LEGACY_ROOT_NOT_FOUND",
+                    "approved legacy compatibility root does not exist",
+                    path=str(p),
+                )
+            resolved.append(p);seen.add(key)
+        return cls(validate_origin(origin),root,runtime_dir,tuple(resolved))
