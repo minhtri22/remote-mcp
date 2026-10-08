@@ -185,7 +185,7 @@ while ($true) {
                     }
                     & $StartScript @startArgs *>> $WatchdogLog
                 } else {
-                    & $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -LegacyRootDirs $LegacyRootDirs -SourceDir $NodeSourceDir -DeclaredLongLivedProcessPatterns $DeclaredLongLivedProcessPatterns *>> $WatchdogLog
+                    & $StartScript -RuntimeDir $RuntimeDir -RootDir $RootDir -SourceDir $NodeSourceDir -LegacyRootDirs $LegacyRootDirs -DeclaredLongLivedProcessPatterns $DeclaredLongLivedProcessPatterns *>> $WatchdogLog
                 }
                 Start-Sleep -Seconds $grace
                 Assert-IdentityUnchanged
