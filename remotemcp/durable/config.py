@@ -97,6 +97,7 @@ class DurableConfig:
     workspace_root: Path
     runtime_dir: Path
     allowed_cmds: frozenset[str]
+    approved_workspace_roots: tuple[Path,...] = ()
     max_parallel_jobs: int = 2
     poll_ms: int = 500
     starting_grace_seconds: int = 30
@@ -112,10 +113,12 @@ class DurableConfig:
             if x.strip()
         }
         max_jobs = max(1, int(os.environ.get("MCP_MAX_PARALLEL_JOBS", "2")))
+        root=workspace_root.resolve()
         return cls(
-            workspace_root=workspace_root.resolve(),
+            workspace_root=root,
             runtime_dir=runtime_dir,
             allowed_cmds=frozenset(DEFAULT_DURABLE_ALLOWED_CMDS | extra),
+            approved_workspace_roots=(root,),
             max_parallel_jobs=max_jobs,
         )
 

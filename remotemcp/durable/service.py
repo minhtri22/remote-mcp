@@ -61,10 +61,27 @@ class DurableService:
                 pass
             self._supervisor_task = None
 
-    def _safe_cwd(self, cwd: str) -> Path:
-        root = self.config.workspace_root
+    def _workspace_root(self, override=None) -> Path:
+        root = Path(override).resolve() if override is not None else self.config.workspace_root.resolve()
+        approved = tuple(
+            Path(p).resolve()
+            for p in (
+                self.config.approved_workspace_roots
+                or (self.config.workspace_root,)
+            )
+        )
+        if not any(root==base or root.is_relative_to(base) for base in approved):
+            raise DurableError(
+                "PATH_ESCAPE",
+                "workspace root is outside approved roots",
+                workspace_root=str(root),
+            )
+        return root
+
+    def _safe_cwd(self, cwd: str, workspace_root=None) -> Path:
+        root = self._workspace_root(workspace_root)
         path = (root / cwd).resolve()
-        if not path.is_relative_to(root):
+        if path!=root and not path.is_relative_to(root):
             raise DurableError("PATH_ESCAPE", "cwd is outside workspace", cwd=cwd)
         if not path.is_dir():
             raise DurableError("NOT_FOUND", "cwd does not exist", cwd=cwd)
@@ -89,6 +106,7 @@ class DurableService:
         task_id: str = "",
         *,
         env_overrides: dict[str, str] | None = None,
+        workspace_root_override: Path | str | None = None,
     ) -> dict:
         await self.start()
         if not isinstance(argv, list) or not argv or not all(
@@ -96,7 +114,8 @@ class DurableService:
         ):
             raise DurableError("INVALID_ARGUMENT", "argv must be a non-empty list[str]")
 
-        cwd_path = self._safe_cwd(cwd)
+        workspace_root = self._workspace_root(workspace_root_override)
+        cwd_path = self._safe_cwd(cwd, workspace_root)
         resolved = resolve_executable(argv[0], cwd_path, self.config.allowed_cmds)
         normalized_argv = [resolved, *argv[1:]]
         enforce_agent_git_worktree_policy(normalized_argv)
@@ -106,7 +125,11 @@ class DurableService:
             raise DurableError("INVALID_ARGUMENT", "unsupported durable env override")
         if not all(isinstance(k, str) and isinstance(v, str) for k, v in env_overrides.items()):
             raise DurableError("INVALID_ARGUMENT", "env overrides must be string pairs")
-        normalized = {"argv": normalized_argv, "cwd": cwd}
+        normalized = {
+            "argv": normalized_argv,
+            "cwd": cwd,
+            "workspace_root": str(workspace_root),
+        }
         if env_overrides:
             normalized["env_overrides"] = env_overrides
 
@@ -143,7 +166,7 @@ class DurableService:
         self.operations.mark_executing(operation_id)
         command = {
             "argv": normalized_argv,
-            "workspace_root": str(self.config.workspace_root),
+            "workspace_root": str(workspace_root),
             "env_overrides": env_overrides,
         }
         row, _ = self.jobs.create(operation_id, command, cwd)

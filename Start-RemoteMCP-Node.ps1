@@ -1,6 +1,7 @@
 param(
     [string]$RuntimeDir = "",
     [string]$RootDir = "",
+    [string[]]$LegacyRootDirs = @(),
     [string]$SourceDir = $PSScriptRoot,
     [string]$VenvDir = "",
     [string]$LogDir = "",
@@ -175,6 +176,30 @@ if ($RootDrive -and $OsDrive -and ($RootDrive.TrimEnd('\') -ieq $OsDrive.TrimEnd
 New-Item -ItemType Directory -Force -Path $RootDir | Out-Null
 Write-Host "Node root: $RootDir"
 
+$ResolvedLegacyRootDirs = @()
+foreach ($legacy in @($LegacyRootDirs)) {
+    if (-not $legacy) { continue }
+    if (
+        -not [System.IO.Path]::IsPathRooted($legacy) -or
+        $legacy -match '^[A-Za-z]:[^\\/]'
+    ) {
+        throw "LegacyRootDirs entries must be absolute paths."
+    }
+    $fullLegacy = [System.IO.Path]::GetFullPath($legacy)
+    if (-not (Test-Path -LiteralPath $fullLegacy -PathType Container)) {
+        throw "LEGACY_ROOT_NOT_FOUND: $fullLegacy"
+    }
+    if ($fullLegacy.TrimEnd('\') -ieq $RootDir.TrimEnd('\')) {
+        continue
+    }
+    if (-not ($ResolvedLegacyRootDirs | Where-Object { $_.TrimEnd('\') -ieq $fullLegacy.TrimEnd('\') })) {
+        $ResolvedLegacyRootDirs += $fullLegacy
+    }
+}
+foreach ($legacy in $ResolvedLegacyRootDirs) {
+    Write-Host "Legacy compatibility root: $legacy"
+}
+
 if (-not $VenvDir) {
     $VenvDir = if ($env:REMOTEMCP_NODE_VENV) { $env:REMOTEMCP_NODE_VENV } else { $LegacyDefaultVenvDir }
 }
@@ -258,8 +283,20 @@ if ($existing.Count -gt 0) {
         $_.CommandLine -notmatch "--root" -or
         $_.CommandLine -notmatch $escapedRoot
     }).Count -gt 0
-    if ($rootMismatch -and -not $Restart) {
-        throw "NODE_ROOT_MISMATCH_RESTART_REQUIRED: existing node is not running with RootDir '$RootDir'. Re-run with -Restart to apply the approved non-OS research root."
+    $legacyMismatch = $false
+    foreach ($legacy in $ResolvedLegacyRootDirs) {
+        $escapedLegacy = [Regex]::Escape($legacy)
+        if (@($existing | Where-Object {
+            -not $_.CommandLine -or
+            $_.CommandLine -notmatch "--legacy-root" -or
+            $_.CommandLine -notmatch $escapedLegacy
+        }).Count -gt 0) {
+            $legacyMismatch = $true
+            break
+        }
+    }
+    if (($rootMismatch -or $legacyMismatch) -and -not $Restart) {
+        throw "NODE_ROOT_MISMATCH_RESTART_REQUIRED: existing node does not match canonical/legacy root configuration. Re-run with -Restart after protected-process audit."
     }
 }
 
@@ -274,7 +311,11 @@ if ($existing.Count -eq 0) {
     $logFile = Join-Path $LogDir "node.log"
     $errFile = Join-Path $LogDir "node-error.log"
     Write-Host "Starting RemoteMCP node..."
-    Start-Process -FilePath $NodePython -ArgumentList @("-m","remotemcp.node","run","--runtime-dir",$RuntimeDir,"--root",$RootDir) -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile | Out-Null
+    $NodeArgs = @("-m","remotemcp.node","run","--runtime-dir",$RuntimeDir,"--root",$RootDir)
+    foreach ($legacy in $ResolvedLegacyRootDirs) {
+        $NodeArgs += @("--legacy-root",$legacy)
+    }
+    Start-Process -FilePath $NodePython -ArgumentList $NodeArgs -WorkingDirectory $SourceDir -WindowStyle Hidden -RedirectStandardOutput $logFile -RedirectStandardError $errFile | Out-Null
     Start-Sleep -Seconds 2
 } else {
     Write-Host "RemoteMCP node is already running."
@@ -284,7 +325,11 @@ Push-Location $SourceDir
 try {
     & $NodePython -m remotemcp.node status --runtime-dir $RuntimeDir
     if ($LASTEXITCODE -ne 0) { throw "RemoteMCP node status failed." }
-    & $NodePython -m remotemcp.node doctor --runtime-dir $RuntimeDir --root $RootDir
+    $DoctorArgs = @("-m","remotemcp.node","doctor","--runtime-dir",$RuntimeDir,"--root",$RootDir)
+    foreach ($legacy in $ResolvedLegacyRootDirs) {
+        $DoctorArgs += @("--legacy-root",$legacy)
+    }
+    & $NodePython @DoctorArgs
     if ($LASTEXITCODE -ne 0) { throw "RemoteMCP node doctor failed." }
 } finally {
     Pop-Location

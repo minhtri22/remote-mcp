@@ -13,6 +13,12 @@ class NodeWorktrees:
         self.db=db;self.root=root.resolve();self.projects=projects
         self.manager=WorktreeManager(self.root)
 
+    def _base(self,project_id:str)->Path:
+        return self.projects.base(project_id)
+
+    def _manager(self,project_id:str)->WorktreeManager:
+        return WorktreeManager(self._base(project_id))
+
     def resolve_base(self,payload:dict)->dict:
         project_id=str(payload["project_id"])
         generation=int(payload["binding_generation"])
@@ -29,7 +35,7 @@ class NodeWorktrees:
             )
         base_ref=str(payload.get("base_ref") or "HEAD")
         project_root=self.projects.path(project_id)
-        base_commit=self.manager.resolve_base(project_root,base_ref)
+        base_commit=self._manager(project_id).resolve_base(project_root,base_ref)
         return {
             "project_id":project_id,
             "binding_generation":generation,
@@ -52,6 +58,8 @@ class NodeWorktrees:
             worktree_rel=str(payload["worktree_rel"])
             layout=classify_task_worktree_rel(project_id,task_id,worktree_rel)
             project_root=self.projects.path(project_id)
+            base_root=self._base(project_id)
+            manager=self._manager(project_id)
             base_ref=str(payload.get("base_ref") or "HEAD")
             base_commit=str(payload.get("base_commit") or "").strip()
             if not base_commit:
@@ -60,7 +68,7 @@ class NodeWorktrees:
                     "managed git task must carry an immutable pinned base_commit",
                     base_ref=base_ref,
                 )
-            verified=self.manager.resolve_base(project_root,base_commit)
+            verified=manager.resolve_base(project_root,base_commit)
             if verified!=base_commit:
                 raise DurableError(
                     "TASK_BASE_COMMIT_MISMATCH",
@@ -76,8 +84,8 @@ class NodeWorktrees:
                 "branch_name":branch,
                 "base_commit":base_commit,
             }
-            wt=self.manager.provision(project_root,task)
-            worktree_rel=wt.relative_to(self.root).as_posix()
+            wt=manager.provision(project_root,task)
+            worktree_rel=wt.relative_to(base_root).as_posix()
         with self.db.transaction() as con:
             old=con.execute("SELECT * FROM node_tasks WHERE task_id=?",(task_id,)).fetchone()
             if old:
@@ -109,11 +117,13 @@ class NodeWorktrees:
             classify_task_worktree_rel(
                 str(task["project_id"]),str(task["task_id"]),str(task["worktree_rel"])
             )
-            p=(self.root/task["worktree_rel"]).resolve()
+            base=self._base(task["project_id"])
+            p=(base/task["worktree_rel"]).resolve()
         else:
+            base=self._base(task["project_id"])
             p=self.projects.path(task["project_id"])
-        if p!=self.root and not p.is_relative_to(self.root):
-            raise DurableError("PATH_ESCAPE","node task root escapes")
+        if p!=base and not p.is_relative_to(base):
+            raise DurableError("PATH_ESCAPE","node task root escapes approved project root")
         return p
 
     def status(self,task_id:str)->dict:
@@ -121,8 +131,16 @@ class NodeWorktrees:
         root=self.execution_root(task_id)
         clean=True
         if project["project_kind"]=="GIT":
-            clean=self.manager.clean(root)
-        result={"task_id":task_id,"project_id":task["project_id"],"worktree_rel":task["worktree_rel"],"branch_name":task["branch_name"],"clean":clean}
+            clean=self._manager(task["project_id"]).clean(root)
+        root_info=self.projects.root_info(task["project_id"])
+        result={
+            "task_id":task_id,
+            "project_id":task["project_id"],
+            "worktree_rel":task["worktree_rel"],
+            "branch_name":task["branch_name"],
+            "clean":clean,
+            **root_info,
+        }
         if project["project_kind"]=="GIT":
             result["workspace_rel"]=project_workspace_rel(task["project_id"])
             result["worktree_layout"]=classify_task_worktree_rel(

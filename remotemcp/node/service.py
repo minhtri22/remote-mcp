@@ -40,7 +40,15 @@ class NodeService:
         self.lock=RuntimeLock(config.runtime_dir)
         self.db=NodeDatabase(config.runtime_dir);self.db.bootstrap()
         self.identity=NodeIdentity(config.runtime_dir,self.db)
-        self.projects=NodeProjects(self.db,config.root)
+        historical_root=None
+        if self.identity.device and self.identity.device.get("root"):
+            historical_root=Path(str(self.identity.device["root"]))
+        self.projects=NodeProjects(
+            self.db,
+            config.root,
+            legacy_roots=getattr(config,"legacy_roots",()),
+            historical_root=historical_root,
+        )
         self.worktrees=NodeWorktrees(self.db,config.root,self.projects)
         self.journal=NodeCommandJournal(self.db)
         self.jobs=NodeJobs(config,self.db,self.identity,self.projects,self.worktrees)
@@ -143,6 +151,9 @@ class NodeService:
             "source_dir":str(source_root),
             "release_commit":release_commit,
             "execution_root":str(self.config.root),
+            "legacy_execution_roots":[
+                str(p) for p in getattr(self.config,"legacy_roots",())
+            ],
             "runtime_dir":str(self.config.runtime_dir),
             "schema_version":schema.get("version"),
             "schema_sha256":schema.get("sha256"),

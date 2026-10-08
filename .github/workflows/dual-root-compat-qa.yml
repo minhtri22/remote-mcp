@@ -1,0 +1,49 @@
+name: Canonical and legacy root compatibility QA
+
+on:
+  pull_request:
+    paths:
+      - "remotemcp/node/config.py"
+      - "remotemcp/node/cli.py"
+      - "remotemcp/node/projects.py"
+      - "remotemcp/node/worktrees.py"
+      - "remotemcp/node/jobs.py"
+      - "remotemcp/node/service.py"
+      - "remotemcp/durable/config.py"
+      - "remotemcp/durable/service.py"
+      - "Start-RemoteMCP-Node.ps1"
+      - "tests/v2bd/test_dual_root_legacy_compat.py"
+      - ".github/workflows/dual-root-compat-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dual-root-compat:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install QA dependencies
+        run: python -m pip install --disable-pip-version-check pytest "mcp[cli]<2" uvicorn httpx==0.28.1 cryptography==46.0.6
+      - name: Targeted canonical and legacy root QA
+        run: python -m pytest -q tests/v2bd/test_dual_root_legacy_compat.py
+      - name: Full V2-B regression
+        run: python -m pytest -q tests/v2b
+      - name: Full V2-BD regression
+        run: python -m pytest -q tests/v2bd
+      - name: Python syntax preflight
+        run: python -m py_compile remotemcp/node/config.py remotemcp/node/cli.py remotemcp/node/projects.py remotemcp/node/worktrees.py remotemcp/node/jobs.py remotemcp/node/service.py remotemcp/durable/config.py remotemcp/durable/service.py
+      - name: PowerShell parse preflight
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          [scriptblock]::Create((Get-Content -Raw ".\Start-RemoteMCP-Node.ps1")) | Out-Null
