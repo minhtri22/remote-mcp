@@ -469,9 +469,11 @@ class NodeJobs:
             )
 
         durable_row=self.durable.jobs.get(node_job_id)
+        durable_op=self.durable.operations.get(durable_row["operation_id"])
         if (
-            str(durable_row["task_id"] or "")!=task_id
-            or str(durable_row["project_id"] or "")!=project_id
+            durable_op is None
+            or str(durable_op["task_id"] or "")!=task_id
+            or str(durable_op["project_id"] or "")!=project_id
         ):
             raise DurableError(
                 "PREDECESSOR_STATE_UNRESOLVED",
