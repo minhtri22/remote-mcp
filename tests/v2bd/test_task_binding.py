@@ -335,6 +335,11 @@ def test_guarded_cleanup_refuses_unproven_job_and_requires_exact_epoch(make_gate
         agent=await g.multi.agent_register("a-unproven","test","unproven",[])
         claim=await drive(g,node,g.routing.task_claim_or_local(
             "claim-unproven",task["task_id"],agent["agent_id"],agent["session_id"]))
+        g.durable.operations.reserve(
+            "orphaned-job","TASK_JOB_SUBMIT",{"fixture":"unproven-terminal"},
+            principal_key=g.routing.owner_account_id,
+            project_id=project["project_id"],task_id=task["task_id"],
+        )
         with g.durable.db.transaction() as con:
             con.execute("DELETE FROM task_leases WHERE task_id=?",(task["task_id"],))
             con.execute(
