@@ -887,37 +887,11 @@ class RoutingService:
             raise DurableError("DEVICE_CONTEXT_REQUIRED","paired execution devices require project_register_on_device")
         return await self.multi.project_register(operation_id,path,max_active_tasks)
 
-    async def project_register_on_device(
-        self,
-        operation_id:str,
-        device_id:str,
-        path:str,
-        max_active_tasks:int=4,
-        remote_url:str="",
-        remote_ref:str="",
-        expected_commit_sha:str="",
-    )->dict:
+    async def project_register_on_device(self,operation_id:str,device_id:str,path:str,max_active_tasks:int=4)->dict:
         if not 1<=int(max_active_tasks)<=32:
             raise DurableError("INVALID_ARGUMENT","max_active_tasks must be 1..32")
-        source_values=[
-            str(remote_url or "").strip(),
-            str(remote_ref or "").strip(),
-            str(expected_commit_sha or "").strip(),
-        ]
-        materialize=any(source_values)
-        if materialize and not all(source_values):
-            raise DurableError(
-                "INVALID_ARGUMENT",
-                "remote_url, remote_ref and expected_commit_sha must be supplied together",
-            )
         self.devices.require_online(device_id)
         args={"device_id":device_id,"path":path,"max_active_tasks":int(max_active_tasks)}
-        if materialize:
-            args["git_materialization"]={
-                "remote_url":source_values[0],
-                "remote_ref":source_values[1],
-                "expected_commit_sha":source_values[2].lower(),
-            }
         op,created=self._reserve(operation_id,"PROJECT_REGISTER_ON_DEVICE",args)
         replay=self._operation_replay(op)
         if replay is not None:
@@ -938,9 +912,7 @@ class RoutingService:
                 raise DurableError("PROJECT_DEVICE_BINDING_CONFLICT","invalid node project kind")
             storage_key=self._remote_storage_key(device_id,node_root_rel)
             t=now_ms()
-            deterministic="prj_"+hashlib.sha256(
-                f"{self.owner_account_id}|{operation_id}|{device_id}|{node_root_rel}".encode()
-            ).hexdigest()[:24]
+            deterministic="prj_"+hashlib.sha256(f"{self.owner_account_id}|{operation_id}|{device_id}|{node_root_rel}".encode()).hexdigest()[:24]
             with self.db.transaction() as con:
                 existing=con.execute(
                     "SELECT p.*,b.device_id,b.node_root_rel,b.binding_generation,"
@@ -950,10 +922,7 @@ class RoutingService:
                 ).fetchone()
                 if existing:
                     if existing["project_kind"]!=kind:
-                        raise DurableError(
-                            "PROJECT_DEVICE_BINDING_CONFLICT",
-                            "remote project kind changed",
-                        )
+                        raise DurableError("PROJECT_DEVICE_BINDING_CONFLICT","remote project kind changed")
                     lifecycle=existing["lifecycle_state"] if "lifecycle_state" in existing.keys() else "ACTIVE"
                     if lifecycle!="ACTIVE":
                         raise DurableError(
@@ -962,21 +931,12 @@ class RoutingService:
                             project_id=existing["project_id"],
                         )
                     project_id=existing["project_id"]
-                    con.execute(
-                        "UPDATE projects SET max_active_tasks=?,updated_at_ms=? WHERE project_id=?",
-                        (int(max_active_tasks),t,project_id),
-                    )
+                    con.execute("UPDATE projects SET max_active_tasks=?,updated_at_ms=? WHERE project_id=?",(int(max_active_tasks),t,project_id))
                     generation=int(existing["binding_generation"])
                 else:
-                    conflict=con.execute(
-                        "SELECT project_id FROM projects WHERE root_rel=?",
-                        (storage_key,),
-                    ).fetchone()
+                    conflict=con.execute("SELECT project_id FROM projects WHERE root_rel=?",(storage_key,)).fetchone()
                     if conflict and conflict["project_id"]!=deterministic:
-                        raise DurableError(
-                            "PROJECT_DEVICE_BINDING_CONFLICT",
-                            "remote storage key collision",
-                        )
+                        raise DurableError("PROJECT_DEVICE_BINDING_CONFLICT","remote storage key collision")
                     project_id=deterministic
                     con.execute(
                         "INSERT OR IGNORE INTO projects(project_id,root_rel,project_kind,max_active_tasks,created_at_ms,updated_at_ms) "
@@ -988,19 +948,9 @@ class RoutingService:
                         "VALUES(?,?,?,1,?,?)",
                         (project_id,device_id,node_root_rel,t,t),
                     )
-                    binding=con.execute(
-                        "SELECT * FROM project_device_bindings WHERE project_id=?",
-                        (project_id,),
-                    ).fetchone()
-                    if (
-                        binding is None
-                        or binding["device_id"]!=device_id
-                        or binding["node_root_rel"]!=node_root_rel
-                    ):
-                        raise DurableError(
-                            "PROJECT_DEVICE_BINDING_CONFLICT",
-                            "central project binding mismatch",
-                        )
+                    binding=con.execute("SELECT * FROM project_device_bindings WHERE project_id=?",(project_id,)).fetchone()
+                    if binding is None or binding["device_id"]!=device_id or binding["node_root_rel"]!=node_root_rel:
+                        raise DurableError("PROJECT_DEVICE_BINDING_CONFLICT","central project binding mismatch")
                     generation=int(binding["binding_generation"])
             bind_payload={
                 "project_id":project_id,"binding_generation":generation,
@@ -1010,93 +960,124 @@ class RoutingService:
                 device_id,"PROJECT_BIND",bind_payload,
                 operation_id=operation_id,operation_step=1,project_id=project_id,
             )
-
-            materialization_result={}
-            if materialize:
-                if kind!="NON_GIT":
-                    raise DurableError(
-                        "PROJECT_GIT_MATERIALIZATION_INVALID_STATE",
-                        "exact Git materialization is only valid for a NON_GIT bootstrap root",
-                        project_id=project_id,
-                    )
-                task_count=self.db.query_one(
-                    "SELECT COUNT(*) AS n FROM tasks WHERE project_id=?",
-                    (project_id,),
-                )
-                if task_count is not None and int(task_count["n"])!=0:
-                    raise DurableError(
-                        "PROJECT_GIT_MATERIALIZATION_HAS_TASKS",
-                        "NON_GIT project already has task state; semantics cannot change in place",
-                        project_id=project_id,
-                    )
-                materialization_result,_=await self._route_step(
-                    device_id,
-                    "PROJECT_MATERIALIZE_GIT",
-                    {
-                        "project_id":project_id,
-                        "binding_generation":generation,
-                        "remote_url":source_values[0],
-                        "remote_ref":source_values[1],
-                        "expected_commit_sha":source_values[2].lower(),
-                    },
-                    operation_id=operation_id,
-                    operation_step=2,
-                    project_id=project_id,
-                )
-                if (
-                    materialization_result.get("project_kind")!="GIT"
-                    or str(materialization_result.get("head_commit") or "").lower()
-                        !=source_values[2].lower()
-                ):
-                    raise DurableError(
-                        "PROJECT_GIT_MATERIALIZATION_FAILED",
-                        "node did not prove the requested exact Git identity",
-                        project_id=project_id,
-                    )
-                with self.db.transaction() as con:
-                    current=con.execute(
-                        "SELECT p.*,b.device_id,b.binding_generation FROM projects p "
-                        "JOIN project_device_bindings b ON b.project_id=p.project_id "
-                        "WHERE p.project_id=?",
-                        (project_id,),
-                    ).fetchone()
-                    current_tasks=con.execute(
-                        "SELECT COUNT(*) AS n FROM tasks WHERE project_id=?",
-                        (project_id,),
-                    ).fetchone()
-                    if (
-                        current is None
-                        or current["project_kind"]!="NON_GIT"
-                        or current["device_id"]!=device_id
-                        or int(current["binding_generation"])!=generation
-                        or int(current_tasks["n"])!=0
-                    ):
-                        raise DurableError(
-                            "PROJECT_DEVICE_BINDING_CONFLICT",
-                            "project state changed during Git materialization",
-                            project_id=project_id,
-                        )
-                    con.execute(
-                        "UPDATE projects SET project_kind='GIT',updated_at_ms=? WHERE project_id=?",
-                        (now_ms(),project_id),
-                    )
-                kind="GIT"
-
-            result={
-                **self.multi.projects.status(project_id),
-                **materialization_result,
-                "device_id":device_id,
-                "node_root_rel":node_root_rel,
-                "binding_generation":generation,
-                "project_kind":kind,
-            }
-            if materialize:
-                result["exact_commit_pinned"]=True
+            result={**self.multi.projects.status(project_id),"device_id":device_id,"node_root_rel":node_root_rel,"binding_generation":generation}
             result=self._with_routing(
                 result,device_id,project_id=project_id,binding_generation=generation
             )
             self.durable.operations.succeed(operation_id,result)
             return result
+        except Exception as exc:
+            self._fail_final(operation_id,exc)
+            raise
+
+    async def project_materialize_git_on_device(
+        self,
+        operation_id:str,
+        project_id:str,
+        remote_url:str,
+        remote_ref:str,
+        expected_commit_sha:str,
+    )->dict:
+        project=self.multi.projects.get(project_id)
+        binding=self.bindings.require_active_project_binding(project_id)
+        device_id=binding["device_id"]
+        self.devices.require_online(device_id)
+        args={
+            "project_id":project_id,
+            "remote_url":str(remote_url),
+            "remote_ref":str(remote_ref),
+            "expected_commit_sha":str(expected_commit_sha).lower(),
+        }
+        op,created=self._reserve(
+            operation_id,"PROJECT_MATERIALIZE_GIT_ON_DEVICE",args,project_id=project_id
+        )
+        replay=self._operation_replay(op)
+        if replay is not None:
+            replay=self._with_routing(
+                replay,device_id,project_id=project_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+            return {**replay,"replayed":True}
+        if project["project_kind"]!="NON_GIT":
+            raise DurableError(
+                "PROJECT_GIT_MATERIALIZATION_INVALID_STATE",
+                "project must be NON_GIT before exact Git materialization",
+                project_id=project_id,
+            )
+        task_count=self.db.query_one(
+            "SELECT COUNT(*) AS n FROM tasks WHERE project_id=?",(project_id,)
+        )
+        if task_count is not None and int(task_count["n"])!=0:
+            raise DurableError(
+                "PROJECT_GIT_MATERIALIZATION_HAS_TASKS",
+                "NON_GIT project already has task state; semantics cannot change in place",
+                project_id=project_id,
+            )
+        if created:self.durable.operations.mark_executing(operation_id)
+        try:
+            result,_=await self._route_step(
+                device_id,"PROJECT_MATERIALIZE_GIT",
+                {
+                    "project_id":project_id,
+                    "binding_generation":int(binding["binding_generation"]),
+                    "remote_url":str(remote_url),
+                    "remote_ref":str(remote_ref),
+                    "expected_commit_sha":str(expected_commit_sha).lower(),
+                },
+                operation_id=operation_id,operation_step=0,project_id=project_id,
+            )
+            if (
+                result.get("project_kind")!="GIT"
+                or str(result.get("head_commit") or "").lower()
+                    !=str(expected_commit_sha).lower()
+            ):
+                raise DurableError(
+                    "PROJECT_GIT_MATERIALIZATION_FAILED",
+                    "node did not prove the requested exact Git identity",
+                    project_id=project_id,
+                )
+            with self.db.transaction() as con:
+                current_project=con.execute(
+                    "SELECT * FROM projects WHERE project_id=?",(project_id,)
+                ).fetchone()
+                current_binding=con.execute(
+                    "SELECT * FROM project_device_bindings WHERE project_id=?",(project_id,)
+                ).fetchone()
+                current_tasks=con.execute(
+                    "SELECT COUNT(*) AS n FROM tasks WHERE project_id=?",(project_id,)
+                ).fetchone()
+                if (
+                    current_project is None
+                    or current_project["project_kind"]!="NON_GIT"
+                    or current_binding is None
+                    or current_binding["device_id"]!=device_id
+                    or int(current_binding["binding_generation"])!=int(binding["binding_generation"])
+                    or int(current_tasks["n"])!=0
+                ):
+                    raise DurableError(
+                        "PROJECT_DEVICE_BINDING_CONFLICT",
+                        "project state changed during Git materialization",
+                        project_id=project_id,
+                    )
+                con.execute(
+                    "UPDATE projects SET project_kind='GIT',updated_at_ms=? WHERE project_id=?",
+                    (now_ms(),project_id),
+                )
+            out={
+                **self.multi.projects.status(project_id),
+                **result,
+                "device_id":device_id,
+                "node_root_rel":binding["node_root_rel"],
+                "binding_generation":int(binding["binding_generation"]),
+                "project_kind":"GIT",
+                "exact_commit_pinned":True,
+            }
+            out=self._with_routing(
+                out,device_id,project_id=project_id,
+                binding_generation=int(binding["binding_generation"]),
+            )
+            self.durable.operations.succeed(operation_id,out)
+            return out
         except Exception as exc:
             self._fail_final(operation_id,exc)
             raise
