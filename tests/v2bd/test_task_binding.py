@@ -373,3 +373,50 @@ def test_guarded_cleanup_refuses_unproven_job_and_requires_exact_epoch(make_gate
         ) is None
         assert g.multi.tasks.status(task["task_id"])["cleanup_pending"] is True
     asyncio.run(run())
+
+
+def test_guarded_claim_keeps_delivered_then_cancelled_command_unresolved(make_gateway,tmp_path):
+    """A cancelled, formerly leased command may still have executed on the node."""
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-cancelled-delivered";root.mkdir()
+        init_git_repo(root/"repo","CANCELLED")
+        node,dev=await pair_node(g,root,tmp_path/"rt-cancelled-delivered","cancelled-delivered")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-cancelled-delivered",dev["device_id"],"repo",2))
+        task=await drive(g,node,g.routing.task_create_or_local(
+            "t-cancelled-delivered",project["project_id"],"guard"))
+        task_id=task["task_id"]
+        cmd,_=g.routing.commands.create(
+            dev["device_id"],"TASK_WORKTREE_ENSURE",{"task_id":task_id},
+            task_id=task_id,project_id=project["project_id"],
+        )
+        with g.durable.db.transaction() as con:
+            con.execute(
+                "UPDATE device_commands SET state='CANCELLED',delivery_attempt=1,"
+                "error_code='DEVICE_COMMAND_EXPIRED' WHERE command_id=?",
+                (cmd["command_id"],),
+            )
+        pending=g.routing.task_cleanup_recovery_status_or_local(task_id)["unresolved_commands"]
+        assert [x["command_id"] for x in pending]==[cmd["command_id"]]
+        agent=await g.multi.agent_register("a-cancelled-delivered","test","cancelled",[])
+        with pytest.raises(DurableError) as exc:
+            await g.routing.task_claim_or_local(
+                "claim-cancelled-delivered",task_id,agent["agent_id"],agent["session_id"])
+        assert exc.value.code=="TASK_COMMAND_UNRESOLVED"
+        assert g.durable.db.query_one(
+            "SELECT 1 FROM operations WHERE operation_id='claim-cancelled-delivered'"
+        ) is None
+        assert g.multi.tasks.status(task_id)["state"]=="READY"
+        # A queued command cancelled before its first delivery has no node-side effect.
+        with g.durable.db.transaction() as con:
+            con.execute(
+                "UPDATE device_commands SET delivery_attempt=0 WHERE command_id=?",
+                (cmd["command_id"],),
+            )
+        assert g.routing.task_cleanup_recovery_status_or_local(task_id)["unresolved_commands"]==[]
+        claim=await drive(g,node,g.routing.task_claim_or_local(
+            "claim-cancelled-delivered",task_id,agent["agent_id"],agent["session_id"]))
+        assert claim["lease_epoch"]==1
+        assert g.multi.tasks.status(task_id)["state"]=="RUNNING"
+    asyncio.run(run())
