@@ -1417,11 +1417,19 @@ class RoutingService:
                 operation_id=operation_id,operation_step=0,
                 project_id=current["project_id"],task_id=task_id,
             )
-            project=self.multi.projects.get(current["project_id"])
+            # Gateway projects.root_rel is a private @v2bd storage key, not a node path.
+            # Compare the authoritative device binding's node_root_rel instead.
+            expected_node_root=str(binding["node_root_rel"]).replace("\\","/")
+            root_matches=(
+                node.get("encoded_root_rel")==expected_node_root
+                if expected_node_root.startswith("@root/")
+                else (node.get("root_namespace")=="CANONICAL"
+                      and node.get("root_rel")==expected_node_root)
+            )
             if (node.get("task_id")!=task_id
                 or node.get("project_id")!=current["project_id"]
                 or node.get("binding_generation")!=int(binding["binding_generation"])
-                or node.get("encoded_root_rel")!=project["root_rel"]
+                or not root_matches
                 or node.get("branch_name")!=current["branch_name"]
                 or node.get("worktree_rel")!=current["worktree_rel"]
                 or node.get("head_commit")!=expected_head_commit
