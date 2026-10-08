@@ -38,12 +38,14 @@ def parser():
     run=sub.add_parser("run")
     run.add_argument("--url",required=False)
     run.add_argument("--root",required=False)
+    run.add_argument("--legacy-root",action="append",default=[])
     run.add_argument("--runtime-dir",required=True)
     status=sub.add_parser("status")
     status.add_argument("--runtime-dir",required=True)
     doctor=sub.add_parser("doctor")
     doctor.add_argument("--url",required=False)
     doctor.add_argument("--root",required=False)
+    doctor.add_argument("--legacy-root",action="append",default=[])
     doctor.add_argument("--runtime-dir",required=True)
     return p
 
@@ -78,16 +80,21 @@ async def do_pair(a):
     },indent=2))
 
 
-def _stored_config(runtime_dir:Path,url=None,root=None):
+def _stored_config(runtime_dir:Path,url=None,root=None,legacy_roots=()):
     db=NodeDatabase(runtime_dir);db.bootstrap()
     ident=NodeIdentity(runtime_dir,db)
     if not ident.paired:
         raise DurableError("NODE_IDENTITY_MISMATCH","node is not paired")
-    return NodeConfig.create(url or ident.device["origin"],Path(root or ident.device["root"]),runtime_dir),db,ident
+    return NodeConfig.create(
+        url or ident.device["origin"],
+        Path(root or ident.device["root"]),
+        runtime_dir,
+        legacy_roots=legacy_roots,
+    ),db,ident
 
 
 async def do_run(a):
-    cfg,_,_= _stored_config(Path(a.runtime_dir),a.url,a.root)
+    cfg,_,_= _stored_config(Path(a.runtime_dir),a.url,a.root,a.legacy_root)
     service=NodeService(cfg)
     await service.run_forever()
 
@@ -98,11 +105,12 @@ def do_status(a):
 
 
 def do_doctor(a):
-    cfg,db,ident=_stored_config(Path(a.runtime_dir),a.url,a.root)
+    cfg,db,ident=_stored_config(Path(a.runtime_dir),a.url,a.root,a.legacy_root)
     checks={
         "paired":ident.paired,"root_exists":cfg.root.is_dir(),
         "runtime_exists":cfg.runtime_dir.is_dir(),"origin":cfg.origin,
         "device_id":ident.device["device_id"],"schema":db.get_meta("schema"),
+        "legacy_roots":[str(p) for p in cfg.legacy_roots],
     }
     print(json.dumps(checks,indent=2))
 
