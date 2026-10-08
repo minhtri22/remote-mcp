@@ -125,7 +125,7 @@ class NodeProjects:
         with self.db.transaction() as con:
             old=con.execute("SELECT * FROM node_projects WHERE project_id=?",(project_id,)).fetchone()
             if old:
-                old_ns=self._namespace_for_project(project_id)
+                old_ns=stored_namespace
                 _,old_rel=self._decode(old["root_rel"],old_ns)
                 _,new_rel=self._decode(actual["root_rel"],actual["root_namespace"])
                 if old_rel!=new_rel or old["project_kind"]!=project_kind or int(old["binding_generation"])!=int(binding_generation):
