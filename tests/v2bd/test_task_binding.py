@@ -434,3 +434,54 @@ def test_guarded_claim_keeps_delivered_then_cancelled_command_unresolved(make_ga
         assert claim["lease_epoch"]==1
         assert g.multi.tasks.status(task_id)["state"]=="RUNNING"
     asyncio.run(run())
+
+
+def test_guarded_claim_rejects_terminal_cache_with_wrong_proxy_identity(make_gateway,tmp_path):
+    """Independent negative oracle: terminal=True cannot substitute for exact job proof."""
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-forged-terminal";root.mkdir()
+        init_git_repo(root/"repo","FORGED")
+        node,dev=await pair_node(g,root,tmp_path/"rt-forged-terminal","forged-terminal")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-forged-terminal",dev["device_id"],"repo",2))
+        task=await drive(g,node,g.routing.task_create_or_local(
+            "t-forged-terminal",project["project_id"],"guard"))
+        g.durable.operations.reserve(
+            "forged-terminal-op","TASK_JOB_SUBMIT",{"fixture":"bad-proxy"},
+            principal_key=g.routing.owner_account_id,
+            project_id=project["project_id"],task_id=task["task_id"],
+        )
+        with g.durable.db.transaction() as con:
+            proxy,_=g.routing.routed_jobs.create(
+                con,"forged-terminal-op",task["task_id"],project["project_id"],dev["device_id"],
+            )
+        g.routing.routed_jobs.update(
+            proxy["proxy_job_id"],node_job_id="job_frozen_fixture",
+            state="SUCCEEDED",terminal_result={
+                "terminal":True,"state":"SUCCEEDED",
+                "proxy_job_id":"rjob_wrong","node_job_id":"job_frozen_fixture",
+            },
+        )
+        snapshot=g.routing.task_cleanup_recovery_status_or_local(task["task_id"])
+        assert snapshot["jobs"][0]["terminal_evidence_available"] is True
+        assert snapshot["jobs"][0]["terminal_evidence_verified"] is False
+        agent=await g.multi.agent_register("a-forged-terminal","test","forged",[])
+        with pytest.raises(DurableError) as exc:
+            await g.routing.task_claim_or_local(
+                "claim-forged-terminal",task["task_id"],agent["agent_id"],agent["session_id"])
+        assert exc.value.code=="TASK_JOB_EVIDENCE_UNRESOLVED"
+        assert g.multi.tasks.status(task["task_id"])["state"]=="READY"
+        assert g.durable.db.query_one(
+            "SELECT 1 FROM operations WHERE operation_id='claim-forged-terminal'"
+        ) is None
+        g.routing.routed_jobs.update(
+            proxy["proxy_job_id"],node_job_id="job_frozen_fixture",
+            state="SUCCEEDED",terminal_result={
+                "terminal":True,"state":"SUCCEEDED",
+                "proxy_job_id":proxy["proxy_job_id"],"node_job_id":"job_frozen_fixture",
+            },
+        )
+        assert g.routing.task_cleanup_recovery_status_or_local(
+            task["task_id"])["jobs"][0]["terminal_evidence_verified"] is True
+    asyncio.run(run())
