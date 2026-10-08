@@ -6,6 +6,7 @@ param(
     [string]$SourceDir = $PSScriptRoot,
     [Parameter(Mandatory=$true)]
     [string]$NodeSourceDir,
+    [string[]]$LegacyRootDirs = @(),
     [string]$VenvDir = "",
     [string]$LogDir = "",
     [string]$TempDir = "",
@@ -89,6 +90,17 @@ $IdentitySnapshot = [ordered]@{
 }
 
 $arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -RuntimeDir "{1}" -RootDir "{2}" -SourceDir "{3}" -NodeSourceDir "{4}"' -f $Watchdog,$RuntimeDir,$RootDir,$SourceDir,$NodeSourceDir
+foreach ($legacy in @($LegacyRootDirs)) {
+    if (-not $legacy) { continue }
+    if (-not [System.IO.Path]::IsPathRooted($legacy) -or $legacy -match '^[A-Za-z]:[^\\/]') {
+        throw "LegacyRootDirs entries must be absolute paths."
+    }
+    $fullLegacy = [System.IO.Path]::GetFullPath($legacy)
+    if (-not (Test-Path -LiteralPath $fullLegacy -PathType Container)) {
+        throw "LEGACY_ROOT_NOT_FOUND: $fullLegacy"
+    }
+    $arg += ' -LegacyRootDirs "' + $fullLegacy + '"'
+}
 if ($VenvDir) { $arg += ' -VenvDir "' + $VenvDir + '"' }
 if ($LogDir) { $arg += ' -LogDir "' + $LogDir + '"' }
 if ($TempDir) { $arg += ' -TempDir "' + $TempDir + '"' }
