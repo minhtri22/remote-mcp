@@ -93,7 +93,7 @@ class NodeProjects:
             hp=subprocess.run(["git","-C",str(p),"rev-parse","HEAD"],capture_output=True,text=True,shell=False)
             if hp.returncode==0:head=hp.stdout.strip()
         return {
-            "root_rel":self._encode(namespace,rel),
+            "root_rel":rel,
             "root_namespace":namespace,
             "root_base":str(base),
             "project_kind":kind,
