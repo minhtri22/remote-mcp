@@ -1352,17 +1352,6 @@ class RoutingService:
         if binding is None:
             raise DurableError("DEVICE_CONTEXT_REQUIRED","guarded cleanup requires a routed task")
         current=self.multi.tasks.status(task_id)
-        if current["state"]!="RECOVERABLE" or not current["cleanup_pending"]:
-            raise DurableError("TASK_CLEANUP_STATE_CONFLICT","task must be RECOVERABLE with cleanup_pending")
-        if current["lease_expires_at_ms"] is not None or current["owner_agent_id"] is not None:
-            raise DurableError("TASK_LEASE_CONFLICT","task has an owner or active lease")
-        if int(current["lease_epoch"])!=int(expected_lease_epoch) or current["base_commit"]!=expected_base_commit:
-            raise DurableError("TASK_CLEANUP_IDENTITY_MISMATCH","frozen task epoch or base mismatch")
-        if not isinstance(expected_head_commit,str) or len(expected_head_commit)!=40 or any(
-            c not in "0123456789abcdef" for c in expected_head_commit.lower()
-        ):
-            raise DurableError("INVALID_ARGUMENT","expected_head_commit must be exact SHA-1")
-        self._require_cleanup_quiescent(task_id,binding)
         args={"task_id":task_id,"epoch":int(expected_lease_epoch),
               "base_commit":expected_base_commit,"head_commit":expected_head_commit}
         op,created=self._reserve(
@@ -1373,6 +1362,17 @@ class RoutingService:
             return {**(self.durable.operations.replay_result(op) or {}),"replayed":True}
         if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
             self._operation_replay(op)
+        if current["state"]!="RECOVERABLE" or not current["cleanup_pending"]:
+            raise DurableError("TASK_CLEANUP_STATE_CONFLICT","task must be RECOVERABLE with cleanup_pending")
+        if current["lease_expires_at_ms"] is not None or current["owner_agent_id"] is not None:
+            raise DurableError("TASK_LEASE_CONFLICT","task has an owner or active lease")
+        if int(current["lease_epoch"])!=int(expected_lease_epoch) or current["base_commit"]!=expected_base_commit:
+            raise DurableError("TASK_CLEANUP_IDENTITY_MISMATCH","frozen task epoch or base mismatch")
+        if not isinstance(expected_head_commit,str) or len(expected_head_commit)!=40 or any(
+            c not in "0123456789abcdef" for c in expected_head_commit.lower()
+        ):
+            raise DurableError("INVALID_ARGUMENT","expected_head_commit must be exact SHA-1")
+        self._require_cleanup_quiescent(task_id,binding,exclude_operation_id=operation_id)
         if created:
             self.durable.operations.mark_executing(operation_id)
         try:
