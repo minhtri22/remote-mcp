@@ -312,6 +312,20 @@ def test_guarded_cleanup_requires_clean_exact_head_and_is_idempotent(make_gatewa
             await drive(g,node,g.routing.task_cleanup_pending_resolve_or_local(
                 "cleanup-wrong-head",task_id,claim["lease_epoch"],task["base_commit"],"f"*40))
         assert wrong.value.code=="TASK_CLEANUP_WORKTREE_UNVERIFIED"
+        original_node_status=node.worktrees.status
+        def forged_status(tid):
+            result=original_node_status(tid)
+            return {**result,"binding_generation":999999,
+                    "encoded_root_rel":"FORGED_ROOT"}
+        node.worktrees.status=forged_status
+        try:
+            with pytest.raises(DurableError) as wrong_binding:
+                await drive(g,node,g.routing.task_cleanup_pending_resolve_or_local(
+                    "cleanup-wrong-binding",task_id,claim["lease_epoch"],task["base_commit"],head))
+            assert wrong_binding.value.code=="TASK_CLEANUP_WORKTREE_UNVERIFIED"
+            assert g.multi.tasks.status(task_id)["cleanup_pending"] is True
+        finally:
+            node.worktrees.status=original_node_status
         result=await drive(g,node,g.routing.task_cleanup_pending_resolve_or_local(
             "cleanup-good",task_id,claim["lease_epoch"],task["base_commit"],head))
         assert result["cleanup_pending"] is False
