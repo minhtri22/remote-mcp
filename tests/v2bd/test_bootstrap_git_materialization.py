@@ -46,7 +46,7 @@ def test_bootstrap_non_git_project_materializes_exact_git_without_replacement(
             g.routing.project_materialize_git_on_device(
                 "materialize-bootstrap",
                 project_id,
-                str(source),
+                source.as_uri(),
                 "HEAD",
                 expected,
             ),
@@ -103,7 +103,7 @@ def test_bootstrap_materialization_commit_mismatch_preserves_original_root(
                 g.routing.project_materialize_git_on_device(
                     "materialize-mismatch",
                     p0["project_id"],
-                    str(source),
+                    source.as_uri(),
                     "HEAD",
                     "0"*40,
                 ),
@@ -150,7 +150,7 @@ def test_bootstrap_materialization_refuses_existing_task_semantics(
                 g.routing.project_materialize_git_on_device(
                     "materialize-after-task",
                     p0["project_id"],
-                    str(source),
+                    source.as_uri(),
                     "HEAD",
                     expected,
                 ),
