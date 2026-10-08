@@ -1288,7 +1288,9 @@ class RoutingService:
         rows=self.db.query_all(
             "SELECT command_id,operation_id,command_type,state,delivery_attempt,"
             "command_expires_at_ms,created_at_ms FROM device_commands "
-            "WHERE task_id=? AND device_id=? AND state NOT IN ('SUCCEEDED','FAILED','CANCELLED') "
+            "WHERE task_id=? AND device_id=? AND NOT ("
+            "state IN ('SUCCEEDED','FAILED') "
+            "OR (state='CANCELLED' AND delivery_attempt=0)) "
             "ORDER BY created_at_ms,command_id",
             (task_id,device_id),
         )
