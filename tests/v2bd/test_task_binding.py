@@ -240,3 +240,123 @@ def test_routed_claim_repairs_legacy_null_base_commit(make_gateway,tmp_path):
         ).stdout.strip()
         assert head==expected
     asyncio.run(run())
+
+
+def test_guarded_claim_refuses_pending_routed_command_before_leasing(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-pending-claim";root.mkdir()
+        init_git_repo(root/"repo","CLAIM")
+        node,dev=await pair_node(g,root,tmp_path/"rt-pending-claim","pending-claim")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-pending-claim",dev["device_id"],"repo",2))
+        task=await drive(g,node,g.routing.task_create_or_local(
+            "t-pending-claim",project["project_id"],"guard"))
+        task_id=task["task_id"]
+        cmd,_=g.routing.commands.create(
+            dev["device_id"],"TASK_WORKTREE_ENSURE",{"task_id":task_id},
+            task_id=task_id,project_id=project["project_id"],
+        )
+        before=g.multi.tasks.status(task_id)
+        agent=await g.multi.agent_register("a-pending-claim","test","pending",[])
+        with pytest.raises(DurableError) as exc:
+            await g.routing.task_claim_or_local(
+                "claim-pending-claim",task_id,agent["agent_id"],agent["session_id"])
+        assert exc.value.code=="TASK_COMMAND_UNRESOLVED"
+        after=g.multi.tasks.status(task_id)
+        assert after["state"]=="READY"
+        assert after["lease_epoch"]==before["lease_epoch"]==0
+        assert after["owner_agent_id"] is None
+        snapshot=g.routing.task_cleanup_recovery_status_or_local(task_id)
+        assert [c["command_id"] for c in snapshot["unresolved_commands"]]==[cmd["command_id"]]
+        assert snapshot["worktree_deletion_authorized"] is False
+    asyncio.run(run())
+
+
+def test_guarded_cleanup_requires_clean_exact_head_and_is_idempotent(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-cleanup";root.mkdir()
+        init_git_repo(root/"repo","CLEANUP")
+        node,dev=await pair_node(g,root,tmp_path/"rt-cleanup","cleanup")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-cleanup",dev["device_id"],"repo",2))
+        task=await drive(g,node,g.routing.task_create_or_local(
+            "t-cleanup",project["project_id"],"cleanup"))
+        task_id=task["task_id"]
+        agent=await g.multi.agent_register("a-cleanup","test","cleanup",[])
+        claim=await drive(g,node,g.routing.task_claim_or_local(
+            "claim-cleanup",task_id,agent["agent_id"],agent["session_id"]))
+        worktree=node.worktrees.execution_root(task_id)
+        head=node.worktrees.status(task_id)["head_commit"]
+        assert head==task["base_commit"]
+        # Synthetic local state is a zero-science test fixture, not a production mutation.
+        with g.durable.db.transaction() as con:
+            con.execute("DELETE FROM task_leases WHERE task_id=?",(task_id,))
+            con.execute(
+                "UPDATE tasks SET state='RECOVERABLE',owner_agent_id=NULL,"
+                "owner_session_id=NULL,cleanup_pending=1 WHERE task_id=?",(task_id,),
+            )
+        evidence=worktree/"KEEP_EVIDENCE.json"
+        evidence.write_text('{"preserve":true}',encoding="utf-8")
+        with pytest.raises(DurableError) as dirty:
+            await drive(g,node,g.routing.task_cleanup_pending_resolve_or_local(
+                "cleanup-dirty",task_id,claim["lease_epoch"],task["base_commit"],head))
+        assert dirty.value.code=="TASK_CLEANUP_WORKTREE_UNVERIFIED"
+        assert evidence.exists()
+        assert g.multi.tasks.status(task_id)["cleanup_pending"] is True
+        evidence.unlink()  # Only removes fixture in tmp_path, never a real scientific artifact.
+        with pytest.raises(DurableError) as wrong:
+            await drive(g,node,g.routing.task_cleanup_pending_resolve_or_local(
+                "cleanup-wrong-head",task_id,claim["lease_epoch"],task["base_commit"],"f"*40))
+        assert wrong.value.code=="TASK_CLEANUP_WORKTREE_UNVERIFIED"
+        result=await drive(g,node,g.routing.task_cleanup_pending_resolve_or_local(
+            "cleanup-good",task_id,claim["lease_epoch"],task["base_commit"],head))
+        assert result["cleanup_pending"] is False
+        assert result["worktree_preserved"] is True
+        assert worktree.exists()
+        assert g.multi.tasks.status(task_id)["cleanup_pending"] is False
+        replay=await g.routing.task_cleanup_pending_resolve_or_local(
+            "cleanup-good",task_id,claim["lease_epoch"],task["base_commit"],head)
+        assert replay["replayed"] is True
+    asyncio.run(run())
+
+
+def test_guarded_cleanup_refuses_unproven_job_and_requires_exact_epoch(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-unproven";root.mkdir()
+        init_git_repo(root/"repo","UNPROVEN")
+        node,dev=await pair_node(g,root,tmp_path/"rt-unproven","unproven")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-unproven",dev["device_id"],"repo",2))
+        task=await drive(g,node,g.routing.task_create_or_local(
+            "t-unproven",project["project_id"],"guard"))
+        agent=await g.multi.agent_register("a-unproven","test","unproven",[])
+        claim=await drive(g,node,g.routing.task_claim_or_local(
+            "claim-unproven",task["task_id"],agent["agent_id"],agent["session_id"]))
+        with g.durable.db.transaction() as con:
+            con.execute("DELETE FROM task_leases WHERE task_id=?",(task["task_id"],))
+            con.execute(
+                "UPDATE tasks SET state='RECOVERABLE',owner_agent_id=NULL,"
+                "owner_session_id=NULL,cleanup_pending=1 WHERE task_id=?",
+                (task["task_id"],),
+            )
+            g.routing.routed_jobs.create(
+                con,"orphaned-job",task["task_id"],project["project_id"],dev["device_id"],
+            )
+        head=node.worktrees.status(task["task_id"])["head_commit"]
+        with pytest.raises(DurableError) as bad_epoch:
+            await g.routing.task_cleanup_pending_resolve_or_local(
+                "cleanup-bad-epoch",task["task_id"],claim["lease_epoch"]+1,
+                task["base_commit"],head,
+            )
+        assert bad_epoch.value.code=="TASK_CLEANUP_IDENTITY_MISMATCH"
+        with pytest.raises(DurableError) as unknown:
+            await g.routing.task_cleanup_pending_resolve_or_local(
+                "cleanup-unproven",task["task_id"],claim["lease_epoch"],
+                task["base_commit"],head,
+            )
+        assert unknown.value.code=="TASK_JOB_EVIDENCE_UNRESOLVED"
+        assert g.multi.tasks.status(task["task_id"])["cleanup_pending"] is True
+    asyncio.run(run())
