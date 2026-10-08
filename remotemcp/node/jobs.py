@@ -267,7 +267,7 @@ class NodeJobs:
         evidence_paths=payload.get("evidence_paths",[])
         if not isinstance(argv,list) or not argv:
             raise DurableError("INVALID_ARGUMENT","routed job argv must be non-empty list")
-        _,rel,project_id=self._cwd(task_id,cwd)
+        _,rel,project_id,workspace_root=self._cwd(task_id,cwd)
         evidence_manifest={
             "schema":"remotemcp.job-artifact-manifest.v1",
             "proxy_job_id":proxy_job_id,
