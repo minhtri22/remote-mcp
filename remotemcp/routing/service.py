@@ -190,6 +190,22 @@ class RoutingService:
         digest=hashlib.sha256(node_root_rel.encode("utf-8")).hexdigest()[:24]
         return f"@v2bd/{device_id}/{digest}"
 
+    @staticmethod
+    def _public_node_root_rel(value:str)->str:
+        raw=str(value or "")
+        if raw.startswith("@root/"):
+            parts=raw.split("/",2)
+            if len(parts)==3 and parts[2]:
+                return parts[2]
+        return raw
+
+    def _public_binding_fields(self,value:str)->dict:
+        raw=str(value or "")
+        return {
+            "node_root_rel":self._public_node_root_rel(raw),
+            "node_root_location":raw,
+        }
+
     async def _route_step(
         self,device_id:str,command_type:str,payload:dict,*,operation_id:str|None=None,
         operation_step:int=0,project_id:str|None=None,task_id:str|None=None,
@@ -960,7 +976,12 @@ class RoutingService:
                 device_id,"PROJECT_BIND",bind_payload,
                 operation_id=operation_id,operation_step=1,project_id=project_id,
             )
-            result={**self.multi.projects.status(project_id),"device_id":device_id,"node_root_rel":node_root_rel,"binding_generation":generation}
+            result={
+                **self.multi.projects.status(project_id),
+                "device_id":device_id,
+                **self._public_binding_fields(node_root_rel),
+                "binding_generation":generation,
+            }
             result=self._with_routing(
                 result,device_id,project_id=project_id,binding_generation=generation
             )
@@ -1067,7 +1088,7 @@ class RoutingService:
                 **self.multi.projects.status(project_id),
                 **result,
                 "device_id":device_id,
-                "node_root_rel":binding["node_root_rel"],
+                **self._public_binding_fields(binding["node_root_rel"]),
                 "binding_generation":int(binding["binding_generation"]),
                 "project_kind":"GIT",
                 "exact_commit_pinned":True,
@@ -1091,7 +1112,7 @@ class RoutingService:
             result={
                 **self.multi.projects.status(project_id),
                 "device_id":device_id,
-                "node_root_rel":current["node_root_rel"],
+                **self._public_binding_fields(current["node_root_rel"]),
                 "binding_generation":int(current["binding_generation"]),
             }
             return {
@@ -1127,7 +1148,12 @@ class RoutingService:
                 {"project_id":project_id,"binding_generation":int(binding["binding_generation"]),"root_rel":binding["node_root_rel"],"project_kind":project["project_kind"]},
                 operation_id=operation_id,operation_step=1,project_id=project_id,
             )
-            result={**self.multi.projects.status(project_id),"device_id":device_id,"node_root_rel":binding["node_root_rel"],"binding_generation":int(binding["binding_generation"])}
+            result={
+                **self.multi.projects.status(project_id),
+                "device_id":device_id,
+                **self._public_binding_fields(binding["node_root_rel"]),
+                "binding_generation":int(binding["binding_generation"]),
+            }
             result=self._with_routing(
                 result,device_id,project_id=project_id,
                 binding_generation=int(binding["binding_generation"]),
@@ -1160,7 +1186,7 @@ class RoutingService:
                 "superseded_by_project_id":row["superseded_by_project_id"],
                 "eligible_for_new_tasks":False,
                 "device_id":row["device_id"],
-                "node_root_rel":row["node_root_rel"],
+                **self._public_binding_fields(row["node_root_rel"]),
                 "binding_generation":int(row["binding_generation"]),
             }
             self.durable.operations.succeed(operation_id,result)
