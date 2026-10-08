@@ -1401,8 +1401,11 @@ class RoutingService:
                 operation_id=operation_id,operation_step=0,
                 project_id=current["project_id"],task_id=task_id,
             )
+            project=self.multi.projects.get(current["project_id"])
             if (node.get("task_id")!=task_id
                 or node.get("project_id")!=current["project_id"]
+                or node.get("binding_generation")!=int(binding["binding_generation"])
+                or node.get("encoded_root_rel")!=project["root_rel"]
                 or node.get("branch_name")!=current["branch_name"]
                 or node.get("worktree_rel")!=current["worktree_rel"]
                 or node.get("head_commit")!=expected_head_commit
