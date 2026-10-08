@@ -270,6 +270,8 @@ def test_guarded_claim_refuses_pending_routed_command_before_leasing(make_gatewa
         snapshot=g.routing.task_cleanup_recovery_status_or_local(task_id)
         assert [c["command_id"] for c in snapshot["unresolved_commands"]]==[cmd["command_id"]]
         assert snapshot["worktree_deletion_authorized"] is False
+        assert snapshot["lease_active"] is False
+        assert snapshot["lease_record_present"] is False
     asyncio.run(run())
 
 
@@ -357,11 +359,17 @@ def test_guarded_cleanup_refuses_unproven_job_and_requires_exact_epoch(make_gate
                 task["base_commit"],head,
             )
         assert bad_epoch.value.code=="TASK_CLEANUP_IDENTITY_MISMATCH"
+        assert g.durable.db.query_one(
+            "SELECT 1 FROM operations WHERE operation_id='cleanup-bad-epoch'"
+        ) is None
         with pytest.raises(DurableError) as unknown:
             await g.routing.task_cleanup_pending_resolve_or_local(
                 "cleanup-unproven",task["task_id"],claim["lease_epoch"],
                 task["base_commit"],head,
             )
         assert unknown.value.code=="TASK_JOB_EVIDENCE_UNRESOLVED"
+        assert g.durable.db.query_one(
+            "SELECT 1 FROM operations WHERE operation_id='cleanup-unproven'"
+        ) is None
         assert g.multi.tasks.status(task["task_id"])["cleanup_pending"] is True
     asyncio.run(run())
