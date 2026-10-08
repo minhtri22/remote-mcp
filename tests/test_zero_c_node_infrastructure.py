@@ -14,6 +14,7 @@ def test_zero_c_starter_has_explicit_non_os_infrastructure_contract():
         "[string]$TempDir",
         "[string]$CacheDir",
         "[string]$ControlDir",
+        "[string[]]$LegacyRootDirs",
         "OS_DRIVE_REMOTEMCP_INFRA_FORBIDDEN",
         "REMOTEMCP_ZERO_C",
         "PIP_CACHE_DIR",
@@ -34,6 +35,7 @@ def test_zero_c_watchdog_replays_exact_paths_without_localappdata_logs():
         "TempDir = $TempDir",
         "CacheDir = $CacheDir",
         "ControlDir = $ControlDir",
+        "LegacyRootDirs = $LegacyRootDirs",
         "ZeroC = $true",
         '$WatchdogLog = Join-Path $LogDir',
     ):
@@ -73,3 +75,15 @@ def test_v31_node_attestation_exposes_zero_c_paths():
         '"zero_c_mode"',
     ):
         assert key in s
+
+
+def test_legacy_root_contract_survives_supervisor_and_watchdog_recovery():
+    starter=read("Start-RemoteMCP-Node.ps1")
+    watchdog=read("Watch-RemoteMCP-Node.ps1")
+    supervisor=read("Install-RemoteMCP-Node-Supervisor.ps1")
+    assert "[string[]]$LegacyRootDirs" in starter
+    assert "[string[]]$LegacyRootDirs" in watchdog
+    assert "[string[]]$LegacyRootDirs" in supervisor
+    assert "LegacyRootDirs = $LegacyRootDirs" in watchdog
+    assert '-LegacyRootDirs $LegacyRootDirs' in watchdog
+    assert '$arg += \' -LegacyRootDirs "\' + $fullLegacy + \'"\'' in supervisor

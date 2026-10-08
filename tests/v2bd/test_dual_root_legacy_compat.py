@@ -75,7 +75,7 @@ def test_new_registration_uses_canonical_namespace_without_rebinding_legacy(tmp_
     )
     probe = projects.probe("SIX")
     assert probe["root_namespace"] == "CANONICAL"
-    assert probe["root_rel"] == "@root/CANONICAL/SIX"
+    assert probe["root_rel"] == "SIX"
 
     bound = projects.bind(
         "prj_new",
@@ -84,6 +84,7 @@ def test_new_registration_uses_canonical_namespace_without_rebinding_legacy(tmp_
         probe["project_kind"],
     )
     assert bound["root_namespace"] == "CANONICAL"
+    assert bound["root_rel"] == "SIX"
     assert projects.path("prj_new") == (canonical / "SIX").resolve()
     assert projects.path("prj_old") == (legacy / "SIX").resolve()
 
