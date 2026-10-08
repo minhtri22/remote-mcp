@@ -1419,7 +1419,12 @@ class RoutingService:
             )
             # Gateway projects.root_rel is a private @v2bd storage key, not a node path.
             # Compare the authoritative device binding's node_root_rel instead.
-            expected_node_root=str(binding["node_root_rel"]).replace("\\","/")
+            project_binding=self.bindings.project_binding(current["project_id"])
+            if (project_binding is None
+                or project_binding["device_id"]!=binding["device_id"]
+                or int(project_binding["binding_generation"])!=int(binding["binding_generation"])):
+                raise DurableError("TASK_CLEANUP_BINDING_MISMATCH","task/project device bindings diverged")
+            expected_node_root=str(project_binding["node_root_rel"]).replace("\\","/")
             root_matches=(
                 node.get("encoded_root_rel")==expected_node_root
                 if expected_node_root.startswith("@root/")
