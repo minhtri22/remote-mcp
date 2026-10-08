@@ -1461,6 +1461,49 @@ class RoutingService:
                 row["operation_id"],row["last_known_state"],evidence,
             )
 
+    async def _recover_routed_predecessor(self,binding,row):
+        node_job_id=str(row["node_job_id"] or "").strip()
+        if not node_job_id:
+            raise DurableError(
+                "PREDECESSOR_STATE_UNRESOLVED",
+                "routed predecessor has no exact node_job_id for evidence recovery",
+                predecessor_job_id=row["proxy_job_id"],
+            )
+        payload={
+            "proxy_job_id":row["proxy_job_id"],
+            "node_job_id":node_job_id,
+            "task_id":row["task_id"],
+            "project_id":row["project_id"],
+            "argv_sha256":row["argv_sha256"] if "argv_sha256" in row.keys() else None,
+            "cwd":row["cwd"] if "cwd" in row.keys() else None,
+            "execution_key":row["execution_key"] if "execution_key" in row.keys() else None,
+        }
+        try:
+            result,_=await self._route_step(
+                binding["device_id"],"JOB_RECOVER_ROUTED_JOB",payload,
+                project_id=binding["project_id"],task_id=row["task_id"],
+            )
+        except Exception as exc:
+            if isinstance(exc,DurableError) and exc.code=="PREDECESSOR_JOB_NOT_TERMINAL":
+                raise
+            raise DurableError(
+                "PREDECESSOR_STATE_UNRESOLVED",
+                "exact routed predecessor recovery could not prove node evidence",
+                predecessor_job_id=row["proxy_job_id"],
+                node_job_id=node_job_id,
+            ) from exc
+        state=result.get("state")
+        terminal=bool(result.get("terminal")) and state in TERMINAL
+        row=self.routed_jobs.update(
+            row["proxy_job_id"],
+            node_job_id=result.get("node_job_id") or node_job_id,
+            state=state,
+            terminal_result=result if terminal else None,
+        )
+        if terminal:
+            self._sync_routed_admission(row)
+        return row,result
+
     async def _ensure_routed_terminal_evidence(self,binding,row):
         if row["last_known_state"] not in TERMINAL:
             raise DurableError(
@@ -1482,12 +1525,8 @@ class RoutingService:
                     {"proxy_job_id":row["proxy_job_id"]},
                     project_id=binding["project_id"],task_id=row["task_id"],
                 )
-            except Exception as exc:
-                raise DurableError(
-                    "PREDECESSOR_STATE_UNRESOLVED",
-                    "could not obtain authoritative routed predecessor terminal evidence",
-                    predecessor_job_id=row["proxy_job_id"],
-                ) from exc
+            except Exception:
+                row,result=await self._recover_routed_predecessor(binding,row)
             if not result.get("terminal") or result.get("state") not in TERMINAL:
                 raise DurableError(
                     "PREDECESSOR_STATE_UNRESOLVED",
@@ -1525,17 +1564,13 @@ class RoutingService:
                     {"proxy_job_id":row["proxy_job_id"]},
                     project_id=binding["project_id"],task_id=task_id,
                 )
-            except Exception as exc:
-                raise DurableError(
-                    "PREDECESSOR_STATE_UNRESOLVED",
-                    "routed predecessor could not be resolved from the bound node",
-                    predecessor_job_id=row["proxy_job_id"],
-                ) from exc
-            row=self.routed_jobs.update(
-                row["proxy_job_id"],
-                node_job_id=remote.get("node_job_id"),
-                state=remote.get("state"),
-            )
+                row=self.routed_jobs.update(
+                    row["proxy_job_id"],
+                    node_job_id=remote.get("node_job_id"),
+                    state=remote.get("state"),
+                )
+            except Exception:
+                row,remote=await self._recover_routed_predecessor(binding,row)
             if row["last_known_state"] not in TERMINAL:
                 raise DurableError(
                     "PREDECESSOR_JOB_NOT_TERMINAL",
