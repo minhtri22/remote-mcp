@@ -43,11 +43,9 @@ def test_bootstrap_non_git_project_materializes_exact_git_without_replacement(
 
         p1=await drive(
             g,node,
-            g.routing.project_register_on_device(
+            g.routing.project_materialize_git_on_device(
                 "materialize-bootstrap",
-                dev["device_id"],
-                "bootstrap-project",
-                4,
+                project_id,
                 str(source),
                 "HEAD",
                 expected,
@@ -102,11 +100,9 @@ def test_bootstrap_materialization_commit_mismatch_preserves_original_root(
         with pytest.raises(DurableError) as exc:
             await drive(
                 g,node,
-                g.routing.project_register_on_device(
+                g.routing.project_materialize_git_on_device(
                     "materialize-mismatch",
-                    dev["device_id"],
-                    "bootstrap-project",
-                    4,
+                    p0["project_id"],
                     str(source),
                     "HEAD",
                     "0"*40,
@@ -151,11 +147,9 @@ def test_bootstrap_materialization_refuses_existing_task_semantics(
         with pytest.raises(DurableError) as exc:
             await drive(
                 g,node,
-                g.routing.project_register_on_device(
+                g.routing.project_materialize_git_on_device(
                     "materialize-after-task",
-                    dev["device_id"],
-                    "bootstrap-project",
-                    4,
+                    p0["project_id"],
                     str(source),
                     "HEAD",
                     expected,
