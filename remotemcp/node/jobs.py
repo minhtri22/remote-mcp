@@ -41,6 +41,10 @@ class NodeJobs:
                 workspace_root=self.config.root,
                 runtime_dir=self.config.runtime_dir/"durable",
                 allowed_cmds=DEFAULT_DURABLE_ALLOWED_CMDS,
+                approved_workspace_roots=(
+                    self.config.root,
+                    *tuple(getattr(self.config,"legacy_roots",())),
+                ),
                 max_parallel_jobs=4,
                 poll_ms=20,
                 starting_grace_seconds=2,
@@ -54,15 +58,15 @@ class NodeJobs:
     async def stop(self):
         await self.durable.stop()
 
-    def _cwd(self,task_id:str,cwd:str)->tuple[Path,str,str]:
+    def _cwd(self,task_id:str,cwd:str)->tuple[Path,str,str,Path]:
         task=self.worktrees.task(task_id)
         project_id=task["project_id"]
         root=self.worktrees.execution_root(task_id).resolve()
         target=(root/cwd).resolve()
         if target!=root and not target.is_relative_to(root):
             raise DurableError("PATH_ESCAPE","node job cwd escapes task root")
-        rel=target.relative_to(self.config.root).as_posix() if target!=self.config.root else "."
-        return target,rel,project_id
+        rel=target.relative_to(root).as_posix() if target!=root else "."
+        return target,rel,project_id,root
 
     @staticmethod
     def _artifact_meta_key(proxy_job_id:str)->str:
@@ -374,6 +378,7 @@ class NodeJobs:
                 "REMOTEMCP_DEVICE_ID":self.device_id,
                 "REMOTEMCP_PROJECT_ID":project_id,
             },
+            workspace_root_override=workspace_root,
         )
         node_job_id=result["job_id"]
         t=now_ms()
