@@ -136,6 +136,7 @@ class NodeWorktrees:
         result={
             "task_id":task_id,
             "project_id":task["project_id"],
+            "binding_generation":int(project["binding_generation"]),
             "worktree_rel":task["worktree_rel"],
             "branch_name":task["branch_name"],
             "clean":clean,
