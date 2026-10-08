@@ -437,6 +437,26 @@ def task_status(task_id: str) -> dict:
 
 
 @mcp.tool()
+def task_cleanup_recovery_status(task_id: str) -> dict:
+    """Gateway-only diagnostic: inspect pending commands and terminal evidence, no node traffic."""
+    return routing_service.task_cleanup_recovery_status_or_local(task_id)
+
+
+@mcp.tool()
+async def task_cleanup_pending_resolve(
+    operation_id: str,
+    task_id: str,
+    expected_lease_epoch: int,
+    expected_base_commit: str,
+    expected_head_commit: str,
+) -> dict:
+    """Safely acknowledge clean worktree after CAS checks; never delete worktree or rerun jobs."""
+    return await routing_service.task_cleanup_pending_resolve_or_local(
+        operation_id, task_id, expected_lease_epoch, expected_base_commit, expected_head_commit,
+    )
+
+
+@mcp.tool()
 async def task_checkpoint(
     operation_id: str,
     task_id: str,

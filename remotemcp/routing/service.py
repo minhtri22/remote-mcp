@@ -1283,12 +1283,212 @@ class RoutingService:
         except Exception as exc:
             self._fail_final(operation_id,exc);raise
 
+    def _task_unresolved_commands(self,task_id:str,device_id:str,exclude_operation_id:str|None=None)->list[dict]:
+        """Gateway-only snapshot; never dispatch a new node command."""
+        rows=self.db.query_all(
+            "SELECT command_id,operation_id,command_type,state,delivery_attempt,"
+            "command_expires_at_ms,created_at_ms FROM device_commands "
+            "WHERE task_id=? AND device_id=? AND NOT ("
+            "state IN ('SUCCEEDED','FAILED') "
+            "OR (state='CANCELLED' AND delivery_attempt=0)) "
+            "ORDER BY created_at_ms,command_id",
+            (task_id,device_id),
+        )
+        return [
+            {k:row[k] for k in (
+                "command_id","operation_id","command_type","state",
+                "delivery_attempt","command_expires_at_ms","created_at_ms",
+            )}
+            for row in rows if exclude_operation_id is None or row["operation_id"]!=exclude_operation_id
+        ]
+
+    def task_cleanup_recovery_status_or_local(self,task_id:str)->dict:
+        """Read-only gateway reconciliation, safe when node command transport is jammed."""
+        binding=self.bindings.task_binding(task_id)
+        if binding is None:
+            raise DurableError("DEVICE_CONTEXT_REQUIRED","guarded cleanup requires an existing routed task")
+        task=self.multi.tasks.status(task_id)
+        jobs=self.routed_jobs.list_task_rows(task_id)
+        return {
+            "task_id":task_id,"project_id":task["project_id"],
+            "device_id":binding["device_id"],"binding_generation":int(binding["binding_generation"]),
+            "state":task["state"],"cleanup_pending":bool(task["cleanup_pending"]),
+            "lease_epoch":int(task["lease_epoch"]),
+            "lease_active":(
+                task["lease_expires_at_ms"] is not None
+                and int(task["lease_expires_at_ms"])>now_ms()
+            ),
+            "lease_record_present":task["lease_expires_at_ms"] is not None,
+            "base_commit":task["base_commit"],"branch_name":task["branch_name"],
+            "worktree_rel":task["worktree_rel"],
+            "unresolved_commands":self._task_unresolved_commands(task_id,binding["device_id"]),
+            "jobs":[
+                {"proxy_job_id":j["proxy_job_id"],"node_job_id":j["node_job_id"],
+                 "state":j["last_known_state"],"terminal_evidence_available":bool(j["terminal_result_json"]),
+                 "terminal_evidence_verified":self._terminal_job_evidence_verified(j)}
+                for j in jobs
+            ],
+            "resolution_is_read_only":True,"worktree_deletion_authorized":False,
+        }
+
+    @staticmethod
+    def _terminal_job_evidence_verified(row)->bool:
+        """Only accept terminal proof bound to the exact existing proxy and node job."""
+        if row["last_known_state"] not in ("SUCCEEDED","FAILED","CANCELLED"):
+            return False
+        if not row["node_job_id"] or not row["terminal_result_json"]:
+            return False
+        try:
+            evidence=json.loads(row["terminal_result_json"])
+        except (TypeError,ValueError):
+            return False
+        return (
+            isinstance(evidence,dict)
+            and evidence.get("terminal") is True
+            and evidence.get("proxy_job_id")==row["proxy_job_id"]
+            and evidence.get("node_job_id")==row["node_job_id"]
+            and evidence.get("state")==row["last_known_state"]
+        )
+
+    def _require_cleanup_quiescent(self,task_id:str,binding:dict,*,exclude_operation_id:str|None=None)->None:
+        outstanding=self._task_unresolved_commands(task_id,binding["device_id"],exclude_operation_id)
+        if outstanding:
+            raise DurableError(
+                "TASK_COMMAND_UNRESOLVED",
+                "task has unacknowledged routed commands; inspect gateway recovery status first",
+                command_ids=[x["command_id"] for x in outstanding],
+            )
+        jobs=self.routed_jobs.list_task_rows(task_id)
+        if any(not self._terminal_job_evidence_verified(j) for j in jobs):
+            raise DurableError(
+                "TASK_JOB_EVIDENCE_UNRESOLVED",
+                "a routed job lacks independently retrievable terminal evidence",
+            )
+
+    async def task_cleanup_pending_resolve_or_local(
+        self,operation_id:str,task_id:str,expected_lease_epoch:int,
+        expected_base_commit:str,expected_head_commit:str,
+    )->dict:
+        """Non-destructive, CAS-style acknowledgment after clean node worktree proof."""
+        binding=self.bindings.task_binding(task_id)
+        if binding is None:
+            raise DurableError("DEVICE_CONTEXT_REQUIRED","guarded cleanup requires a routed task")
+        current=self.multi.tasks.status(task_id)
+        args={"task_id":task_id,"epoch":int(expected_lease_epoch),
+              "base_commit":expected_base_commit,"head_commit":expected_head_commit}
+        # A completed operation can be replayed after cleanup_pending becomes 0.
+        # For a fresh invalid request, validate first: no orphan RESERVED op.
+        op=None
+        prior=self.db.query_one("SELECT 1 FROM operations WHERE operation_id=?",(operation_id,))
+        if prior is not None:
+            op,created=self._reserve(
+                operation_id,"TASK_CLEANUP_PENDING_RESOLVE",args,
+                project_id=current["project_id"],task_id=task_id,
+            )
+            if op["state"]==OperationState.SUCCEEDED.value:
+                return {**(self.durable.operations.replay_result(op) or {}),"replayed":True}
+            if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
+                self._operation_replay(op)
+        if current["state"]!="RECOVERABLE" or not current["cleanup_pending"]:
+            raise DurableError("TASK_CLEANUP_STATE_CONFLICT","task must be RECOVERABLE with cleanup_pending")
+        if current["lease_expires_at_ms"] is not None or current["owner_agent_id"] is not None:
+            raise DurableError("TASK_LEASE_CONFLICT","task has an owner or active lease")
+        if int(current["lease_epoch"])!=int(expected_lease_epoch) or current["base_commit"]!=expected_base_commit:
+            raise DurableError("TASK_CLEANUP_IDENTITY_MISMATCH","frozen task epoch or base mismatch")
+        if not isinstance(expected_head_commit,str) or len(expected_head_commit)!=40 or any(
+            c not in "0123456789abcdef" for c in expected_head_commit.lower()
+        ):
+            raise DurableError("INVALID_ARGUMENT","expected_head_commit must be exact SHA-1")
+        self._require_cleanup_quiescent(task_id,binding,exclude_operation_id=operation_id)
+        if op is None:
+            op,created=self._reserve(
+                operation_id,"TASK_CLEANUP_PENDING_RESOLVE",args,
+                project_id=current["project_id"],task_id=task_id,
+            )
+            if op["state"]==OperationState.SUCCEEDED.value:
+                return {**(self.durable.operations.replay_result(op) or {}),"replayed":True}
+            if op["state"] in (OperationState.FAILED_FINAL.value,OperationState.IN_DOUBT.value):
+                self._operation_replay(op)
+        if created:
+            self.durable.operations.mark_executing(operation_id)
+        try:
+            node,_=await self._route_step(
+                binding["device_id"],"TASK_WORKTREE_STATUS",{"task_id":task_id},
+                operation_id=operation_id,operation_step=0,
+                project_id=current["project_id"],task_id=task_id,
+            )
+            # Gateway projects.root_rel is a private @v2bd storage key, not a node path.
+            # Compare the authoritative device binding's node_root_rel instead.
+            project_binding=self.bindings.project_binding(current["project_id"])
+            if (project_binding is None
+                or project_binding["device_id"]!=binding["device_id"]
+                or int(project_binding["binding_generation"])!=int(binding["binding_generation"])):
+                raise DurableError("TASK_CLEANUP_BINDING_MISMATCH","task/project device bindings diverged")
+            expected_node_root=str(project_binding["node_root_rel"]).replace("\\","/")
+            root_matches=(
+                node.get("encoded_root_rel")==expected_node_root
+                if expected_node_root.startswith("@root/")
+                else (node.get("root_namespace")=="CANONICAL"
+                      and node.get("root_rel")==expected_node_root)
+            )
+            if (node.get("task_id")!=task_id
+                or node.get("project_id")!=current["project_id"]
+                or node.get("binding_generation")!=int(binding["binding_generation"])
+                or not root_matches
+                or node.get("branch_name")!=current["branch_name"]
+                or node.get("worktree_rel")!=current["worktree_rel"]
+                or node.get("head_commit")!=expected_head_commit
+                or node.get("clean") is not True):
+                raise DurableError(
+                    "TASK_CLEANUP_WORKTREE_UNVERIFIED",
+                    "worktree path/branch/HEAD/cleanliness does not match frozen expectations",
+                )
+            # Recheck mutable state under the same transaction that clears the flag.
+            with self.db.transaction() as con:
+                row=con.execute("SELECT * FROM tasks WHERE task_id=?",(task_id,)).fetchone()
+                lease=con.execute("SELECT 1 FROM task_leases WHERE task_id=?",(task_id,)).fetchone()
+                if (row is None or row["state"]!="RECOVERABLE" or not row["cleanup_pending"]
+                    or row["owner_agent_id"] is not None or lease is not None
+                    or int(row["lease_epoch"])!=int(expected_lease_epoch)
+                    or row["base_commit"]!=expected_base_commit
+                    or row["branch_name"]!=current["branch_name"]
+                    or row["worktree_rel"]!=current["worktree_rel"]):
+                    raise DurableError("TASK_CLEANUP_RACE","task changed during cleanup reconciliation")
+                # No concurrent command or unproven job may be silently ignored.
+                self._require_cleanup_quiescent(
+                    task_id,binding,exclude_operation_id=operation_id,
+                )
+                con.execute(
+                    "UPDATE tasks SET cleanup_pending=0,updated_at_ms=? WHERE task_id=?",
+                    (now_ms(),task_id),
+                )
+                self.multi.tasks._event(
+                    con,task_id,operation_id,None,None,"TASK_CLEANUP_PENDING_RESOLVED",
+                    {"lease_epoch":int(expected_lease_epoch),"base_commit":expected_base_commit,
+                     "head_commit":expected_head_commit,"worktree_preserved":True},
+                )
+            result={"task_id":task_id,"cleanup_pending":False,
+                    "worktree_preserved":True,"job_rerun_authorized":False,
+                    "head_commit":expected_head_commit}
+            self.durable.operations.succeed(operation_id,result)
+            return result
+        except DurableError as exc:
+            if exc.code!="DEVICE_COMMAND_PENDING":
+                self._fail_final(operation_id,exc)
+            raise
+
     async def task_claim_or_local(self,operation_id:str,task_id:str,agent_id:str,session_id:str)->dict:
         binding=self.bindings.task_binding(task_id)
         if binding is None:
             return await self.multi.task_claim(operation_id,task_id,agent_id,session_id)
         self.devices.require_online(binding["device_id"])
         self.multi.agents.validate_active(agent_id,session_id)
+        # Refuse a fresh claim before recording an operation or minting a lease
+        # if the same task has stranded commands/unproven job evidence.
+        # Existing operation_id replays must still be able to reconcile.
+        prior=self.db.query_one("SELECT 1 FROM operations WHERE operation_id=?",(operation_id,))
+        if prior is None:
+            self._require_cleanup_quiescent(task_id,binding)
         args={"task_id":task_id,"agent_id":agent_id,"session_id":session_id}
         op,created=self._reserve(operation_id,"TASK_CLAIM",args,agent_id=agent_id,task_id=task_id)
         if op["state"]==OperationState.SUCCEEDED.value:

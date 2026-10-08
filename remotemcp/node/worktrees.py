@@ -136,6 +136,7 @@ class NodeWorktrees:
         result={
             "task_id":task_id,
             "project_id":task["project_id"],
+            "binding_generation":int(project["binding_generation"]),
             "worktree_rel":task["worktree_rel"],
             "branch_name":task["branch_name"],
             "clean":clean,
@@ -146,4 +147,8 @@ class NodeWorktrees:
             result["worktree_layout"]=classify_task_worktree_rel(
                 str(task["project_id"]),str(task["task_id"]),str(task["worktree_rel"])
             )
+            # Freeze the actual HEAD identity without modifying a worktree.
+            result["head_commit"]=self._manager(task["project_id"])._run(
+                "git","-C",str(root),"rev-parse","HEAD"
+            ).stdout.strip()
         return result
