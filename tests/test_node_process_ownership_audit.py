@@ -85,7 +85,7 @@ def test_exact_bidirectional_mapping_without_any_database_write(tmp_path, monkey
     after = [snap_hash(p) for p in paths]
     assert before == after
     assert result["status"] == "READ_ONLY_OBSERVATION"
-    assert result["pid_queries"][0]["state"] == "MATCHED_DURABLE_FINGERPRINT"
+    assert result["pid_queries"][0]["state"] == "EXACT_LIVE_DURABLE_JOB_MATCH"
     assert result["pid_queries"][0]["matches"][0]["proxy_job_id"] == "rjob_existing"
     assert result["process_mappings"][0]["command_id"] == "cmd_exact"
     assert result["process_mappings"][0]["journal_proxy_matches"] is True
@@ -106,6 +106,7 @@ def test_pid_reuse_is_not_evidence_of_original_job(tmp_path, monkeypatch):
     roles = result["process_mappings"][0]["processes"]
     assert roles[1]["verification"] == "PID_REUSED_OR_START_CHANGED"
     assert all(role["verification"] != "EXACT_LIVE_PROCESS" for role in roles)
+    assert result["pid_queries"][0]["state"] == "RECORDED_PID_WITHOUT_VERIFIED_LIVE_OWNERSHIP"
     assert result["cutover_authorized"] is False
 
 
