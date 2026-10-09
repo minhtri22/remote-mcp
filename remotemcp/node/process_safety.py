@@ -317,7 +317,7 @@ class ProcessSafetyProbe:
             cmdline=str(proc.get("command_line") or "")
             name=str(proc.get("name") or "").casefold()
             if (name in {"powershell.exe","pwsh.exe"} and re.search(
-                r'(?:^|\\s)-File\\s+(?:"[^"]*[\\\\/]Watch-RemoteMCP-Node\\.ps1"|[^\\s"]*[\\\\/]Watch-RemoteMCP-Node\\.ps1)(?:\\s|$)',
+                r'(?:^|\s)-File\s+(?:"[^"]*[\\/]Watch-RemoteMCP-Node\.ps1"|[^\s"]*[\\/]Watch-RemoteMCP-Node\.ps1)(?:\s|$)',
                 cmdline,re.IGNORECASE,
             )):
                 continue
