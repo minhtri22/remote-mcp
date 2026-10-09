@@ -158,6 +158,9 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
                 bool(link and command and claimed_proxy == link["proxy_job_id"])
                 if command else None
             ),
+            # Existing fingerprint records hash submitted command; OS probe
+            # proves PID/start/executable only, not full live command-line argv.
+            "live_os_argv_hash_verified": False,
             "processes": [],
         }
         for role, fp in (("worker", worker), ("payload", payload)):
@@ -190,9 +193,17 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
     for pid in pids:
         matches = indexed_pids.get(pid, [])
         if matches:
+            exact = [m for m in matches if m["verification"] == "EXACT_LIVE_PROCESS"]
+            distinct_jobs = {m["node_job_id"] for m in exact}
+            if len(distinct_jobs) > 1:
+                state = "AMBIGUOUS_MULTIPLE_LIVE_JOB_OWNERS"
+            elif len(distinct_jobs) == 1:
+                state = "EXACT_LIVE_DURABLE_JOB_MATCH"
+            else:
+                state = "RECORDED_PID_WITHOUT_VERIFIED_LIVE_OWNERSHIP"
             pid_results.append({
                 "pid": pid,
-                "state": "MATCHED_DURABLE_FINGERPRINT",
+                "state": state,
                 "matches": matches,
             })
         else:
@@ -228,7 +239,10 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
             })
     warnings = sorted({
         t["integrity_warning"] for t in inspected if "integrity_warning" in t
-    } | ({"COMMAND_RECEIPT_UNMAPPED"} if orphan_receipts else set()))
+    } | ({"COMMAND_RECEIPT_UNMAPPED"} if orphan_receipts else set())
+      | ({"PID_OWNER_AMBIGUOUS"} if any(
+          x["state"] == "AMBIGUOUS_MULTIPLE_LIVE_JOB_OWNERS" for x in pid_results
+      ) else set()))
     return {
         "schema": "remotemcp.node-process-ownership-audit.v1",
         "status": "OBSERVED_WITH_INTEGRITY_WARNINGS" if warnings else "READ_ONLY_OBSERVATION",
