@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 import json
 import secrets
+import os
+from pathlib import Path
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
@@ -14,6 +16,65 @@ from .models import ALLOWED_COMMANDS,CommandState,TERMINAL_COMMAND_STATES
 class CommandRepository:
     def __init__(self,config,db,devices):
         self.config=config; self.db=db; self.devices=devices
+        # Production control-plane cutover controls. The release pin prevents
+        # any agent from submitting or receiving science jobs on a watchdog-
+        # downgraded node. The quarantine prevents queued delivery until the
+        # exact command journal has been independently reconciled.
+        self.required_release_sha=os.environ.get(
+            "REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA",""
+        ).strip().lower()
+        self.science_dispatch_hold=(
+            os.environ.get("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","0")=="1"
+        )
+        # Durable gateway-config.json has precedence over transient launcher
+        # variables when an operator has activated the cutover gate.
+        # This prevents a legacy watchdog launcher from silently dropping the
+        # pin on a restart of the NEW gateway code.
+        local_appdata=os.environ.get("LOCALAPPDATA")
+        configured_path=os.environ.get("REMOTEMCP_GATEWAY_CONFIG_PATH")
+        config_path=(Path(configured_path) if configured_path
+                     else Path(local_appdata)/"RemoteMCP"/"gateway-config.json"
+                     if local_appdata else None)
+        if config_path is not None and config_path.is_file():
+            try:
+                data=json.loads(config_path.read_text(encoding="utf-8-sig"))
+            except (OSError,UnicodeError,ValueError,TypeError) as exc:
+                raise DurableError(
+                    "GATEWAY_RELEASE_CONFIG_INVALID",
+                    "local durable gateway configuration is unreadable",
+                ) from exc
+            if data.get("node_release_gate_enabled") is True:
+                pin=str(data.get("required_node_release_commit_sha") or "").strip().lower()
+                if len(pin)!=40 or any(c not in "0123456789abcdef" for c in pin):
+                    raise DurableError(
+                        "GATEWAY_RELEASE_PIN_INVALID",
+                        "durable node release guard requires an exact 40-hex commit",
+                    )
+                self.required_release_sha=pin
+                self.science_dispatch_hold=True
+
+    def _node_release_blocker(self,device_id:str)->str|None:
+        if not self.required_release_sha:
+            return None
+        status=self.devices.status(device_id)
+        if status.get("state")!="ONLINE" or not status.get("capacity_signal_fresh"):
+            return "NODE_RELEASE_ATTESTATION_NOT_FRESH"
+        att=status.get("node_attestation") or {}
+        if str(att.get("release_commit") or "").lower()!=self.required_release_sha:
+            return "NODE_RELEASE_PIN_MISMATCH"
+        if "process_inspect_v1" not in (att.get("supported_node_diagnostics") or []):
+            return "NODE_DIAGNOSTIC_CAPABILITY_MISSING"
+        return None
+
+    def _science_dispatch_blocker(self,device_id:str)->str|None:
+        # The release pin outranks the quarantine; no agent command, not even
+        # reads, may be routed to a retired node. Signed heartbeat remains.
+        release_issue=self._node_release_blocker(device_id)
+        if release_issue:
+            return release_issue
+        if self.science_dispatch_hold:
+            return "SCIENCE_DISPATCH_QUARANTINED"
+        return None
 
     @staticmethod
     def request_hash(device_id:str,generation:int,command_type:str,project_id:str|None,task_id:str|None,payload:dict)->str:
@@ -37,6 +98,19 @@ class CommandRepository:
     ):
         if command_type not in ALLOWED_COMMANDS:
             raise DurableError("INVALID_ARGUMENT","unsupported routed command",command_type=command_type)
+        release_issue=self._node_release_blocker(device_id)
+        if release_issue:
+            raise DurableError(
+                release_issue,
+                "gateway release pin forbids all agent commands to the old node",
+                device_id=device_id,
+            )
+        if command_type=="JOB_SUBMIT" and self.science_dispatch_hold:
+            raise DurableError(
+                "SCIENCE_DISPATCH_QUARANTINED",
+                "scientific job admission held until exact command evidence qualifies",
+                device_id=device_id,
+            )
         if route_generation is None:
             dev=con.execute("SELECT * FROM devices WHERE device_id=?",(device_id,)).fetchone()
             if dev is None:raise DurableError("DEVICE_NOT_FOUND","device not found")
@@ -107,6 +181,14 @@ class CommandRepository:
         if int(dev["route_generation"])!=int(route_generation):
             raise DurableError("DEVICE_ROUTE_GENERATION_MISMATCH","route generation mismatch")
         t=now_ms()
+        # Crucial: the poll guard covers *old already-QUEUED* submissions,
+        # not only new agent admissions. Do not cancel, reset or requeue them.
+        release_blocked=bool(self._node_release_blocker(device_id))
+        science_blocked=bool(self.science_dispatch_hold)
+        if release_blocked:
+            # No lease, requeue, cancellation or delivery on an old release.
+            # The node can still send its signed heartbeat and be inspected.
+            return None
         with self.db.transaction() as con:
             con.execute(
                 "UPDATE device_commands SET state='CANCELLED',error_code='DEVICE_COMMAND_EXPIRED',finished_at_ms=?,updated_at_ms=? "
@@ -121,8 +203,12 @@ class CommandRepository:
             row=con.execute(
                 "SELECT * FROM device_commands WHERE device_id=? AND route_generation=? AND state='QUEUED' "
                 "AND command_expires_at_ms>? "
-                "ORDER BY CASE command_type "
+                + ("AND command_type NOT IN ('JOB_SUBMIT','JOB_RECOVER_ROUTED_JOB') " if science_blocked else "")
+                + "ORDER BY CASE command_type "
                 "WHEN 'NODE_RESTART' THEN 0 "
+                "WHEN 'NODE_PROCESS_INSPECT' THEN -1 "
+                "WHEN 'NODE_COMMAND_ATTEST' THEN -1 "
+                "WHEN 'TASK_EVIDENCE_MANIFEST' THEN -1 "
                 "WHEN 'JOB_CANCEL' THEN 0 "
                 "WHEN 'TASK_BASE_RESOLVE' THEN 1 "
                 "WHEN 'TASK_WORKTREE_ENSURE' THEN 1 "

@@ -76,6 +76,11 @@ class NodeExecutor:
             elif t=="TASK_BASE_RESOLVE": result=self.worktrees.resolve_base(p)
             elif t=="TASK_WORKTREE_ENSURE": result=self.worktrees.ensure(p)
             elif t=="TASK_WORKTREE_STATUS": result=self.worktrees.status(str(p["task_id"]))
+            elif t=="TASK_EVIDENCE_MANIFEST": result=self.worktrees.evidence_manifest(str(p["task_id"]))
+            elif t=="NODE_COMMAND_ATTEST": result=self.journal.attest(
+                str(p["target_command_id"]),str(p["expected_request_hash"]),
+                int(p["expected_route_generation"]),str(p["expected_task_id"]),
+            )
             elif t=="TASK_LIST_DIR": result=self._list_dir(p)
             elif t=="TASK_READ_FILE": result=self._read_file(p)
             elif t=="TASK_SEARCH": result=self._search(p)
@@ -93,6 +98,13 @@ class NodeExecutor:
             )
             elif t=="JOB_CANCEL": result=await self.jobs.cancel(str(p["proxy_job_id"]),envelope["command_id"])
             elif t=="TASK_WORKTREE_CLEANUP": result={"task_id":str(p["task_id"]),"deferred":True}
+            elif t=="NODE_PROCESS_INSPECT":
+                import asyncio
+                from .process_diagnostic import inspect_windows_research_processes
+                pids=p.get("pids",[])
+                if not isinstance(pids,list):
+                    raise DurableError("INVALID_ARGUMENT","pids must be list")
+                result=await asyncio.to_thread(inspect_windows_research_processes,pids)
             elif t=="NODE_RESTART":
                 self.restart_requested=True
                 result={"device_id":self.jobs.device_id,"restart_requested":True}

@@ -21,6 +21,7 @@ from .jobs import NodeJobs
 from .projects import NodeProjects
 from .runtime_lock import RuntimeLock
 from .process_safety import ProcessSafetyProbe
+from .process_diagnostic import inspect_windows_research_processes
 from .worktrees import NodeWorktrees
 
 
@@ -28,6 +29,7 @@ class NodeService:
     RECONNECT_INITIAL_SECONDS = 1.0
     RECONNECT_MAX_SECONDS = 15.0
     PHYSICAL_PROCESS_REFRESH_MS = 15_000
+    RESEARCH_PROCESS_INVENTORY_REFRESH_SECONDS = 90.0
     TERMINAL_ROUTE_ERRORS = {
         "DEVICE_REVOKED",
         "DEVICE_ROUTE_GENERATION_MISMATCH",
@@ -55,6 +57,9 @@ class NodeService:
         self.process_safety=ProcessSafetyProbe(self.jobs)
         self._process_safety_snapshot=None
         self._process_safety_task=None
+        self._research_inventory_task=None
+        self._research_inventory_snapshot=None
+        self._research_inventory_last_start=0.0
         self.cas=NodeCas(self.db,self.worktrees,self.journal)
         self.executor=NodeExecutor(config,self.journal,self.projects,self.worktrees,self.cas,self.jobs)
         from .client import NodeClient
@@ -136,6 +141,47 @@ class NodeService:
             return cached
         return self._pending_process_safety()
 
+    async def _research_inventory_for_heartbeat(self)->dict:
+        """Non-blocking signed PID inventory, independent of queued commands."""
+        task=self._research_inventory_task
+        if task is not None and task.done():
+            try:
+                full=task.result()
+                items=full.get("processes",[]) if full.get("status")=="READ_ONLY_SNAPSHOT" else []
+                self._research_inventory_snapshot={
+                    "research_process_inventory_status":full.get("status","UNRESOLVED"),
+                    "research_process_inventory_observed_at_ms":time.time_ns()//1_000_000,
+                    "research_process_inventory":[
+                        {k:x.get(k) for k in (
+                            "pid","parent_pid","created_at","executable",
+                            "command_line_sha256",
+                        )}
+                        for x in items[:32]
+                    ],
+                    "research_process_inventory_truncated":bool(full.get("truncated",False) or len(items)>32),
+                }
+            except Exception:
+                self._research_inventory_snapshot={
+                    "research_process_inventory_status":"SNAPSHOT_FAILED",
+                    "research_process_inventory_observed_at_ms":time.time_ns()//1_000_000,
+                    "research_process_inventory":[],
+                    "research_process_inventory_truncated":False,
+                }
+            self._research_inventory_task=None
+        clock=asyncio.get_running_loop().time()
+        if (self._research_inventory_task is None and
+            (self._research_inventory_last_start == 0.0 or
+             clock-self._research_inventory_last_start>=self.RESEARCH_PROCESS_INVENTORY_REFRESH_SECONDS)):
+            self._research_inventory_last_start=clock
+            self._research_inventory_task=asyncio.create_task(
+                asyncio.to_thread(inspect_windows_research_processes, [])
+            )
+        return self._research_inventory_snapshot or {
+            "research_process_inventory_status":"PENDING",
+            "research_process_inventory":[],
+            "research_process_inventory_truncated":False,
+        }
+
     def _node_attestation(self,process_safety:dict|None=None)->dict:
         source_root=Path(__file__).resolve().parents[2]
         marker=source_root/".remotemcp-release.json"
@@ -164,6 +210,7 @@ class NodeService:
             "cache_dir":os.environ.get("REMOTEMCP_CACHE_DIR") or os.environ.get("XDG_CACHE_HOME"),
             "control_dir":os.environ.get("REMOTEMCP_CONTROL_DIR"),
             "zero_c_mode":os.environ.get("REMOTEMCP_ZERO_C")=="1",
+            "supported_node_diagnostics":["process_inspect_v1"],
         }
         if isinstance(process_safety,dict):
             out.update(process_safety)
@@ -210,6 +257,7 @@ class NodeService:
                         hb_params=inspect.signature(self.client.heartbeat).parameters
                         if "active_job_summaries" in hb_params:
                             process_safety=await self._process_safety_for_heartbeat()
+                            process_safety.update(await self._research_inventory_for_heartbeat())
                             await self.client.heartbeat(
                                 capacity["active_node_jobs"],
                                 capacity["unresolved_node_jobs"],

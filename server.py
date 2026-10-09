@@ -437,9 +437,31 @@ def task_status(task_id: str) -> dict:
 
 
 @mcp.tool()
+def task_exact_command_receipts(task_id: str, command_ids: list[str]) -> dict:
+    """Read exact gateway command receipts without polling or dispatching jobs."""
+    return routing_service.task_exact_command_receipts_or_local(task_id,command_ids)
+
+
+@mcp.tool()
 def task_dispatch_diagnostic(task_id: str) -> dict:
     """Read-only gateway task/command queue trace; never contacts the node."""
     return routing_service.task_dispatch_diagnostic_or_local(task_id)
+
+
+@mcp.tool()
+async def task_r5_command_attestation(
+    operation_id: str, task_id: str, target_command_id: str,
+) -> dict:
+    """Read-only authenticated node journal receipt; never rerun original command."""
+    return await routing_service.task_r5_command_attestation_or_local(
+        operation_id, task_id, target_command_id,
+    )
+
+
+@mcp.tool()
+async def task_r5_evidence_manifest(operation_id: str, task_id: str) -> dict:
+    """Hash existing node worktree evidence without cleanup or science execution."""
+    return await routing_service.task_r5_evidence_manifest_or_local(operation_id, task_id)
 
 
 @mcp.tool()
@@ -688,6 +710,16 @@ def device_list() -> dict:
 @mcp.tool()
 def device_status(device_id: str) -> dict:
     return routing_service.device_status(device_id)
+
+
+@mcp.tool()
+async def device_process_inspect(device_id: str, pids: list[int] | None = None) -> dict:
+    """Inspect Windows research processes via a signed fixed diagnostic.
+
+    No arbitrary PowerShell source, research task lease, job submit or restart.
+    Fails closed when the running node lacks the signed diagnostic capability.
+    """
+    return await routing_service.device_process_inspect(device_id, pids)
 
 
 @mcp.tool()

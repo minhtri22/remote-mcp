@@ -1,0 +1,98 @@
+name: Direct Node Process Diagnostics Zero-Science QA
+
+on:
+  pull_request:
+    paths:
+      - "remotemcp/node/process_diagnostic.py"
+      - "remotemcp/node/executor.py"
+      - "remotemcp/node/service.py"
+      - "remotemcp/routing/commands.py"
+      - "remotemcp/routing/models.py"
+      - "remotemcp/routing/service.py"
+      - "server.py"
+      - "tests/test_node_direct_process_diagnostic_route.py"
+      - "tests/test_gateway_pinned_node_dispatch_hold.py"
+      - "scripts/read_gateway_exact_receipts.py"
+      - "Update-RemoteMCP-Gateway.ps1"
+      - "tests/test_gateway_offline_exact_receipts.py"
+      - "scripts/Invoke-RemoteMCP-OOBInventory.ps1"
+      - ".github/workflows/direct-node-process-diagnostics-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  direct-diagnostic-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install isolated QA dependencies
+        run: python -m pip install --disable-pip-version-check pytest "mcp[cli]<2" uvicorn httpx==0.28.1 cryptography==46.0.6
+      - name: Syntax preflight
+        run: >-
+          python -m py_compile
+          remotemcp/node/process_diagnostic.py
+          remotemcp/node/executor.py
+          remotemcp/node/service.py
+          remotemcp/routing/commands.py
+          remotemcp/routing/models.py
+          remotemcp/routing/service.py
+          server.py
+          tests/test_node_direct_process_diagnostic_route.py
+          tests/test_gateway_pinned_node_dispatch_hold.py
+          scripts/read_gateway_exact_receipts.py
+          tests/test_gateway_offline_exact_receipts.py
+      - name: Bounded no-task Windows CIM diagnosis and gateway capability gate
+        run: python -m pytest -q tests/test_node_direct_process_diagnostic_route.py tests/test_gateway_pinned_node_dispatch_hold.py tests/test_gateway_offline_exact_receipts.py
+      - name: Independent out-of-band read-only PowerShell capture QA
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $script = Join-Path $PWD 'scripts/Invoke-RemoteMCP-OOBInventory.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) { throw "OOB_POWERSHELL_PARSE_FAIL" }
+          & $script -Mode Capture
+          $output = Join-Path $PWD 'scripts/process-inventory.json'
+          if (!(Test-Path $output)) { throw "OOB_INVENTORY_NOT_WRITTEN" }
+          $inventory = Get-Content $output -Raw | ConvertFrom-Json
+          if ($inventory.schema -ne 'remotemcp-oob-inventory-v1' -or
+              $inventory.observation_only -ne $true -or
+              $inventory.restart_authorized -ne $false -or
+              $inventory.science_rerun_authorized -ne $false) {
+            throw "OOB_READ_ONLY_SAFETY_ASSERTION_FAIL"
+          }
+          Write-Host "OOB_READ_ONLY_CAPTURE_QA_PASS"
+      - name: Parse safe pinned gateway promotion script (no execution)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $script = Join-Path $PWD 'Update-RemoteMCP-Gateway.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            $script, [ref]$tokens, [ref]$errors
+          )
+          if ($errors.Count -gt 0) { throw "GATEWAY_PROMOTION_SCRIPT_PARSE_FAILED" }
+          $source = Get-Content -LiteralPath $script -Raw
+          foreach ($text in @(
+              'PinnedNodeReleaseSha',
+              'node_release_gate_enabled',
+              'hold_science_job_dispatch',
+              'FAIL_CLOSED_PINNED_RELEASE'
+          )) {
+            if (-not $source.Contains($text)) {
+              throw "GATEWAY_RELEASE_PIN_GUARD_MISSING: $text"
+            }
+          }
+

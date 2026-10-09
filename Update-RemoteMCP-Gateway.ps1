@@ -3,7 +3,8 @@ param(
     [string]$Ref = "origin/main",
     [int]$HealthTimeoutSec = 5,
     [switch]$SkipFetch,
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [string]$PinnedNodeReleaseSha = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -447,10 +448,19 @@ if ($PreflightOnly) {
     exit 0
 }
 
+# Persist a pinned anti-legacy-node gate through watchdog restarts.
+if ($PinnedNodeReleaseSha -and $PinnedNodeReleaseSha -notmatch '^[0-9A-Fa-f]{40}$') {
+    throw "Invalid exact pinned node release commit: expected 40 hex digits"
+}
 $BackupFile = Join-Path $Base ("gateway-config.pre-upgrade-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".json")
 Copy-Item -Force $ConfigFile $BackupFile
 
 $cfg.source_dir = $NewSource
+if ($PinnedNodeReleaseSha) {
+    $cfg | Add-Member -NotePropertyName node_release_gate_enabled -NotePropertyValue $true -Force
+    $cfg | Add-Member -NotePropertyName required_node_release_commit_sha -NotePropertyValue $PinnedNodeReleaseSha.ToLowerInvariant() -Force
+    $cfg | Add-Member -NotePropertyName hold_science_job_dispatch -NotePropertyValue $true -Force
+}
 $cfg | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $ConfigFile
 
 $RestartScript = Join-Path $NewSource "Restart-RemoteMCP-Gateway.ps1"
@@ -491,6 +501,12 @@ try {
 
     Write-Warning ("Upgrade failed; preserved stdout: " + $SavedLiveOut)
     Write-Warning ("Upgrade failed; preserved stderr: " + $SavedLiveErr)
+    if ($PinnedNodeReleaseSha) {
+        # Do not relaunch a legacy unpinned gateway with old-node admission.
+        Write-Warning "FAIL_CLOSED_PINNED_RELEASE: legacy auto-rollback forbidden"
+        Write-Warning ("Pinned config retained; original config backup: " + $BackupFile)
+        throw ("Gateway guarded upgrade failed without unsafe auto-rollback: " + $UpgradeFailure.Exception.Message)
+    }
     Write-Warning ("Rolling gateway source_dir back to: " + $OldSourceResolved)
 
     Copy-Item -Force $BackupFile $ConfigFile
