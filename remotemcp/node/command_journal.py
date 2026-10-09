@@ -34,6 +34,25 @@ class NodeCommandJournal:
             )
         state=row["state"]
         terminal=state in TERMINAL_NODE_COMMAND_STATES
+        # A previously delivered JOB_SUBMIT may have created a durable job even
+        # when the gateway lost its mapping. Extract ONLY an exact mapping from
+        # the preserved terminal journal result; never rerun the submit.
+        mapping=None
+        if row["command_type"]=="JOB_SUBMIT" and state=="SUCCEEDED":
+            source=envelope.get("payload") or {}
+            try: result=json.loads(row["result_json"] or "null")
+            except (TypeError,ValueError):result=None
+            if (isinstance(result,dict)
+                and isinstance(source,dict)
+                and isinstance(result.get("node_job_id"),str)
+                and result["node_job_id"].startswith("job_")
+                and result.get("proxy_job_id")==source.get("proxy_job_id")
+                and result.get("state") in ("QUEUED","STARTING","RUNNING","SUCCEEDED","FAILED","CANCELLED","LOST")):
+                mapping={"proxy_job_id":result["proxy_job_id"],
+                    "node_job_id":result["node_job_id"],"submitted_state":result["state"],
+                    "task_id":expected_task_id,
+                    "project_id":envelope.get("project_id"),
+                    "mapping_only":True,"job_execution_not_repeated":True}
         return {
             "target_command_id":command_id,
             "request_hash":row["request_hash"],
@@ -49,6 +68,7 @@ class NodeCommandJournal:
                 hashlib.sha256(row["result_json"].encode("utf-8")).hexdigest()
                 if row["result_json"] is not None else None
             ),
+            "exact_routed_job_mapping":mapping,
             "error_code":row["error_code"],
             "error_sha256":(
                 hashlib.sha256(row["error_json"].encode("utf-8")).hexdigest()
