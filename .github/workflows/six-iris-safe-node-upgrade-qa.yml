@@ -5,6 +5,7 @@ on:
     paths:
       - "scripts/six_iris_safe_node_upgrade_gate.py"
       - "tests/test_six_iris_safe_node_upgrade_gate.py"
+      - "scripts/Collect-SIX-IRIS-SafeNodeUpgradeOS.ps1"
       - ".github/workflows/six-iris-safe-node-upgrade-qa.yml"
   workflow_dispatch:
 
@@ -30,3 +31,16 @@ jobs:
         run: python -m py_compile scripts/six_iris_safe_node_upgrade_gate.py tests/test_six_iris_safe_node_upgrade_gate.py
       - name: Independent frozen data adversarial QA
         run: python -m pytest -q tests/test_six_iris_safe_node_upgrade_gate.py
+      - name: Windows local evidence collector static safety preflight
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $path = Join-Path $PWD 'scripts/Collect-SIX-IRIS-SafeNodeUpgradeOS.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -gt 0) { $errors | Out-String | Write-Host; exit 1 }
+          $source = Get-Content -LiteralPath $path -Raw
+          foreach ($forbidden in @('Stop-Process','Remove-Item','Set-Content','Start-Process','Restart-Service','Invoke-Expression','git worktree')) {
+            if ($source.Contains($forbidden)) { throw "UNSAFE_MUTATION_TOKEN: $forbidden" }
+          }
