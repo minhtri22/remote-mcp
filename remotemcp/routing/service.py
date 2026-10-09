@@ -518,6 +518,38 @@ class RoutingService:
             "gateway_attestation":self._gateway_attestation(),
         }
 
+    async def device_process_inspect(self,device_id:str,pids:list[int]|None=None)->dict:
+        """Priority read-only node OS diagnostic, independent of science tasks.
+
+        Never queue against an old node without signed capability attestation.
+        In particular, device ONLINE does not prove new-command compatibility.
+        """
+        values=[] if pids is None else pids
+        if (not isinstance(values,list) or len(values)>16
+            or any(type(v) is not int or v<=0 for v in values)):
+            raise DurableError("INVALID_ARGUMENT","pids must be up to 16 positive integers")
+        status=self.devices.status(device_id)
+        if status["state"]!="ONLINE" or not status.get("capacity_signal_fresh"):
+            raise DurableError("DEVICE_NOT_READY","fresh signed node heartbeat required")
+        attestation=status.get("node_attestation") or {}
+        supported=attestation.get("supported_node_diagnostics") or []
+        if "process_inspect_v1" not in supported:
+            raise DurableError(
+                "NODE_DIAGNOSTIC_UPGRADE_REQUIRED",
+                "node does not attest support for signed process inspection; no command was queued",
+            )
+        result,command=await self._route_step(
+            device_id,"NODE_PROCESS_INSPECT",{"pids":values},
+        )
+        return {
+            **result,
+            "device_id":device_id,
+            "command_id":command["command_id"],
+            "route_generation":int(command["route_generation"]),
+            "task_created":False,
+            "scientific_job_created":False,
+        }
+
     def device_capacity_status(self,device_id:str)->dict:
         """Return the signed node-heartbeat capacity truth.
 
