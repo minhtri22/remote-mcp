@@ -1302,6 +1302,92 @@ class RoutingService:
             for row in rows if exclude_operation_id is None or row["operation_id"]!=exclude_operation_id
         ]
 
+    def task_dispatch_diagnostic_or_local(self,task_id:str)->dict:
+        """Read-only control-plane dispatch trace for one owned, device-bound task.
+
+        Does not enqueue/poll/claim/refresh a command and does not infer node
+        execution from device heartbeat. Snapshot is bounded to 200 commands.
+        """
+        binding=self.bindings.task_binding(task_id)
+        if binding is None:
+            raise DurableError("DEVICE_CONTEXT_REQUIRED","task is not device-bound")
+        task=self.multi.tasks.status(task_id)
+        device_id=binding["device_id"]
+        device=self.devices.status(device_id)
+        generation=int(device["route_generation"])
+        stamp=now_ms()
+        rows=self.db.query_all(
+            "SELECT command_id,operation_id,operation_step,command_type,state,"
+            "delivery_attempt,route_generation,command_expires_at_ms,"
+            "lease_expires_at_ms,created_at_ms,updated_at_ms,finished_at_ms,error_code "
+            "FROM device_commands WHERE device_id=? AND task_id=? "
+            "ORDER BY created_at_ms DESC,command_id DESC LIMIT 200",
+            (device_id,task_id),
+        )
+        commands=[]
+        for item in reversed(rows):
+            expires=int(item["command_expires_at_ms"])
+            lease_expires=item["lease_expires_at_ms"]
+            state=item["state"]
+            attempts=int(item["delivery_attempt"])
+            commands.append({
+                "command_id":item["command_id"],"operation_id":item["operation_id"],
+                "operation_step":int(item["operation_step"]),"command_type":item["command_type"],
+                "state":state,"delivery_attempt":attempts,
+                "route_generation":int(item["route_generation"]),
+                "created_at_ms":int(item["created_at_ms"]),
+                "updated_at_ms":int(item["updated_at_ms"]),
+                "command_expires_at_ms":expires,
+                "command_expired":stamp>=expires,
+                "lease_expires_at_ms":lease_expires,
+                "delivery_lease_expired":lease_expires is not None and stamp>=int(lease_expires),
+                "finished_at_ms":item["finished_at_ms"],
+                "error_code":item["error_code"],
+                "delivery_uncertain":(
+                    attempts>0 and state not in ("SUCCEEDED","FAILED")
+                ),
+            })
+        # Same eligibility and ordering as CommandRepository.poll; without its
+        # state-changing expiry sweep or lease transitions.
+        candidate=self.db.query_one(
+            "SELECT command_id,task_id,command_type,created_at_ms FROM device_commands "
+            "WHERE device_id=? AND route_generation=? AND state='QUEUED' "
+            "AND command_expires_at_ms>? ORDER BY CASE command_type "
+            "WHEN 'NODE_RESTART' THEN 0 WHEN 'JOB_CANCEL' THEN 0 "
+            "WHEN 'TASK_BASE_RESOLVE' THEN 1 WHEN 'TASK_WORKTREE_ENSURE' THEN 1 "
+            "WHEN 'PROJECT_PROBE' THEN 1 WHEN 'PROJECT_BIND' THEN 1 "
+            "WHEN 'JOB_SUBMIT' THEN 2 ELSE 3 END,created_at_ms,command_id LIMIT 1",
+            (device_id,generation,stamp),
+        )
+        summary=self.db.query_all(
+            "SELECT state,COUNT(*) AS total,SUM(CASE WHEN delivery_attempt>0 THEN 1 ELSE 0 END) AS delivered "
+            "FROM device_commands WHERE device_id=? AND route_generation=? GROUP BY state",
+            (device_id,generation),
+        )
+        routed=self.routed_jobs.list_task_rows(task_id)
+        return {
+            "task_id":task_id,"project_id":task["project_id"],
+            "device_id":device_id,"device_state":device["state"],
+            "route_generation":generation,"task_binding_generation":int(binding["binding_generation"]),
+            "task_state":task["state"],"cleanup_pending":bool(task["cleanup_pending"]),
+            "snapshot_at_ms":stamp,
+            "device_queue_counts":[{"state":r["state"],"count":int(r["total"]),
+                "ever_delivered":int(r["delivered"] or 0)} for r in summary],
+            "next_eligible_poll_command":None if candidate is None else {
+                "command_id":candidate["command_id"],"task_id":candidate["task_id"],
+                "command_type":candidate["command_type"],"created_at_ms":int(candidate["created_at_ms"]),
+            },
+            "task_command_trace":commands,"command_trace_truncated":len(rows)==200,
+            "routed_jobs":[{
+                "proxy_job_id":r["proxy_job_id"],"node_job_id":r["node_job_id"],
+                "state":r["last_known_state"],
+                "terminal_evidence_verified":self._terminal_job_evidence_verified(r),
+            } for r in routed],
+            "read_only":True,"node_command_dispatched":False,
+            "node_process_liveness_verified":False,
+            "authorization_to_rerun_jobs":False,
+        }
+
     def task_cleanup_recovery_status_or_local(self,task_id:str)->dict:
         """Read-only gateway reconciliation, safe when node command transport is jammed."""
         binding=self.bindings.task_binding(task_id)
