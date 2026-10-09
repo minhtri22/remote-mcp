@@ -39,13 +39,17 @@ ConvertTo-Json -InputObject $rows -Compress -Depth 4
 """
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def inspect_windows_research_processes(
     pids: list[int] | tuple[int, ...] | None = None,
     *,
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> dict:
     """Return limited process candidates and *no* job execution permissions."""
-    if os.name != "nt":
+    if not _is_windows():
         return {
             "schema": "remotemcp.node-process-diagnostic.v1",
             "status": "UNSUPPORTED_PLATFORM",
