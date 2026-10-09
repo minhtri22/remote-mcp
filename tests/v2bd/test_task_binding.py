@@ -659,6 +659,17 @@ def test_r5_exact_proxy_node_mapping_from_terminal_submit_journal(make_gateway,t
             "job_execution_not_repeated":True,
         }
         assert node.journal.get(target["command_id"])["state"]=="SUCCEEDED"
+        with g.durable.db.transaction() as con:
+            con.execute(
+                "UPDATE device_commands SET state='CANCELLED',delivery_attempt=1,"
+                "error_code='DEVICE_COMMAND_EXPIRED' WHERE command_id=?",
+                (target["command_id"],),
+            )
+        frozen=await drive(g,node,g.routing.task_r5_command_attestation_or_local(
+            "r5-attest-exact-mapping",tid,target["command_id"]))
+        assert frozen["node_receipt"]["exact_routed_job_mapping"]["node_job_id"]=="job_exact_fixture"
+        assert frozen["job_rerun_authorized"] is False
+        assert g.routing.commands.get(target["command_id"])["state"]=="CANCELLED"
         # Wrong proxy in terminal JSON must never substitute for an exact map.
         fake=dict(envelope,command_id="cmd_bad_mapping",request_hash="hash_bad_mapping")
         node.journal.receive(fake)
