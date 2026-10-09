@@ -626,3 +626,45 @@ def test_r5_evidence_manifest_hashes_untracked_without_git_mutation(make_gateway
         assert evidence.read_bytes()==pre
         assert (worktree/"STAGEG_EVIDENCE.json").exists()
     asyncio.run(run())
+
+
+def test_r5_exact_proxy_node_mapping_from_terminal_submit_journal(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-r5-mapping";root.mkdir()
+        init_git_repo(root/"repo","MAPPING")
+        node,dev=await pair_node(g,root,tmp_path/"rt-r5-mapping","mapping")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-r5-mapping",dev["device_id"],"repo",2))
+        task=await drive(g,node,g.routing.task_create_or_local(
+            "t-r5-mapping",project["project_id"],"proof"))
+        tid=task["task_id"]
+        target,_=g.routing.commands.create(
+            dev["device_id"],"JOB_SUBMIT",
+            {"task_id":tid,"proxy_job_id":"rjob_exact_fixture","argv":["noop"],"cwd":"."},
+            project_id=project["project_id"],task_id=tid,
+        )
+        envelope=g.routing.commands.envelope(target)
+        node.journal.receive(envelope)
+        node.journal.terminal(target["command_id"],"SUCCEEDED",result={
+            "proxy_job_id":"rjob_exact_fixture","node_job_id":"job_exact_fixture",
+            "state":"QUEUED",
+        })
+        proof=node.journal.attest(target["command_id"],target["request_hash"],
+            target["route_generation"],tid)
+        assert proof["exact_routed_job_mapping"]=={
+            "proxy_job_id":"rjob_exact_fixture","node_job_id":"job_exact_fixture",
+            "submitted_state":"QUEUED","task_id":tid,
+            "project_id":project["project_id"],"mapping_only":True,
+            "job_execution_not_repeated":True,
+        }
+        assert node.journal.get(target["command_id"])["state"]=="SUCCEEDED"
+        # Wrong proxy in terminal JSON must never substitute for an exact map.
+        fake=dict(envelope,command_id="cmd_bad_mapping",request_hash="hash_bad_mapping")
+        node.journal.receive(fake)
+        node.journal.terminal("cmd_bad_mapping","SUCCEEDED",result={
+            "proxy_job_id":"rjob_wrong","node_job_id":"job_wrong","state":"QUEUED",
+        })
+        assert node.journal.attest("cmd_bad_mapping","hash_bad_mapping",
+            target["route_generation"],tid)["exact_routed_job_mapping"] is None
+    asyncio.run(run())
