@@ -1,6 +1,7 @@
 """Zero-science, no-host-command QA for independent process diagnostic lane."""
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from types import SimpleNamespace
@@ -79,8 +80,7 @@ def test_diagnostic_is_allowed_but_not_mutating_and_preempts_job_submit():
     assert "NODE_PROCESS_INSPECT" not in MUTATING_COMMANDS
 
 
-@pytest.mark.asyncio
-async def test_gateway_fails_closed_against_legacy_node_without_queue():
+def test_gateway_fails_closed_against_legacy_node_without_queue():
     service = object.__new__(RoutingService)
     service.devices = SimpleNamespace(
         status=lambda _: {
@@ -90,12 +90,11 @@ async def test_gateway_fails_closed_against_legacy_node_without_queue():
     )
     service._route_step = AsyncMock()
     with pytest.raises(DurableError):
-        await service.device_process_inspect("dev_machine1", [9152])
+        asyncio.run(service.device_process_inspect("dev_machine1", [9152]))
     service._route_step.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_gateway_uses_signed_fixed_priority_without_research_task():
+def test_gateway_uses_signed_fixed_priority_without_research_task():
     service = object.__new__(RoutingService)
     service.devices = SimpleNamespace(
         status=lambda _: {
@@ -109,7 +108,7 @@ async def test_gateway_uses_signed_fixed_priority_without_research_task():
             {"command_id":"cmd_diag1", "route_generation":1},
         )
     )
-    reply = await service.device_process_inspect("dev_machine1", [9152])
+    reply = asyncio.run(service.device_process_inspect("dev_machine1", [9152]))
     service._route_step.assert_awaited_once_with(
         "dev_machine1", "NODE_PROCESS_INSPECT", {"pids":[9152]}
     )
@@ -118,12 +117,11 @@ async def test_gateway_uses_signed_fixed_priority_without_research_task():
     assert reply["scientific_job_created"] is False
 
 
-@pytest.mark.asyncio
-async def test_gateway_rejects_bad_pids_before_any_side_effects():
+def test_gateway_rejects_bad_pids_before_any_side_effects():
     service = object.__new__(RoutingService)
     service.devices = SimpleNamespace(status=lambda _: {"state":"ONLINE","capacity_signal_fresh":True})
     service._route_step = AsyncMock()
     for value in [[0],[-1],[True],["9152"],list(range(1,18))]:
         with pytest.raises(DurableError):
-            await service.device_process_inspect("dev_machine1",value)
+            asyncio.run(service.device_process_inspect("dev_machine1",value))
     service._route_step.assert_not_awaited()
