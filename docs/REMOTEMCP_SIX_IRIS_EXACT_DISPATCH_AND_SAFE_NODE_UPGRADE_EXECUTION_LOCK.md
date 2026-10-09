@@ -4,13 +4,13 @@ Trạng thái tài liệu: `EXECUTION_HOLD` (2026-10-09). Hạ tầng, **không 
 
 ## Khóa danh tính trước mọi thay đổi
 
-- `machine-1` / `dev_dd73ebfa742f468f2d212bade88c175b`
-- Fingerprint SHA-256: `b657d5395e393e0957a9ed358bb5a1fe1588fde5d3a44be71295a68d1e73def9`
+- `machine-1` / `<EXISTING_DEVICE_ID>`
+- Fingerprint SHA-256: `<EXISTING_FINGERPRINT_SHA256>`
 - Route generation: `1`
-- Node root: `D:\WORK\RESEARCH`
-- Runtime: `C:\Users\minht\AppData\Local\RemoteMCP\runtime`
-- Gateway at time of audit: `446e45fce82fbdceb684e21d01ebc88b0981f004`
-- Node at time of audit: `80fe818e5240efd029dfb5e5f6fef53eda496c05`
+- Node root: `<CANONICAL_RESEARCH_ROOT>`
+- Runtime: `<EXISTING_NODE_RUNTIME_DIR>`
+- Gateway at time of audit: `<CURRENT_GATEWAY_RELEASE_COMMIT>`
+- Node at time of audit: `<LEGACY_NODE_RELEASE_COMMIT>`
 - PID `9152` and parent `24528`: protected CQG-RU executor; created 2026-10-06 07:38:15 local. Operator repeatedly confirmed alive; no termination/restart/resubmit.
 - Watchdog release pinned to old node `80fe818`; MUST coordinate its source before a cutover. An unattended restart of the node alone can cause rollback to old source.
 
@@ -18,14 +18,14 @@ Trạng thái tài liệu: `EXECUTION_HOLD` (2026-10-09). Hạ tầng, **không 
 
 | Existing task | Existing proxy | Cached state |
 |---|---|---|
-| `tsk_4b7fc9641a6da674cbae1bca` | `rjob_106ba7160b813a11201e4017f50b9c11` | QUEUED; node_job_id NULL |
-| `tsk_e883dfd5c2e536399e836e7d` | `rjob_9b4dc61402e220e24739f2143732fee9` | QUEUED; node_job_id NULL |
+| `<FROZEN_TASK_ID>` | `<FROZEN_PROXY_JOB_ID>` | QUEUED; node_job_id NULL |
+| `<FROZEN_TASK_ID>` | `<FROZEN_PROXY_JOB_ID>` | QUEUED; node_job_id NULL |
 
-`prj_332b5f2df2b15aaf37191254` is the canonical SIX Git project and `prj_0b518fdd7b6ab4cfdf86cd09` is its canonical non-Git workspace project. Both are already registered; **never re-register or widen root to fix routing**.
+`<FROZEN_PROJECT_ID>` is the canonical SIX Git project and `<FROZEN_PROJECT_ID>` is its canonical non-Git workspace project. Both are already registered; **never re-register or widen root to fix routing**.
 
-IRIS existing non-Git project `prj_a761a1efa8eb4c473fbcd45c` is ACTIVE, task `tsk_0cf32987a4f981b4826747f9` BLOCKED without a routed job. IRIS P2 historical RAM precheck FAIL (8.946 GiB free versus 12.000 GiB frozen threshold); rerun fresh READ-ONLY resource precheck only after dispatch works. No A/B model download/inference authorized.
+IRIS existing non-Git project `<FROZEN_PROJECT_ID>` is ACTIVE, task `<FROZEN_TASK_ID>` BLOCKED without a routed job. IRIS P2 historical RAM precheck FAIL (8.946 GiB free versus 12.000 GiB frozen threshold); rerun fresh READ-ONLY resource precheck only after dispatch works. No A/B model download/inference authorized.
 
-Other infrastructure probe `tsk_3a59c6f35b8ea6702f28530b` / `rjob_c029092bc50426b765ee7758daad64ba` also remains QUEUED and unmapped, and MUST NOT be resubmitted for testing.
+Other infrastructure probe `<FROZEN_TASK_ID>` / `<FROZEN_PROXY_JOB_ID>` also remains QUEUED and unmapped, and MUST NOT be resubmitted for testing.
 
 ## Required *read-only* exact dispatch reconciliation before cutover
 
