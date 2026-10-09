@@ -437,6 +437,12 @@ def task_status(task_id: str) -> dict:
 
 
 @mcp.tool()
+def task_exact_command_receipts(task_id: str, command_ids: list[str]) -> dict:
+    """Read exact gateway command receipts without polling or dispatching jobs."""
+    return routing_service.task_exact_command_receipts_or_local(task_id,command_ids)
+
+
+@mcp.tool()
 def task_dispatch_diagnostic(task_id: str) -> dict:
     """Read-only gateway task/command queue trace; never contacts the node."""
     return routing_service.task_dispatch_diagnostic_or_local(task_id)
