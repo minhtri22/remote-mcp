@@ -513,9 +513,25 @@ class RoutingService:
         }
 
     def device_status(self,device_id:str)->dict:
+        # Expose the effective *gateway-enforced* release gate to every agent.
+        # A node's own version claim is not evidence that old-node dispatch
+        # has been disabled at the gateway.
+        pin=str(getattr(self.commands,"required_release_sha","") or "")
+        quarantine=bool(getattr(self.commands,"science_dispatch_hold",False))
+        reason=self.commands._science_dispatch_blocker(device_id)
         return {
             **self.devices.status(device_id),
             "gateway_attestation":self._gateway_attestation(),
+            "science_job_dispatch_gate":{
+                "minimum_exact_release_sha":pin or None,
+                "release_pin_enforced":bool(pin),
+                "command_quarantine_active":quarantine,
+                "new_job_admission_allowed":not bool(reason),
+                "reason":reason or (
+                    "PINNED_NODE_RELEASE_QUALIFIED" if pin else
+                    "NO_RELEASE_PIN_CONFIGURED"
+                ),
+            },
         }
 
     async def device_process_inspect(self,device_id:str,pids:list[int]|None=None)->dict:
