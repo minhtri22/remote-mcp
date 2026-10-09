@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import secrets
+import os
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
@@ -14,6 +15,31 @@ from .models import ALLOWED_COMMANDS,CommandState,TERMINAL_COMMAND_STATES
 class CommandRepository:
     def __init__(self,config,db,devices):
         self.config=config; self.db=db; self.devices=devices
+        # Production control-plane cutover controls. The release pin prevents
+        # any agent from submitting or receiving science jobs on a watchdog-
+        # downgraded node. The quarantine prevents queued delivery until the
+        # exact command journal has been independently reconciled.
+        self.required_release_sha=os.environ.get(
+            "REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA",""
+        ).strip().lower()
+        self.science_dispatch_hold=(
+            os.environ.get("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","0")=="1"
+        )
+
+    def _science_dispatch_blocker(self,device_id:str)->str|None:
+        if self.science_dispatch_hold:
+            return "SCIENCE_DISPATCH_QUARANTINED"
+        if not self.required_release_sha:
+            return None
+        status=self.devices.status(device_id)
+        if status.get("state")!="ONLINE" or not status.get("capacity_signal_fresh"):
+            return "NODE_RELEASE_ATTESTATION_NOT_FRESH"
+        att=status.get("node_attestation") or {}
+        if str(att.get("release_commit") or "").lower()!=self.required_release_sha:
+            return "NODE_RELEASE_PIN_MISMATCH"
+        if "process_inspect_v1" not in (att.get("supported_node_diagnostics") or []):
+            return "NODE_DIAGNOSTIC_CAPABILITY_MISSING"
+        return None
 
     @staticmethod
     def request_hash(device_id:str,generation:int,command_type:str,project_id:str|None,task_id:str|None,payload:dict)->str:
@@ -37,6 +63,14 @@ class CommandRepository:
     ):
         if command_type not in ALLOWED_COMMANDS:
             raise DurableError("INVALID_ARGUMENT","unsupported routed command",command_type=command_type)
+        if command_type=="JOB_SUBMIT":
+            reason=self._science_dispatch_blocker(device_id)
+            if reason:
+                raise DurableError(
+                    reason,
+                    "scientific job admission held until node release and command evidence qualify",
+                    device_id=device_id,
+                )
         if route_generation is None:
             dev=con.execute("SELECT * FROM devices WHERE device_id=?",(device_id,)).fetchone()
             if dev is None:raise DurableError("DEVICE_NOT_FOUND","device not found")
@@ -107,6 +141,9 @@ class CommandRepository:
         if int(dev["route_generation"])!=int(route_generation):
             raise DurableError("DEVICE_ROUTE_GENERATION_MISMATCH","route generation mismatch")
         t=now_ms()
+        # Crucial: the poll guard covers *old already-QUEUED* submissions,
+        # not only new agent admissions. Do not cancel, reset or requeue them.
+        science_blocked=bool(self._science_dispatch_blocker(device_id))
         with self.db.transaction() as con:
             con.execute(
                 "UPDATE device_commands SET state='CANCELLED',error_code='DEVICE_COMMAND_EXPIRED',finished_at_ms=?,updated_at_ms=? "
@@ -121,7 +158,8 @@ class CommandRepository:
             row=con.execute(
                 "SELECT * FROM device_commands WHERE device_id=? AND route_generation=? AND state='QUEUED' "
                 "AND command_expires_at_ms>? "
-                "ORDER BY CASE command_type "
+                + ("AND command_type NOT IN ('JOB_SUBMIT','JOB_RECOVER_ROUTED_JOB') " if science_blocked else "")
+                + "ORDER BY CASE command_type "
                 "WHEN 'NODE_RESTART' THEN 0 "
                 "WHEN 'NODE_PROCESS_INSPECT' THEN -1 "
                 "WHEN 'JOB_CANCEL' THEN 0 "
