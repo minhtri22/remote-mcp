@@ -15,6 +15,7 @@ from remotemcp.durable.process import fingerprint_process
 
 NONTERMINAL = {"QUEUED", "STARTING", "RUNNING", "CANCELLING"}
 MAX_DB_JOBS = 50_000
+MAX_NODE_ROWS = 50_000
 MAX_PID_QUERIES = 64
 
 
@@ -92,13 +93,15 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
             links = _snapshot_con(
                 node,
                 "SELECT proxy_job_id,node_job_id,task_id,project_id,state "
-                "FROM node_routed_jobs ORDER BY proxy_job_id",
+                "FROM node_routed_jobs ORDER BY proxy_job_id LIMIT ?",
+                (MAX_NODE_ROWS + 1,),
             )
             commands = _snapshot_con(
                 node,
                 "SELECT command_id,route_generation,request_hash,command_type,"
                 "payload_json,state FROM node_commands WHERE command_type='JOB_SUBMIT' "
-                "ORDER BY received_at_ms,command_id",
+                "ORDER BY received_at_ms,command_id LIMIT ?",
+                (MAX_NODE_ROWS + 1,),
             )
             all_jobs = _snapshot_con(
                 durable,
@@ -112,10 +115,11 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
     finally:
         node.close()
 
-    if len(all_jobs) > MAX_DB_JOBS:
+    if (len(all_jobs) > MAX_DB_JOBS or len(links) > MAX_NODE_ROWS
+        or len(commands) > MAX_NODE_ROWS):
         return {
             "schema": "remotemcp.node-process-ownership-audit.v1",
-            "status": "HOLD_TRUNCATED_JOBS",
+            "status": "HOLD_TRUNCATED_JOURNAL",
             "read_only": True,
             "cutover_authorized": False, "science_rerun_authorized": False,
         }
@@ -150,6 +154,7 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
             "task_id": link["task_id"] if link else None,
             "project_id": link["project_id"] if link else None,
             "state": job["state"],
+            "node_proxy_row_state": link["state"] if link else None,
             "command_id": command_id,
             "node_command_state": command["state"] if command else None,
             "node_command_route_generation": command["route_generation"] if command else None,
@@ -184,10 +189,18 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
         if (any(x["verification"] == "EXACT_LIVE_PROCESS" for x in trace["processes"])
             and job["state"] not in NONTERMINAL):
             trace["integrity_warning"] = "TERMINAL_JOB_WITH_LIVE_PROCESS"
+        integrity_flags = []
         if link is None and command_id is not None:
-            trace["integrity_warning"] = "DURABLE_JOB_WITHOUT_PROXY_LINK"
+            integrity_flags.append("DURABLE_JOB_WITHOUT_PROXY_LINK")
+        if command_id and command is None:
+            integrity_flags.append("DURABLE_COMMAND_JOURNAL_MISSING")
         if link is not None and command is not None and not trace["journal_proxy_matches"]:
-            trace["integrity_warning"] = "COMMAND_PROXY_IDENTITY_MISMATCH"
+            integrity_flags.append("COMMAND_PROXY_IDENTITY_MISMATCH")
+        if link is not None and link["state"] != job["state"]:
+            integrity_flags.append("PROXY_DURABLE_JOB_STATE_DIVERGENCE")
+        if "integrity_warning" in trace:
+            integrity_flags.append(trace["integrity_warning"])
+        trace["integrity_warnings"] = sorted(set(integrity_flags))
         inspected.append(trace)
     pid_results = []
     for pid in pids:
@@ -238,7 +251,7 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
                 "warning": "COMMAND_RECEIVED_WITHOUT_PROXY_JOB_MAPPING",
             })
     warnings = sorted({
-        t["integrity_warning"] for t in inspected if "integrity_warning" in t
+        flag for t in inspected for flag in t["integrity_warnings"]
     } | ({"COMMAND_RECEIPT_UNMAPPED"} if orphan_receipts else set())
       | ({"PID_OWNER_AMBIGUOUS"} if any(
           x["state"] == "AMBIGUOUS_MULTIPLE_LIVE_JOB_OWNERS" for x in pid_results
