@@ -207,9 +207,28 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
                 "os_executable": current.executable_canonical if current else None,
                 "matches": [],
             })
+    # An interrupted JOB_SUBMIT may have reached the node command journal
+    # before the proxy/job mapping was committed. Do not infer unexecuted.
+    linked_proxy_ids = {link["proxy_job_id"] for link in links}
+    orphan_receipts = []
+    for cmd in commands:
+        try:
+            payload_data = json.loads(cmd["payload_json"])
+            proxy_id = payload_data.get("proxy_job_id") if isinstance(payload_data, dict) else None
+        except (ValueError, TypeError, json.JSONDecodeError):
+            proxy_id = None
+        if not proxy_id or proxy_id not in linked_proxy_ids:
+            orphan_receipts.append({
+                "command_id": cmd["command_id"],
+                "route_generation": cmd["route_generation"],
+                "request_hash": cmd["request_hash"],
+                "node_command_state": cmd["state"],
+                "proxy_job_id": proxy_id,
+                "warning": "COMMAND_RECEIVED_WITHOUT_PROXY_JOB_MAPPING",
+            })
     warnings = sorted({
         t["integrity_warning"] for t in inspected if "integrity_warning" in t
-    })
+    } | ({"COMMAND_RECEIPT_UNMAPPED"} if orphan_receipts else set()))
     return {
         "schema": "remotemcp.node-process-ownership-audit.v1",
         "status": "OBSERVED_WITH_INTEGRITY_WARNINGS" if warnings else "READ_ONLY_OBSERVATION",
@@ -218,6 +237,7 @@ def audit_process_ownership(runtime_dir: Path, requested_pids: Iterable[int] = (
         "process_mappings": inspected,
         "pid_queries": pid_results,
         "integrity_warnings": warnings,
+        "unmapped_command_receipts": orphan_receipts,
         "tracked_nonterminal_jobs": sum(j["state"] in NONTERMINAL for j in all_jobs),
         "cutover_authorized": False,
         "science_rerun_authorized": False,
