@@ -1,0 +1,47 @@
+name: Direct Node Process Diagnostics Zero-Science QA
+
+on:
+  pull_request:
+    paths:
+      - "remotemcp/node/process_diagnostic.py"
+      - "remotemcp/node/executor.py"
+      - "remotemcp/node/service.py"
+      - "remotemcp/routing/commands.py"
+      - "remotemcp/routing/models.py"
+      - "remotemcp/routing/service.py"
+      - "server.py"
+      - "tests/test_node_direct_process_diagnostic_route.py"
+      - ".github/workflows/direct-node-process-diagnostics-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  direct-diagnostic-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install isolated QA dependencies
+        run: python -m pip install --disable-pip-version-check pytest "mcp[cli]<2" uvicorn httpx==0.28.1 cryptography==46.0.6
+      - name: Syntax preflight
+        run: >-
+          python -m py_compile
+          remotemcp/node/process_diagnostic.py
+          remotemcp/node/executor.py
+          remotemcp/node/service.py
+          remotemcp/routing/commands.py
+          remotemcp/routing/models.py
+          remotemcp/routing/service.py
+          server.py
+          tests/test_node_direct_process_diagnostic_route.py
+      - name: Bounded no-task Windows CIM diagnosis and gateway capability gate
+        run: python -m pytest -q tests/test_node_direct_process_diagnostic_route.py
