@@ -5,6 +5,7 @@ import hashlib
 import json
 import secrets
 import os
+from pathlib import Path
 
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
@@ -25,6 +26,32 @@ class CommandRepository:
         self.science_dispatch_hold=(
             os.environ.get("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","0")=="1"
         )
+        # Durable gateway-config.json has precedence over transient launcher
+        # variables when an operator has activated the cutover gate.
+        # This prevents a legacy watchdog launcher from silently dropping the
+        # pin on a restart of the NEW gateway code.
+        local_appdata=os.environ.get("LOCALAPPDATA")
+        configured_path=os.environ.get("REMOTEMCP_GATEWAY_CONFIG_PATH")
+        config_path=(Path(configured_path) if configured_path
+                     else Path(local_appdata)/"RemoteMCP"/"gateway-config.json"
+                     if local_appdata else None)
+        if config_path is not None and config_path.is_file():
+            try:
+                data=json.loads(config_path.read_text(encoding="utf-8-sig"))
+            except (OSError,UnicodeError,ValueError,TypeError) as exc:
+                raise DurableError(
+                    "GATEWAY_RELEASE_CONFIG_INVALID",
+                    "local durable gateway configuration is unreadable",
+                ) from exc
+            if data.get("node_release_gate_enabled") is True:
+                pin=str(data.get("required_node_release_commit_sha") or "").strip().lower()
+                if len(pin)!=40 or any(c not in "0123456789abcdef" for c in pin):
+                    raise DurableError(
+                        "GATEWAY_RELEASE_PIN_INVALID",
+                        "durable node release guard requires an exact 40-hex commit",
+                    )
+                self.required_release_sha=pin
+                self.science_dispatch_hold=True
 
     def _node_release_blocker(self,device_id:str)->str|None:
         if not self.required_release_sha:
