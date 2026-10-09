@@ -609,6 +609,12 @@ def test_r5_evidence_manifest_hashes_untracked_without_git_mutation(make_gateway
         content=b'{"evidence":"frozen"}\n'
         evidence=worktree/"STAGEG_EVIDENCE.json"
         evidence.write_bytes(content)
+        # Ignore one real evidence file: it MUST still be hashed and retained.
+        ignore_rule=worktree/".gitignore"
+        ignore_rule.write_text("*.secret\n",encoding="utf-8")
+        ignored=worktree/"IGNORED.secret"
+        ignored_content=b"ignored-binary-science-evidence"
+        ignored.write_bytes(ignored_content)
         pre=evidence.read_bytes()
         manifest=node.worktrees.evidence_manifest(task["task_id"])
         assert manifest["cleanup_authorized"] is False
@@ -616,8 +622,12 @@ def test_r5_evidence_manifest_hashes_untracked_without_git_mutation(make_gateway
         assert manifest["clean"] is False
         assert manifest["tracked_dirty"] is False
         assert manifest["untracked_files"]==[
+            {"path":".gitignore","bytes":len(b"*.secret\n"),
+             "sha256":hashlib.sha256(b"*.secret\n").hexdigest()},
+            {"path":"IGNORED.secret","bytes":len(ignored_content),
+             "sha256":hashlib.sha256(ignored_content).hexdigest()},
             {"path":"STAGEG_EVIDENCE.json","bytes":len(pre),
-             "sha256":hashlib.sha256(pre).hexdigest()}
+             "sha256":hashlib.sha256(pre).hexdigest()},
         ]
         frozen=await drive(g,node,g.routing.task_r5_evidence_manifest_or_local(
             "r5-manifest",task["task_id"]))
