@@ -1432,6 +1432,19 @@ class RoutingService:
                 or proof.get("read_only") is not True
                 or proof.get("target_reexecuted") is not False):
                 raise DurableError("COMMAND_PROOF_IDENTITY_MISMATCH","authenticated proof mismatch")
+            mapping=proof.get("exact_routed_job_mapping")
+            if mapping is not None:
+                original=json.loads(target["payload_json"])
+                if (target["command_type"]!="JOB_SUBMIT"
+                    or not isinstance(mapping,dict)
+                    or mapping.get("proxy_job_id")!=original.get("proxy_job_id")
+                    or mapping.get("task_id")!=task_id
+                    or mapping.get("project_id")!=binding["project_id"]
+                    or not isinstance(mapping.get("node_job_id"),str)
+                    or not mapping["node_job_id"].startswith("job_")
+                    or mapping.get("mapping_only") is not True
+                    or mapping.get("job_execution_not_repeated") is not True):
+                    raise DurableError("COMMAND_PROOF_IDENTITY_MISMATCH","frozen job mapping identity mismatch")
             result={"task_id":task_id,"target_command_id":target_command_id,
                 "gateway_target_state":target["state"],"node_receipt":proof,
                 "authenticated_node_route":True,"original_command_mutated":False,
