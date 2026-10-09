@@ -76,6 +76,11 @@ class NodeExecutor:
             elif t=="TASK_BASE_RESOLVE": result=self.worktrees.resolve_base(p)
             elif t=="TASK_WORKTREE_ENSURE": result=self.worktrees.ensure(p)
             elif t=="TASK_WORKTREE_STATUS": result=self.worktrees.status(str(p["task_id"]))
+            elif t=="TASK_EVIDENCE_MANIFEST": result=self.worktrees.evidence_manifest(str(p["task_id"]))
+            elif t=="NODE_COMMAND_ATTEST": result=self.journal.attest(
+                str(p["target_command_id"]),str(p["expected_request_hash"]),
+                int(p["expected_route_generation"]),str(p["expected_task_id"]),
+            )
             elif t=="TASK_LIST_DIR": result=self._list_dir(p)
             elif t=="TASK_READ_FILE": result=self._read_file(p)
             elif t=="TASK_SEARCH": result=self._search(p)
