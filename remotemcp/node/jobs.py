@@ -661,6 +661,13 @@ class NodeJobs:
                 fp={}
         except Exception:
             fp={}
+        # Periodically verify both exact OS process identities during the
+        # existing signed heartbeat. No process execution or state mutation.
+        from .process_ownership_audit import _fingerprint, _process_status
+        worker_fp=_fingerprint(durable_row["worker_fingerprint_json"])
+        payload_fp=_fingerprint(durable_row["payload_fingerprint_json"])
+        worker_observation,_=_process_status(worker_fp)
+        payload_observation,_=_process_status(payload_fp)
         return {
             "proxy_job_id":row["proxy_job_id"],
             "node_job_id":row["node_job_id"],
@@ -668,6 +675,13 @@ class NodeJobs:
             "project_id":row["project_id"],
             "state":state.get("state"),
             "pid":fp.get("pid"),
+            "worker_pid":worker_fp.pid if worker_fp else None,
+            "worker_start_token":worker_fp.start_token if worker_fp else None,
+            "worker_os_process_status":worker_observation,
+            "payload_pid":payload_fp.pid if payload_fp else None,
+            "payload_start_token":payload_fp.start_token if payload_fp else None,
+            "payload_os_process_status":payload_observation,
+            "live_os_argv_hash_verified":False,
             "command_sha256":fp.get("command_sha256"),
             "submitted_argv_sha256":provenance.get("submitted_argv_sha256"),
             "normalized_argv_sha256":normalized_argv_sha256,
