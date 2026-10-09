@@ -135,3 +135,45 @@ def test_real_windows_cim_reports_existing_current_python_pid_read_only():
     assert any(item["pid"] == os.getpid() for item in report["processes"])
     assert report["mutation_performed"] is False
     assert report["science_rerun_authorized"] is False
+
+
+def test_heartbeat_inventory_bypasses_gateway_commands_and_redacts_argv(monkeypatch):
+    import asyncio
+    from remotemcp.node import service as node_service
+
+    calls = []
+    def scan(_pids):
+        calls.append(True)
+        return {
+            "status": "READ_ONLY_SNAPSHOT",
+            "processes": [{
+                "pid": 9152, "parent_pid": 24528,
+                "created_at": "2026-10-06T07:38:15+07:00",
+                "executable": "python.exe",
+                "command_line_sha256": "a" * 64,
+                "command_preview": "secret-in-commandline",
+            }],
+            "truncated": False,
+        }
+
+    monkeypatch.setattr(node_service, "inspect_windows_research_processes", scan)
+    node = object.__new__(node_service.NodeService)
+    node._research_inventory_task = None
+    node._research_inventory_snapshot = None
+    node._research_inventory_last_start = 0.0
+
+    async def inspect():
+        result = await node._research_inventory_for_heartbeat()
+        assert result["research_process_inventory_status"] == "PENDING"
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            result = await node._research_inventory_for_heartbeat()
+            if result["research_process_inventory_status"] == "READ_ONLY_SNAPSHOT":
+                break
+        assert result["research_process_inventory_status"] == "READ_ONLY_SNAPSHOT"
+        assert result["research_process_inventory"][0]["pid"] == 9152
+        assert result["research_process_inventory"][0]["parent_pid"] == 24528
+        assert "secret-in-commandline" not in str(result)
+        assert len(calls) == 1
+
+    asyncio.run(inspect())
