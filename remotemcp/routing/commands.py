@@ -26,9 +26,7 @@ class CommandRepository:
             os.environ.get("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","0")=="1"
         )
 
-    def _science_dispatch_blocker(self,device_id:str)->str|None:
-        if self.science_dispatch_hold:
-            return "SCIENCE_DISPATCH_QUARANTINED"
+    def _node_release_blocker(self,device_id:str)->str|None:
         if not self.required_release_sha:
             return None
         status=self.devices.status(device_id)
@@ -39,6 +37,16 @@ class CommandRepository:
             return "NODE_RELEASE_PIN_MISMATCH"
         if "process_inspect_v1" not in (att.get("supported_node_diagnostics") or []):
             return "NODE_DIAGNOSTIC_CAPABILITY_MISSING"
+        return None
+
+    def _science_dispatch_blocker(self,device_id:str)->str|None:
+        # The release pin outranks the quarantine; no agent command, not even
+        # reads, may be routed to a retired node. Signed heartbeat remains.
+        release_issue=self._node_release_blocker(device_id)
+        if release_issue:
+            return release_issue
+        if self.science_dispatch_hold:
+            return "SCIENCE_DISPATCH_QUARANTINED"
         return None
 
     @staticmethod
@@ -63,14 +71,19 @@ class CommandRepository:
     ):
         if command_type not in ALLOWED_COMMANDS:
             raise DurableError("INVALID_ARGUMENT","unsupported routed command",command_type=command_type)
-        if command_type=="JOB_SUBMIT":
-            reason=self._science_dispatch_blocker(device_id)
-            if reason:
-                raise DurableError(
-                    reason,
-                    "scientific job admission held until node release and command evidence qualify",
-                    device_id=device_id,
-                )
+        release_issue=self._node_release_blocker(device_id)
+        if release_issue:
+            raise DurableError(
+                release_issue,
+                "gateway release pin forbids all agent commands to the old node",
+                device_id=device_id,
+            )
+        if command_type=="JOB_SUBMIT" and self.science_dispatch_hold:
+            raise DurableError(
+                "SCIENCE_DISPATCH_QUARANTINED",
+                "scientific job admission held until exact command evidence qualifies",
+                device_id=device_id,
+            )
         if route_generation is None:
             dev=con.execute("SELECT * FROM devices WHERE device_id=?",(device_id,)).fetchone()
             if dev is None:raise DurableError("DEVICE_NOT_FOUND","device not found")
@@ -143,7 +156,12 @@ class CommandRepository:
         t=now_ms()
         # Crucial: the poll guard covers *old already-QUEUED* submissions,
         # not only new agent admissions. Do not cancel, reset or requeue them.
-        science_blocked=bool(self._science_dispatch_blocker(device_id))
+        release_blocked=bool(self._node_release_blocker(device_id))
+        science_blocked=bool(self.science_dispatch_hold)
+        if release_blocked:
+            # No lease, requeue, cancellation or delivery on an old release.
+            # The node can still send its signed heartbeat and be inspected.
+            return None
         with self.db.transaction() as con:
             con.execute(
                 "UPDATE device_commands SET state='CANCELLED',error_code='DEVICE_COMMAND_EXPIRED',finished_at_ms=?,updated_at_ms=? "
