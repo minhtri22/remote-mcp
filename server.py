@@ -443,6 +443,22 @@ def task_dispatch_diagnostic(task_id: str) -> dict:
 
 
 @mcp.tool()
+async def task_r5_command_attestation(
+    operation_id: str, task_id: str, target_command_id: str,
+) -> dict:
+    """Read-only authenticated node journal receipt; never rerun original command."""
+    return await routing_service.task_r5_command_attestation_or_local(
+        operation_id, task_id, target_command_id,
+    )
+
+
+@mcp.tool()
+async def task_r5_evidence_manifest(operation_id: str, task_id: str) -> dict:
+    """Hash existing node worktree evidence without cleanup or science execution."""
+    return await routing_service.task_r5_evidence_manifest_or_local(operation_id, task_id)
+
+
+@mcp.tool()
 def task_cleanup_recovery_status(task_id: str) -> dict:
     """Gateway-only diagnostic: inspect pending commands and terminal evidence, no node traffic."""
     return routing_service.task_cleanup_recovery_status_or_local(task_id)

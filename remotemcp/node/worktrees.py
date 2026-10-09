@@ -126,6 +126,72 @@ class NodeWorktrees:
             raise DurableError("PATH_ESCAPE","node task root escapes approved project root")
         return p
 
+    def evidence_manifest(self,task_id:str)->dict:
+        """Bounded, read-only hash inventory including gitignored/untracked files.
+
+        Refuse symlinks, oversized trees, or changing files. No add/reset/commit.
+        The manifest does NOT authorize cleanup_pending resolution.
+        """
+        import hashlib
+        import subprocess
+        from remotemcp.routing.crypto import canonical_json
+
+        task=self.task(task_id)
+        project=self.projects.get(task["project_id"])
+        if project["project_kind"]!="GIT":
+            raise DurableError("INVALID_ARGUMENT","evidence manifest requires Git task")
+        root=self.execution_root(task_id).resolve()
+        head=self._manager(task["project_id"])._run(
+            "git","-C",str(root),"rev-parse","HEAD"
+        ).stdout.strip()
+        raw=self._manager(task["project_id"])._run(
+            "git","-C",str(root),"ls-files","--others","-z"
+        ).stdout
+        names=sorted({x for x in raw.split("\0") if x})
+        if len(names)>256:
+            raise DurableError("EVIDENCE_MANIFEST_BOUNDS","more than 256 untracked/ignored files")
+        files=[]
+        aggregate=0
+        for rel in names:
+            path=root/rel
+            if path.is_symlink():
+                raise DurableError("EVIDENCE_MANIFEST_SYMLINK","untracked evidence contains symlink")
+            resolved=path.resolve(strict=True)
+            if not resolved.is_relative_to(root) or not resolved.is_file():
+                raise DurableError("EVIDENCE_MANIFEST_PATH","untracked evidence path invalid")
+            pre=resolved.stat()
+            aggregate+=pre.st_size
+            if aggregate>67108864:
+                raise DurableError("EVIDENCE_MANIFEST_BOUNDS","more than 64MiB untracked evidence")
+            digest=hashlib.sha256()
+            with resolved.open("rb") as fh:
+                for block in iter(lambda:fh.read(1024*1024),b""):
+                    digest.update(block)
+            post=resolved.stat()
+            if pre.st_size!=post.st_size or pre.st_mtime_ns!=post.st_mtime_ns:
+                raise DurableError("EVIDENCE_MANIFEST_RACE","evidence changed while hashing")
+            files.append({"path":rel.replace("\\","/"),"bytes":pre.st_size,
+                          "sha256":digest.hexdigest()})
+        def dirty(argv):
+            cp=subprocess.run(["git","-C",str(root),*argv],capture_output=True,shell=False)
+            if cp.returncode not in (0,1):
+                raise DurableError("EVIDENCE_MANIFEST_GIT_ERROR","git status check failed")
+            return cp.returncode==1
+        tracked_dirty=dirty(["diff","--quiet"]) or dirty(["diff","--cached","--quiet"])
+        identity={
+            "task_id":task_id,"project_id":task["project_id"],
+            "binding_generation":int(project["binding_generation"]),
+            "branch_name":task["branch_name"],"worktree_rel":task["worktree_rel"],
+            "head_commit":head,"tracked_dirty":tracked_dirty,
+            "untracked_files":files,
+        }
+        return {**identity,
+            "manifest_sha256":hashlib.sha256(canonical_json(identity).encode("utf-8")).hexdigest(),
+            "clean":not tracked_dirty and not files,
+            "read_only":True,"evidence_preserved":True,
+            "cleanup_authorized":False,
+        }
+
     def status(self,task_id:str)->dict:
         task=self.task(task_id);project=self.projects.get(task["project_id"])
         root=self.execution_root(task_id)
