@@ -3,6 +3,7 @@ name: Direct Node Process Diagnostics Zero-Science QA
 on:
   pull_request:
     paths:
+      - "remotemcp/node/process_safety.py"
       - "remotemcp/node/process_diagnostic.py"
       - "remotemcp/node/executor.py"
       - "remotemcp/node/service.py"
@@ -10,6 +11,7 @@ on:
       - "remotemcp/routing/models.py"
       - "remotemcp/routing/service.py"
       - "server.py"
+      - "tests/test_heartbeat_capability_and_watchdog_selfmatch.py"
       - "tests/test_node_direct_process_diagnostic_route.py"
       - "tests/test_gateway_pinned_node_dispatch_hold.py"
       - "scripts/read_gateway_exact_receipts.py"
@@ -40,6 +42,7 @@ jobs:
       - name: Syntax preflight
         run: >-
           python -m py_compile
+          remotemcp/node/process_safety.py
           remotemcp/node/process_diagnostic.py
           remotemcp/node/executor.py
           remotemcp/node/service.py
@@ -47,12 +50,13 @@ jobs:
           remotemcp/routing/models.py
           remotemcp/routing/service.py
           server.py
+          tests/test_heartbeat_capability_and_watchdog_selfmatch.py
           tests/test_node_direct_process_diagnostic_route.py
           tests/test_gateway_pinned_node_dispatch_hold.py
           scripts/read_gateway_exact_receipts.py
           tests/test_gateway_offline_exact_receipts.py
       - name: Bounded no-task Windows CIM diagnosis and gateway capability gate
-        run: python -m pytest -q tests/test_node_direct_process_diagnostic_route.py tests/test_gateway_pinned_node_dispatch_hold.py tests/test_gateway_offline_exact_receipts.py
+        run: python -m pytest -q tests/test_node_direct_process_diagnostic_route.py tests/test_gateway_pinned_node_dispatch_hold.py tests/test_gateway_offline_exact_receipts.py tests/test_heartbeat_capability_and_watchdog_selfmatch.py
       - name: Independent out-of-band read-only PowerShell capture QA
         if: runner.os == 'Windows'
         shell: pwsh
