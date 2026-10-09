@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -310,7 +311,17 @@ class ProcessSafetyProbe:
         for proc in processes:
             if int(proc["pid"])==self_pid:
                 continue
-            hay=(str(proc.get("name") or "")+" "+str(proc.get("command_line") or "")).casefold()
+            # A node watchdog repeats the declared research pattern in its own
+            # -DeclaredLongLivedProcessPatterns argument. It is infrastructure,
+            # not a worker; ignore only an exact PowerShell -File watchdog launch.
+            cmdline=str(proc.get("command_line") or "")
+            name=str(proc.get("name") or "").casefold()
+            if (name in {"powershell.exe","pwsh.exe"} and re.search(
+                r'(?:^|\\s)-File\\s+(?:"[^"]*[\\\\/]Watch-RemoteMCP-Node\\.ps1"|[^\\s"]*[\\\\/]Watch-RemoteMCP-Node\\.ps1)(?:\\s|$)',
+                cmdline,re.IGNORECASE,
+            )):
+                continue
+            hay=(str(proc.get("name") or "")+" "+cmdline).casefold()
             for idx,pattern in enumerate(declarations):
                 if pattern.casefold() in hay:
                     key=("declared_long_lived",int(proc["pid"]))
