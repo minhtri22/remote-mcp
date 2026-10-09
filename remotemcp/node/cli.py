@@ -47,6 +47,9 @@ def parser():
     doctor.add_argument("--root",required=False)
     doctor.add_argument("--legacy-root",action="append",default=[])
     doctor.add_argument("--runtime-dir",required=True)
+    audit=sub.add_parser("process-audit",help="Read-only reverse PID to durable node job mapping")
+    audit.add_argument("--runtime-dir",required=True)
+    audit.add_argument("--pid",action="append",type=int,default=[])
     return p
 
 
@@ -121,4 +124,10 @@ def main(argv=None):
     if a.command=="run":return asyncio.run(do_run(a))
     if a.command=="status":return do_status(a)
     if a.command=="doctor":return do_doctor(a)
+    if a.command=="process-audit":
+        from .process_ownership_audit import audit_process_ownership
+        # Unlike _stored_config, this NEVER bootstraps or mutates SQLite.
+        report=audit_process_ownership(Path(a.runtime_dir),a.pid)
+        print(json.dumps(report,indent=2,ensure_ascii=False))
+        return 0
     raise SystemExit(2)
