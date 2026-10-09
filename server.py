@@ -691,6 +691,16 @@ def device_status(device_id: str) -> dict:
 
 
 @mcp.tool()
+async def device_process_inspect(device_id: str, pids: list[int] | None = None) -> dict:
+    """Inspect Windows research processes via a signed fixed diagnostic.
+
+    No arbitrary PowerShell source, research task lease, job submit or restart.
+    Fails closed when the running node lacks the signed diagnostic capability.
+    """
+    return await routing_service.device_process_inspect(device_id, pids)
+
+
+@mcp.tool()
 def device_capacity_status(device_id: str) -> dict:
     """Return authoritative node-local workload from the signed node heartbeat.
 
