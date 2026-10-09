@@ -130,3 +130,27 @@ def test_old_attestation_without_capability_does_not_dispatch(monkeypatch):
     insert_command(db,"cmd_job","JOB_SUBMIT",t)
     assert repo.poll("device1",1) is None
     assert repo._science_dispatch_blocker("device1")=="NODE_DIAGNOSTIC_CAPABILITY_MISSING"
+
+
+def test_device_status_reports_effective_old_release_denial_to_every_agent(monkeypatch):
+    from remotemcp.routing.service import RoutingService
+
+    repo,db,dev=repository(monkeypatch,release="old",hold="0")
+    service=object.__new__(RoutingService)
+    service.devices=dev
+    service.commands=repo
+    service._gateway_attestation=lambda: {"release_commit":"gateway"}
+    observed=service.device_status("device1")
+    gate=observed["science_job_dispatch_gate"]
+    assert gate["release_pin_enforced"] is True
+    assert gate["minimum_exact_release_sha"]==SHA
+    assert gate["new_job_admission_allowed"] is False
+    assert gate["reason"]=="NODE_RELEASE_PIN_MISMATCH"
+    dev.sha=SHA
+    qualified=service.device_status("device1")["science_job_dispatch_gate"]
+    assert qualified["new_job_admission_allowed"] is True
+    assert qualified["reason"]=="PINNED_NODE_RELEASE_QUALIFIED"
+    repo.science_dispatch_hold=True
+    held=service.device_status("device1")["science_job_dispatch_gate"]
+    assert held["new_job_admission_allowed"] is False
+    assert held["command_quarantine_active"] is True
