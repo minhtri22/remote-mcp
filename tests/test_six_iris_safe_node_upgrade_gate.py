@@ -21,6 +21,12 @@ def fixture():
             "device_id": DEVICE, "key_fingerprint_sha256": FP,
             "route_generation": 1, "execution_root": ROOT,
             "runtime_dir": RUNTIME,
+            "node_root_pid": 400, "node_root_created_at": "2026-10-09",
+            "watchdog_pid": 500, "watchdog_created_at": "2026-10-09",
+            "protected_created_at": {
+                "9152": "2026-10-06T07:38:15",
+                "24528": "2026-10-06T07:38:15",
+            },
         },
         "gateway": {
             "state": "ONLINE", "last_seen_at_ms": 995000,
@@ -167,3 +173,35 @@ def test_missing_schema_never_grants_any_authority():
     assert report["status"] == "HOLD"
     assert report["mutation_performed"] is False
     assert report["science_rerun_authorized"] is False
+
+
+def test_node_root_pid_swap_fails_even_if_one_logical_root_survives():
+    s = fixture()
+    # If the old root has vanished but the child continues, a simple count
+    # of logical node roots is still one; that MUST NOT be treated as safe.
+    s["os_capture"]["processes"] = [
+        p for p in s["os_capture"]["processes"] if p["pid"] != 400
+    ]
+    report = assess_upgrade_snapshot(s)
+    assert "NODE_ROOT_PID_CHANGED_OR_ORPHANED" in report["blockers"]
+    assert report["cutover_authorized"] is False
+
+
+def test_protected_pid_reuse_must_fail_despite_identical_command():
+    s = fixture()
+    for proc in s["os_capture"]["processes"]:
+        if proc["pid"] == 9152:
+            proc["created_at"] = "2026-10-09T11:01:00"
+    report = assess_upgrade_snapshot(s)
+    assert "PROTECTED_PROCESS_9152_CREATION_MISMATCH" in report["blockers"]
+    assert report["status"] == "HOLD"
+
+
+def test_watchdog_pid_reuse_must_fail_even_when_source_path_matches():
+    s = fixture()
+    for proc in s["os_capture"]["processes"]:
+        if proc["pid"] == 500:
+            proc["created_at"] = "2026-10-09T11:01:00"
+    report = assess_upgrade_snapshot(s)
+    assert "WATCHDOG_CREATION_CHANGED_OR_UNVERIFIED" in report["blockers"]
+    assert report["status"] == "HOLD"
