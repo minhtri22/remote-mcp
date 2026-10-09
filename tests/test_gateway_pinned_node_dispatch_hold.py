@@ -81,9 +81,11 @@ def test_old_node_never_receives_original_queued_science_command(monkeypatch):
     t=now_ms()
     insert_command(db,"cmd_job","JOB_SUBMIT",t-50)
     insert_command(db,"cmd_diag","NODE_PROCESS_INSPECT",t-10)
-    selected=repo.poll("device1",1)
-    assert selected["command_id"]=="cmd_diag"
     assert repo.poll("device1",1) is None
+    # Old node receives NO agent commands, including pre-existing reads.
+    assert db.conn.execute(
+        "SELECT delivery_attempt FROM device_commands WHERE command_id='cmd_diag'"
+    ).fetchone()[0]==0
     held=db.conn.execute("SELECT state,delivery_attempt FROM device_commands WHERE command_id='cmd_job'").fetchone()
     assert tuple(held)==("QUEUED",0)
 
@@ -154,3 +156,15 @@ def test_device_status_reports_effective_old_release_denial_to_every_agent(monke
     held=service.device_status("device1")["science_job_dispatch_gate"]
     assert held["new_job_admission_allowed"] is False
     assert held["command_quarantine_active"] is True
+
+
+def test_old_node_rejects_readonly_agent_command_as_well_as_job(monkeypatch):
+    repo,db,_=repository(monkeypatch,release="old",hold="0")
+    with db.transaction() as con:
+        with pytest.raises(DurableError) as exc:
+            repo.create_in_tx(
+                con,"device1","TASK_LIST_DIR",{"task_id":"task1"},
+                route_generation=1,
+            )
+    assert exc.value.code=="NODE_RELEASE_PIN_MISMATCH"
+    assert db.conn.execute("SELECT COUNT(*) FROM device_commands").fetchone()[0]==0
