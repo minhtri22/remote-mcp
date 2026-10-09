@@ -437,6 +437,12 @@ def task_status(task_id: str) -> dict:
 
 
 @mcp.tool()
+def task_dispatch_diagnostic(task_id: str) -> dict:
+    """Read-only gateway task/command queue trace; never contacts the node."""
+    return routing_service.task_dispatch_diagnostic_or_local(task_id)
+
+
+@mcp.tool()
 def task_cleanup_recovery_status(task_id: str) -> dict:
     """Gateway-only diagnostic: inspect pending commands and terminal evidence, no node traffic."""
     return routing_service.task_cleanup_recovery_status_or_local(task_id)

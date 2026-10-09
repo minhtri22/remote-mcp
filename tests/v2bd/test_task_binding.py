@@ -490,3 +490,57 @@ def test_guarded_claim_rejects_terminal_cache_with_wrong_proxy_identity(make_gat
         assert g.routing.task_cleanup_recovery_status_or_local(
             task["task_id"])["jobs"][0]["terminal_evidence_verified"] is True
     asyncio.run(run())
+
+
+def test_dispatch_diagnostic_is_gateway_only_and_reports_expired_leases(make_gateway,tmp_path):
+    """No node dispatch, queued job resubmit, or mutation of live queue states."""
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"node-diagnostic";root.mkdir()
+        init_git_repo(root/"repo","DIAG")
+        node,dev=await pair_node(g,root,tmp_path/"rt-diagnostic","diag")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-diagnostic",dev["device_id"],"repo",2))
+        task=await drive(g,node,g.routing.task_create_or_local(
+            "t-diagnostic",project["project_id"],"read-only"))
+        tid=task["task_id"]
+        command,_=g.routing.commands.create(
+            dev["device_id"],"JOB_SUBMIT",{"proxy_job_id":"rjob_fixture_only"},
+            task_id=tid,project_id=project["project_id"],
+        )
+        count_before=g.durable.db.query_one(
+            "SELECT COUNT(*) AS n FROM device_commands WHERE device_id=?",
+            (dev["device_id"],),
+        )["n"]
+        report=g.routing.task_dispatch_diagnostic_or_local(tid)
+        assert report["read_only"] is True
+        assert report["node_command_dispatched"] is False
+        assert report["node_process_liveness_verified"] is False
+        assert report["authorization_to_rerun_jobs"] is False
+        assert report["next_eligible_poll_command"]["command_id"]==command["command_id"]
+        assert report["task_command_trace"][-1]["state"]=="QUEUED"
+        assert report["task_command_trace"][-1]["delivery_attempt"]==0
+        assert g.durable.db.query_one(
+            "SELECT COUNT(*) AS n FROM device_commands WHERE device_id=?",
+            (dev["device_id"],),
+        )["n"]==count_before
+        with g.durable.db.transaction() as con:
+            con.execute(
+                "UPDATE device_commands SET state='LEASED',delivery_attempt=1,"
+                "lease_expires_at_ms=1 WHERE command_id=?",(command["command_id"],),
+            )
+        report=g.routing.task_dispatch_diagnostic_or_local(tid)
+        row=report["task_command_trace"][-1]
+        assert row["state"]=="LEASED"
+        assert row["delivery_uncertain"] is True
+        assert row["delivery_lease_expired"] is True
+        assert report["next_eligible_poll_command"] is None
+        assert g.routing.commands.get(command["command_id"])["state"]=="LEASED"
+    asyncio.run(run())
+
+
+def test_dispatch_diagnostic_rejects_unbound_task(make_gateway,tmp_path):
+    g=make_gateway()
+    with pytest.raises(DurableError) as exc:
+        g.routing.task_dispatch_diagnostic_or_local("tsk_invalid_not_bound")
+    assert exc.value.code=="DEVICE_CONTEXT_REQUIRED"
