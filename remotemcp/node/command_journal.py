@@ -18,6 +18,46 @@ class NodeCommandJournal:
             raise DurableError("NOT_FOUND","node command not found",command_id=command_id)
         return row
 
+    def attest(self,command_id:str,expected_request_hash:str,expected_route_generation:int,
+               expected_task_id:str)->dict:
+        """Read-only exact node-journal receipt; never replays the target command."""
+        import hashlib
+        row=self.get(command_id)
+        envelope=json.loads(row["payload_json"] or "{}")
+        if (row["request_hash"]!=expected_request_hash
+            or int(row["route_generation"])!=int(expected_route_generation)
+            or envelope.get("command_id")!=command_id
+            or envelope.get("task_id")!=expected_task_id):
+            raise DurableError(
+                "COMMAND_PROOF_IDENTITY_MISMATCH",
+                "node journal command identity does not match frozen gateway evidence",
+            )
+        state=row["state"]
+        terminal=state in TERMINAL_NODE_COMMAND_STATES
+        return {
+            "target_command_id":command_id,
+            "request_hash":row["request_hash"],
+            "route_generation":int(row["route_generation"]),
+            "task_id":expected_task_id,
+            "operation_id":row["operation_id"],
+            "command_type":row["command_type"],
+            "state":state,"terminal":terminal,
+            "received_at_ms":row["received_at_ms"],
+            "started_at_ms":row["started_at_ms"],
+            "finished_at_ms":row["finished_at_ms"],
+            "result_sha256":(
+                hashlib.sha256(row["result_json"].encode("utf-8")).hexdigest()
+                if row["result_json"] is not None else None
+            ),
+            "error_code":row["error_code"],
+            "error_sha256":(
+                hashlib.sha256(row["error_json"].encode("utf-8")).hexdigest()
+                if row["error_json"] is not None else None
+            ),
+            "read_only":True,
+            "target_reexecuted":False,
+        }
+
     def receive(self,envelope:dict):
         command_id=str(envelope["command_id"])
         rh=str(envelope["request_hash"])
