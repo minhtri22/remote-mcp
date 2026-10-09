@@ -1350,6 +1350,84 @@ class RoutingService:
             for row in rows if exclude_operation_id is None or row["operation_id"]!=exclude_operation_id
         ]
 
+    def task_exact_command_receipts_or_local(
+        self,task_id:str,command_ids:list[str],
+    )->dict:
+        """Read only exact immutable gateway receipts for an owned task.
+
+        Does not poll, retry, lease, clear or mutate queued science commands.
+        Limits are independent of the newest-200-commands task diagnostic.
+        """
+        if (
+            not isinstance(command_ids,list) or not 1<=len(command_ids)<=16
+            or any(not isinstance(x,str) or not x.startswith("cmd_")
+                   or len(x)>80 for x in command_ids)
+            or len(set(command_ids))!=len(command_ids)
+        ):
+            raise DurableError("INVALID_ARGUMENT","1..16 unique exact command IDs required")
+        binding=self.bindings.task_binding(task_id)
+        if binding is None:
+            raise DurableError("DEVICE_CONTEXT_REQUIRED","task is not device-bound")
+        task=self.multi.tasks.status(task_id)
+        dev=self.devices.status(binding["device_id"])
+        placeholders=",".join("?" for _ in command_ids)
+        rows=self.db.query_all(
+            "SELECT command_id,device_id,route_generation,project_id,task_id,"
+            "operation_id,operation_step,command_type,request_hash,payload_json,"
+            "state,delivery_attempt,lease_expires_at_ms,command_expires_at_ms,"
+            "created_at_ms,updated_at_ms,finished_at_ms,error_code "
+            "FROM device_commands WHERE command_id IN ("+placeholders+") "
+            "AND device_id=? AND project_id=? AND task_id=?",
+            (*command_ids,binding["device_id"],binding["project_id"],task_id),
+        )
+        found={r["command_id"]:r for r in rows}
+        receipts=[]
+        for command_id in command_ids:
+            r=found.get(command_id)
+            if r is None:
+                receipts.append({"command_id":command_id,"state":"NOT_FOUND_OR_NOT_OWNED"})
+                continue
+            proxy=None
+            try:
+                val=json.loads(r["payload_json"])
+                if isinstance(val,dict):
+                    proxy=val.get("proxy_job_id")
+            except (TypeError,ValueError,json.JSONDecodeError):
+                pass
+            receipts.append({
+                "command_id":r["command_id"],
+                "command_type":r["command_type"],
+                "route_generation":int(r["route_generation"]),
+                "operation_id":r["operation_id"],
+                "operation_step":int(r["operation_step"]),
+                "request_hash":r["request_hash"],
+                "proxy_job_id_in_payload":proxy,
+                "state":r["state"],
+                "delivery_attempt":int(r["delivery_attempt"]),
+                "lease_expires_at_ms":r["lease_expires_at_ms"],
+                "command_expires_at_ms":int(r["command_expires_at_ms"]),
+                "created_at_ms":int(r["created_at_ms"]),
+                "updated_at_ms":int(r["updated_at_ms"]),
+                "finished_at_ms":r["finished_at_ms"],
+                "error_code":r["error_code"],
+                "matching_task":r["task_id"]==task_id,
+                "matching_project":r["project_id"]==binding["project_id"],
+                "matching_device":r["device_id"]==binding["device_id"],
+                "gateway_receipt_is_not_node_execution_proof":True,
+            })
+        return {
+            "task_id":task_id,
+            "project_id":task["project_id"],
+            "device_id":binding["device_id"],
+            "current_route_generation":dev["route_generation"],
+            "receipts":receipts,
+            "read_only":True,
+            "command_polled":False,
+            "command_requeued":False,
+            "science_job_rerun_authorized":False,
+            "node_upgrade_authorized":False,
+        }
+
     def task_dispatch_diagnostic_or_local(self,task_id:str)->dict:
         """Read-only control-plane dispatch trace for one owned, device-bound task.
 
@@ -1367,7 +1445,7 @@ class RoutingService:
         rows=self.db.query_all(
             "SELECT command_id,operation_id,operation_step,command_type,state,"
             "delivery_attempt,route_generation,command_expires_at_ms,"
-            "lease_expires_at_ms,created_at_ms,updated_at_ms,finished_at_ms,error_code "
+            "lease_expires_at_ms,created_at_ms,updated_at_ms,finished_at_ms,error_code,request_hash "
             "FROM device_commands WHERE device_id=? AND task_id=? "
             "ORDER BY created_at_ms DESC,command_id DESC LIMIT 200",
             (device_id,task_id),
@@ -1381,6 +1459,7 @@ class RoutingService:
             commands.append({
                 "command_id":item["command_id"],"operation_id":item["operation_id"],
                 "operation_step":int(item["operation_step"]),"command_type":item["command_type"],
+                "request_hash":item["request_hash"],
                 "state":state,"delivery_attempt":attempts,
                 "route_generation":int(item["route_generation"]),
                 "created_at_ms":int(item["created_at_ms"]),
