@@ -1,0 +1,132 @@
+"""Regression guards: science agents cannot use old or quarantined node."""
+from __future__ import annotations
+
+from contextlib import contextmanager
+import sqlite3
+from types import SimpleNamespace
+
+import pytest
+
+from remotemcp.routing.commands import CommandRepository
+from remotemcp.durable.errors import DurableError
+from remotemcp.durable.models import now_ms
+
+
+class DB:
+    def __init__(self):
+        self.conn=sqlite3.connect(":memory:")
+        self.conn.row_factory=sqlite3.Row
+        self.conn.executescript(
+            "CREATE TABLE device_commands("
+            "command_id TEXT PRIMARY KEY,device_id TEXT,route_generation INTEGER,"
+            "command_type TEXT,state TEXT,command_expires_at_ms INTEGER,"
+            "created_at_ms INTEGER,updated_at_ms INTEGER,"
+            "lease_expires_at_ms INTEGER,finished_at_ms INTEGER,"
+            "delivery_attempt INTEGER DEFAULT 0,error_code TEXT);"
+        )
+
+    @contextmanager
+    def transaction(self):
+        with self.conn:
+            yield self.conn
+
+    def query_one(self,sql,params=()):
+        return self.conn.execute(sql,params).fetchone()
+
+
+class Devices:
+    def __init__(self,sha):
+        self.sha=sha
+
+    def require_online(self,_device_id):
+        return {"route_generation":1,"state":"ONLINE"}
+
+    def status(self,_device_id):
+        return {
+            "state":"ONLINE",
+            "capacity_signal_fresh":True,
+            "node_attestation":{
+                "release_commit":self.sha,
+                "supported_node_diagnostics":["process_inspect_v1"],
+            },
+        }
+
+
+SHA="a"*40
+
+
+def repository(monkeypatch, *,release="old",hold="1"):
+    monkeypatch.setenv("REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA",SHA)
+    monkeypatch.setenv("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH",hold)
+    db=DB()
+    devices=Devices(release)
+    config=SimpleNamespace(command_lease_seconds=30,mutation_ttl_seconds=120)
+    repo=CommandRepository(config,db,devices)
+    return repo,db,devices
+
+
+def insert_command(db,command_id,kind,timestamp):
+    db.conn.execute(
+        "INSERT INTO device_commands("
+        "command_id,device_id,route_generation,command_type,state,"
+        "command_expires_at_ms,created_at_ms,updated_at_ms)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        (command_id,"device1",1,kind,"QUEUED",timestamp+120_000,timestamp,timestamp),
+    )
+    db.conn.commit()
+
+
+def test_old_node_never_receives_original_queued_science_command(monkeypatch):
+    repo,db,_=repository(monkeypatch,release="old",hold="0")
+    t=now_ms()
+    insert_command(db,"cmd_job","JOB_SUBMIT",t-50)
+    insert_command(db,"cmd_diag","NODE_PROCESS_INSPECT",t-10)
+    selected=repo.poll("device1",1)
+    assert selected["command_id"]=="cmd_diag"
+    assert repo.poll("device1",1) is None
+    held=db.conn.execute("SELECT state,delivery_attempt FROM device_commands WHERE command_id='cmd_job'").fetchone()
+    assert tuple(held)==("QUEUED",0)
+
+
+def test_operator_quarantine_holds_science_even_after_node_is_upgraded(monkeypatch):
+    repo,db,_=repository(monkeypatch,release=SHA,hold="1")
+    t=now_ms()
+    insert_command(db,"cmd_job","JOB_SUBMIT",t-50)
+    insert_command(db,"cmd_inventory","TASK_LIST_DIR",t-20)
+    assert repo.poll("device1",1)["command_id"]=="cmd_inventory"
+    assert repo.poll("device1",1) is None
+    assert db.conn.execute("SELECT state FROM device_commands WHERE command_id='cmd_job'").fetchone()[0]=="QUEUED"
+
+
+def test_fail_closed_submit_before_any_sql_write(monkeypatch):
+    repo,db,device=repository(monkeypatch,release="old",hold="0")
+    with db.transaction() as con:
+        with pytest.raises(DurableError) as exc:
+            repo.create_in_tx(con,"device1","JOB_SUBMIT",{"argv":["python"]},route_generation=1)
+    assert exc.value.code=="NODE_RELEASE_PIN_MISMATCH"
+    device.sha=SHA
+    repo.science_dispatch_hold=True
+    with db.transaction() as con:
+        with pytest.raises(DurableError) as exc:
+            repo.create_in_tx(con,"device1","JOB_SUBMIT",{"argv":["python"]},route_generation=1)
+    assert exc.value.code=="SCIENCE_DISPATCH_QUARANTINED"
+    assert db.conn.execute("SELECT COUNT(*) FROM device_commands").fetchone()[0]==0
+
+
+def test_only_explicit_release_pin_and_quarantine_clear_can_dispatch(monkeypatch):
+    repo,db,_=repository(monkeypatch,release=SHA,hold="0")
+    t=now_ms()
+    insert_command(db,"cmd_job","JOB_SUBMIT",t)
+    assert repo.poll("device1",1)["command_id"]=="cmd_job"
+
+
+def test_old_attestation_without_capability_does_not_dispatch(monkeypatch):
+    repo,db,dev=repository(monkeypatch,release=SHA,hold="0")
+    dev.status=lambda _: {
+        "state":"ONLINE","capacity_signal_fresh":True,
+        "node_attestation":{"release_commit":SHA},
+    }
+    t=now_ms()
+    insert_command(db,"cmd_job","JOB_SUBMIT",t)
+    assert repo.poll("device1",1) is None
+    assert repo._science_dispatch_blocker("device1")=="NODE_DIAGNOSTIC_CAPABILITY_MISSING"
