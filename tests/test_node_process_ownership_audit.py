@@ -167,3 +167,56 @@ def test_cli_parser_accepts_read_only_node_audit():
     )
     assert args.command == "process-audit"
     assert args.pid == [9152, 24528]
+
+
+def test_signed_heartbeat_summary_reports_real_worker_and_payload_ids(monkeypatch):
+    from types import SimpleNamespace
+    from remotemcp.node.jobs import NodeJobs
+
+    monkeypatch.setattr(audit, "fingerprint_process", lambda pid, h: fp(pid))
+    row = {
+        "node_job_id": "job_existing",
+        "proxy_job_id": "rjob_existing",
+        "task_id": "tsk_existing",
+        "project_id": "prj_existing",
+    }
+    durable_job = {
+        "command_json": json.dumps({"argv": ["python.exe", "-c", "print(1)"]}),
+        "worker_fingerprint_json": json.dumps(fp(3301).to_dict()),
+        "payload_fingerprint_json": json.dumps(fp(3302).to_dict()),
+        "cwd_rel": ".",
+    }
+    obj = object.__new__(NodeJobs)
+    obj.durable = SimpleNamespace(jobs=SimpleNamespace(get=lambda _: durable_job))
+    obj.db = SimpleNamespace(get_meta=lambda _: {"execution_key": "sek_example"})
+    summary = obj._active_job_summary(row, {"state": "RUNNING"})
+    assert summary["worker_pid"] == 3301
+    assert summary["payload_pid"] == 3302
+    assert summary["worker_os_process_status"] == "EXACT_LIVE_PROCESS"
+    assert summary["payload_os_process_status"] == "EXACT_LIVE_PROCESS"
+    assert summary["worker_start_token"] == "starts-one"
+    assert summary["payload_start_token"] == "starts-one"
+    assert summary["live_os_argv_hash_verified"] is False
+
+
+def test_heartbeat_summary_fails_closed_on_missing_os_process(monkeypatch):
+    from types import SimpleNamespace
+    from remotemcp.node.jobs import NodeJobs
+
+    monkeypatch.setattr(audit, "fingerprint_process", lambda pid, h: None)
+    row = {"node_job_id":"job_a","proxy_job_id":"rjob_a",
+           "task_id":"tsk_a","project_id":"prj_a"}
+    durable_job = {
+        "command_json": json.dumps({"argv":["python.exe"]}),
+        "worker_fingerprint_json": json.dumps(fp(3301).to_dict()),
+        "payload_fingerprint_json": json.dumps(fp(3302).to_dict()),
+        "cwd_rel": ".",
+    }
+    obj = object.__new__(NodeJobs)
+    obj.durable = SimpleNamespace(jobs=SimpleNamespace(get=lambda _: durable_job))
+    obj.db = SimpleNamespace(get_meta=lambda _: {})
+    summary = obj._active_job_summary(row, {"state": "RUNNING"})
+    assert summary["worker_os_process_status"] == "NOT_OBSERVABLE_OR_EXITED"
+    assert summary["payload_os_process_status"] == "NOT_OBSERVABLE_OR_EXITED"
+    assert summary["payload_pid"] == 3302
+    assert summary["live_os_argv_hash_verified"] is False
