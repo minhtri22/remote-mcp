@@ -17,7 +17,7 @@ from typing import Callable
 MAX_REQUESTED_PIDS = 16
 MAX_RETURNED = 96
 MAX_JSON_BYTES = 4_000_000
-PROJECT_PATTERN = re.compile(r"(?i)(?:\bSIX\b|\bIRIS\b|ru0_c_u3_executor[.]py)")
+PROJECT_PATTERN = re.compile(r"(?i)(?:SIX|IRIS|ru0_c_u3_executor[.]py)")
 SECRET_VALUE = re.compile(r"(?i)(--(?:token|secret|password|api-key|apikey|authorization)(?:=|\s+))([^\s\"']+)")
 # The script is constant. PID input is filtered *after* the CIM snapshot.
 _WINDOWS_PROCESS_SNAPSHOT_PS = r"""
