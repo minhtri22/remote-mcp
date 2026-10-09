@@ -1388,6 +1388,111 @@ class RoutingService:
             "authorization_to_rerun_jobs":False,
         }
 
+    async def task_r5_command_attestation_or_local(
+        self,operation_id:str,task_id:str,target_command_id:str,
+    )->dict:
+        """Freeze a read-only authenticated receipt. Never alter target command state."""
+        binding=self.bindings.task_binding(task_id)
+        if binding is None:
+            raise DurableError("DEVICE_CONTEXT_REQUIRED","task is not device-bound")
+        target=self.commands.get(target_command_id)
+        if (target["task_id"]!=task_id
+            or target["project_id"]!=binding["project_id"]
+            or target["device_id"]!=binding["device_id"]):
+            raise DurableError("COMMAND_PROOF_IDENTITY_MISMATCH","target not bound to this task")
+        if target["state"] not in ("CANCELLED","IN_DOUBT") or int(target["delivery_attempt"])<=0:
+            raise DurableError("COMMAND_PROOF_INVALID_STATE","only uncertain delivered commands can be attested")
+        args={"task_id":task_id,"target_command_id":target_command_id,
+              "expected_request_hash":target["request_hash"],
+              "expected_route_generation":int(target["route_generation"])}
+        op,created=self._reserve(
+            operation_id,"TASK_R5_COMMAND_ATTEST",args,
+            project_id=binding["project_id"],task_id=task_id,
+        )
+        replay=self._operation_replay(op)
+        if replay is not None:
+            return {**replay,"replayed":True}
+        if created:self.durable.operations.mark_executing(operation_id)
+        try:
+            proof,_=await self._route_step(
+                binding["device_id"],"NODE_COMMAND_ATTEST",{
+                    "target_command_id":target_command_id,
+                    "expected_request_hash":target["request_hash"],
+                    "expected_route_generation":int(target["route_generation"]),
+                    "expected_task_id":task_id,
+                },operation_id=operation_id,operation_step=0,
+                task_id=task_id,project_id=binding["project_id"],
+            )
+            if (proof.get("target_command_id")!=target_command_id
+                or proof.get("request_hash")!=target["request_hash"]
+                or proof.get("task_id")!=task_id
+                or proof.get("operation_id")!=target["operation_id"]
+                or proof.get("command_type")!=target["command_type"]
+                or proof.get("route_generation")!=int(target["route_generation"])
+                or proof.get("read_only") is not True
+                or proof.get("target_reexecuted") is not False):
+                raise DurableError("COMMAND_PROOF_IDENTITY_MISMATCH","authenticated proof mismatch")
+            result={"task_id":task_id,"target_command_id":target_command_id,
+                "gateway_target_state":target["state"],"node_receipt":proof,
+                "authenticated_node_route":True,"original_command_mutated":False,
+                "cleanup_pending_resolution_authorized":False,
+                "job_rerun_authorized":False}
+            self.durable.operations.succeed(operation_id,result)
+            return result
+        except DurableError as exc:
+            if exc.code!="DEVICE_COMMAND_PENDING":self._fail_final(operation_id,exc)
+            raise
+
+    async def task_r5_evidence_manifest_or_local(self,operation_id:str,task_id:str)->dict:
+        """Read-only bounded node worktree inventory. Not a cleanup authorization."""
+        binding=self.bindings.task_binding(task_id)
+        if binding is None:
+            raise DurableError("DEVICE_CONTEXT_REQUIRED","task is not device-bound")
+        task=self.multi.tasks.status(task_id)
+        if not task["worktree_rel"]:
+            raise DurableError("INVALID_ARGUMENT","worktree manifest requires Git task")
+        args={"task_id":task_id,"base_commit":task["base_commit"],
+              "branch_name":task["branch_name"],"worktree_rel":task["worktree_rel"]}
+        op,created=self._reserve(
+            operation_id,"TASK_R5_EVIDENCE_MANIFEST",args,
+            project_id=binding["project_id"],task_id=task_id,
+        )
+        replay=self._operation_replay(op)
+        if replay is not None:return {**replay,"replayed":True}
+        if created:self.durable.operations.mark_executing(operation_id)
+        try:
+            manifest,_=await self._route_step(
+                binding["device_id"],"TASK_EVIDENCE_MANIFEST",{"task_id":task_id},
+                operation_id=operation_id,operation_step=0,
+                project_id=binding["project_id"],task_id=task_id,
+            )
+            identity={k:manifest.get(k) for k in (
+                "task_id","project_id","binding_generation","branch_name",
+                "worktree_rel","head_commit","tracked_dirty","untracked_files"
+            )}
+            exact=hashlib.sha256(
+                json.dumps(identity,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")
+            ).hexdigest()
+            if (manifest.get("task_id")!=task_id
+                or manifest.get("project_id")!=binding["project_id"]
+                or manifest.get("binding_generation")!=int(binding["binding_generation"])
+                or manifest.get("branch_name")!=task["branch_name"]
+                or manifest.get("worktree_rel")!=task["worktree_rel"]
+                or manifest.get("head_commit")!=task["base_commit"]
+                or manifest.get("manifest_sha256")!=exact
+                or manifest.get("read_only") is not True
+                or manifest.get("evidence_preserved") is not True
+                or manifest.get("cleanup_authorized") is not False):
+                raise DurableError("EVIDENCE_MANIFEST_MISMATCH","node manifest identity or digest mismatch")
+            result={"task_id":task_id,"manifest":manifest,
+                    "authenticated_node_route":True,"cleanup_authorized":False,
+                    "scientific_namespace_pristine_verified":False}
+            self.durable.operations.succeed(operation_id,result)
+            return result
+        except DurableError as exc:
+            if exc.code!="DEVICE_COMMAND_PENDING":self._fail_final(operation_id,exc)
+            raise
+
     def task_cleanup_recovery_status_or_local(self,task_id:str)->dict:
         """Read-only gateway reconciliation, safe when node command transport is jammed."""
         binding=self.bindings.task_binding(task_id)
