@@ -1448,8 +1448,12 @@ class RoutingService:
             or target["project_id"]!=binding["project_id"]
             or target["device_id"]!=binding["device_id"]):
             raise DurableError("COMMAND_PROOF_IDENTITY_MISMATCH","target not bound to this task")
-        if target["state"] not in ("CANCELLED","IN_DOUBT") or int(target["delivery_attempt"])<=0:
-            raise DurableError("COMMAND_PROOF_INVALID_STATE","only uncertain delivered commands can be attested")
+        if (target["state"] not in ("QUEUED","LEASED","CANCELLED","IN_DOUBT")
+            or int(target["delivery_attempt"])<=0):
+            raise DurableError(
+                "COMMAND_PROOF_INVALID_STATE",
+                "only uncertain previously leased/delivered commands can be attested",
+            )
         args={"task_id":task_id,"target_command_id":target_command_id,
               "expected_request_hash":target["request_hash"],
               "expected_route_generation":int(target["route_generation"])}
