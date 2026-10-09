@@ -93,6 +93,13 @@ class NodeExecutor:
             )
             elif t=="JOB_CANCEL": result=await self.jobs.cancel(str(p["proxy_job_id"]),envelope["command_id"])
             elif t=="TASK_WORKTREE_CLEANUP": result={"task_id":str(p["task_id"]),"deferred":True}
+            elif t=="NODE_PROCESS_INSPECT":
+                import asyncio
+                from .process_diagnostic import inspect_windows_research_processes
+                pids=p.get("pids",[])
+                if not isinstance(pids,list):
+                    raise DurableError("INVALID_ARGUMENT","pids must be list")
+                result=await asyncio.to_thread(inspect_windows_research_processes,pids)
             elif t=="NODE_RESTART":
                 self.restart_requested=True
                 result={"device_id":self.jobs.device_id,"restart_requested":True}
