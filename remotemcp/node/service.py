@@ -164,6 +164,7 @@ class NodeService:
             "cache_dir":os.environ.get("REMOTEMCP_CACHE_DIR") or os.environ.get("XDG_CACHE_HOME"),
             "control_dir":os.environ.get("REMOTEMCP_CONTROL_DIR"),
             "zero_c_mode":os.environ.get("REMOTEMCP_ZERO_C")=="1",
+            "supported_node_diagnostics":["process_inspect_v1"],
         }
         if isinstance(process_safety,dict):
             out.update(process_safety)
