@@ -180,6 +180,8 @@ class CommandRepository:
                 + "ORDER BY CASE command_type "
                 "WHEN 'NODE_RESTART' THEN 0 "
                 "WHEN 'NODE_PROCESS_INSPECT' THEN -1 "
+                "WHEN 'NODE_COMMAND_ATTEST' THEN -1 "
+                "WHEN 'TASK_EVIDENCE_MANIFEST' THEN -1 "
                 "WHEN 'JOB_CANCEL' THEN 0 "
                 "WHEN 'TASK_BASE_RESOLVE' THEN 1 "
                 "WHEN 'TASK_WORKTREE_ENSURE' THEN 1 "
