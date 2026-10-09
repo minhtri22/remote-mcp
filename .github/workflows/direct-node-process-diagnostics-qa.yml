@@ -12,6 +12,8 @@ on:
       - "server.py"
       - "tests/test_node_direct_process_diagnostic_route.py"
       - "tests/test_gateway_pinned_node_dispatch_hold.py"
+      - "scripts/read_gateway_exact_receipts.py"
+      - "tests/test_gateway_offline_exact_receipts.py"
       - "scripts/Invoke-RemoteMCP-OOBInventory.ps1"
       - ".github/workflows/direct-node-process-diagnostics-qa.yml"
   workflow_dispatch:
@@ -46,8 +48,10 @@ jobs:
           server.py
           tests/test_node_direct_process_diagnostic_route.py
           tests/test_gateway_pinned_node_dispatch_hold.py
+          scripts/read_gateway_exact_receipts.py
+          tests/test_gateway_offline_exact_receipts.py
       - name: Bounded no-task Windows CIM diagnosis and gateway capability gate
-        run: python -m pytest -q tests/test_node_direct_process_diagnostic_route.py tests/test_gateway_pinned_node_dispatch_hold.py
+        run: python -m pytest -q tests/test_node_direct_process_diagnostic_route.py tests/test_gateway_pinned_node_dispatch_hold.py tests/test_gateway_offline_exact_receipts.py
       - name: Independent out-of-band read-only PowerShell capture QA
         if: runner.os == 'Windows'
         shell: pwsh
