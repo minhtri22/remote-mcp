@@ -689,3 +689,64 @@ def test_r5_exact_proxy_node_mapping_from_terminal_submit_journal(make_gateway,t
         assert node.journal.attest("cmd_bad_mapping","hash_bad_mapping",
             target["route_generation"],tid)["exact_routed_job_mapping"] is None
     asyncio.run(run())
+
+
+def test_exact_gateway_command_receipts_are_scoped_and_no_dispatch(make_gateway,tmp_path):
+    async def run():
+        g=make_gateway()
+        root=tmp_path/"gateway-exact-commands";root.mkdir()
+        init_git_repo(root/"repo","EXACT")
+        node,dev=await pair_node(g,root,tmp_path/"rt-exact","exact")
+        project=await drive(g,node,g.routing.project_register_on_device(
+            "p-exact",dev["device_id"],"repo",2))
+        t1=await drive(g,node,g.routing.task_create_or_local(
+            "t-exact-1",project["project_id"],"scope-a"))
+        t2=await drive(g,node,g.routing.task_create_or_local(
+            "t-exact-2",project["project_id"],"scope-b"))
+        row1,_=g.routing.commands.create(
+            dev["device_id"],"JOB_SUBMIT",
+            {"proxy_job_id":"rjob_existing_a","task_id":t1["task_id"]},
+            task_id=t1["task_id"],project_id=project["project_id"],
+        )
+        row2,_=g.routing.commands.create(
+            dev["device_id"],"JOB_SUBMIT",
+            {"proxy_job_id":"rjob_existing_b","task_id":t2["task_id"]},
+            task_id=t2["task_id"],project_id=project["project_id"],
+        )
+        with g.durable.db.transaction() as con:
+            con.execute(
+                "UPDATE device_commands SET state='LEASED',delivery_attempt=1 "
+                "WHERE command_id=?",(row1["command_id"],),
+            )
+        prior=g.routing.commands.get(row1["command_id"])
+        a=g.routing.task_exact_command_receipts_or_local(
+            t1["task_id"],[row1["command_id"],row2["command_id"]],
+        )
+        assert a["read_only"] is True
+        assert a["command_polled"] is False
+        assert a["science_job_rerun_authorized"] is False
+        assert a["node_upgrade_authorized"] is False
+        assert a["receipts"][0]["command_id"]==row1["command_id"]
+        assert a["receipts"][0]["request_hash"]==row1["request_hash"]
+        assert a["receipts"][0]["delivery_attempt"]==1
+        assert a["receipts"][0]["state"]=="LEASED"
+        assert a["receipts"][0]["proxy_job_id_in_payload"]=="rjob_existing_a"
+        assert a["receipts"][1]["state"]=="NOT_FOUND_OR_NOT_OWNED"
+        assert g.routing.commands.get(row1["command_id"])==prior
+        trace=g.routing.task_dispatch_diagnostic_or_local(t1["task_id"])
+        assert any(
+            x["command_id"]==row1["command_id"]
+            and x["request_hash"]==row1["request_hash"]
+            for x in trace["task_command_trace"]
+        )
+        with pytest.raises(DurableError) as e:
+            g.routing.task_exact_command_receipts_or_local(
+                t1["task_id"],[row1["command_id"],row1["command_id"]],
+            )
+        assert e.value.code=="INVALID_ARGUMENT"
+        with pytest.raises(DurableError) as e:
+            g.routing.task_exact_command_receipts_or_local(
+                "tsk_unbound", [row1["command_id"]],
+            )
+        assert e.value.code=="DEVICE_CONTEXT_REQUIRED"
+    asyncio.run(run())
