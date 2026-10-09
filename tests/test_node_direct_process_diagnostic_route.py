@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 import subprocess
 from types import SimpleNamespace
@@ -125,3 +126,12 @@ def test_gateway_rejects_bad_pids_before_any_side_effects():
         with pytest.raises(DurableError):
             asyncio.run(service.device_process_inspect("dev_machine1",value))
     service._route_step.assert_not_awaited()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Real Win32_Process CIM check only on Windows")
+def test_real_windows_cim_reports_existing_current_python_pid_read_only():
+    report = pd.inspect_windows_research_processes([os.getpid()])
+    assert report["status"] == "READ_ONLY_SNAPSHOT"
+    assert any(item["pid"] == os.getpid() for item in report["processes"])
+    assert report["mutation_performed"] is False
+    assert report["science_rerun_authorized"] is False
