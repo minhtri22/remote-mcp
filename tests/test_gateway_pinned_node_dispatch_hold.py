@@ -168,3 +168,43 @@ def test_old_node_rejects_readonly_agent_command_as_well_as_job(monkeypatch):
             )
     assert exc.value.code=="NODE_RELEASE_PIN_MISMATCH"
     assert db.conn.execute("SELECT COUNT(*) FROM device_commands").fetchone()[0]==0
+
+
+def test_persistent_gateway_pin_survives_legacy_watchdog_environment(tmp_path,monkeypatch):
+    import json
+
+    file=tmp_path/"gateway-config.json"
+    file.write_text(json.dumps({
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":SHA,
+        "hold_science_job_dispatch":False,
+    }),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(file))
+    monkeypatch.delenv("REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA",raising=False)
+    monkeypatch.setenv("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","0")
+    db=DB()
+    device=Devices("old")
+    config=SimpleNamespace(command_lease_seconds=30,mutation_ttl_seconds=120)
+    repo=CommandRepository(config,db,device)
+    assert repo.required_release_sha==SHA
+    assert repo.science_dispatch_hold is True
+    assert repo._science_dispatch_blocker("device1")=="NODE_RELEASE_PIN_MISMATCH"
+    device.sha=SHA
+    assert repo._science_dispatch_blocker("device1")=="SCIENCE_DISPATCH_QUARANTINED"
+
+
+def test_bad_durable_release_pin_is_startup_fatal(tmp_path,monkeypatch):
+    import json
+
+    file=tmp_path/"gateway-config.json"
+    file.write_text(json.dumps({
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":"bad",
+    }),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(file))
+    db=DB()
+    device=Devices("old")
+    config=SimpleNamespace(command_lease_seconds=30,mutation_ttl_seconds=120)
+    with pytest.raises(DurableError) as exc:
+        CommandRepository(config,db,device)
+    assert exc.value.code=="GATEWAY_RELEASE_PIN_INVALID"
