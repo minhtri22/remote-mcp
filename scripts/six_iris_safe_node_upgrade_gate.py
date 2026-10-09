@@ -111,6 +111,33 @@ def assess_upgrade_snapshot(snapshot: dict) -> dict:
             roots.append(pid)
     if len(roots) != 1:
         blockers.append("NODE_LOGICAL_ROOT_COUNT_NOT_ONE")
+    # An orphaned inner Python process must not masquerade as a healthy node
+    # root after its parent disappears. Exact PID and creation timestamp are
+    # pinned by the operator before the cutover. Never trust PID alone.
+    try:
+        pinned_node_root = int(expected["node_root_pid"])
+    except (KeyError, ValueError, TypeError):
+        pinned_node_root = None
+        blockers.append("PINNED_NODE_ROOT_IDENTITY_MISSING")
+    if pinned_node_root is not None:
+        if roots != [pinned_node_root]:
+            blockers.append("NODE_ROOT_PID_CHANGED_OR_ORPHANED")
+        actual_node = proc_by_id.get(pinned_node_root) or {}
+        if (not expected.get("node_root_created_at")
+            or str(actual_node.get("created_at")) != str(expected["node_root_created_at"])):
+            blockers.append("NODE_ROOT_CREATION_CHANGED_OR_UNVERIFIED")
+    try:
+        pinned_watchdog = int(expected["watchdog_pid"])
+    except (KeyError, ValueError, TypeError):
+        pinned_watchdog = None
+        blockers.append("PINNED_WATCHDOG_IDENTITY_MISSING")
+    if pinned_watchdog is not None:
+        if pinned_watchdog not in watchdog_pids:
+            blockers.append("WATCHDOG_PID_CHANGED_OR_ABSENT")
+        actual_watchdog = proc_by_id.get(pinned_watchdog) or {}
+        if (not expected.get("watchdog_created_at")
+            or str(actual_watchdog.get("created_at")) != str(expected["watchdog_created_at"])):
+            blockers.append("WATCHDOG_CREATION_CHANGED_OR_UNVERIFIED")
     for pid in node_pids:
         cmd = str(proc_by_id[pid].get("command_line") or "")
         if _winpath(expected.get("runtime_dir")) not in _winpath(cmd):
@@ -125,8 +152,9 @@ def assess_upgrade_snapshot(snapshot: dict) -> dict:
             continue
         if "ru0_c_u3_executor.py" not in str(p.get("command_line") or "").lower():
             blockers.append(f"PROTECTED_PROCESS_{pid}_IDENTITY_MISMATCH")
-        if not p.get("created_at"):
-            blockers.append(f"PROTECTED_PROCESS_{pid}_CREATION_UNVERIFIED")
+        frozen_creation = (expected.get("protected_created_at") or {}).get(str(pid))
+        if not frozen_creation or str(p.get("created_at")) != str(frozen_creation):
+            blockers.append(f"PROTECTED_PROCESS_{pid}_CREATION_MISMATCH")
         chain = set()
         current = pid
         while current:
