@@ -611,7 +611,7 @@ def test_r5_evidence_manifest_hashes_untracked_without_git_mutation(make_gateway
         evidence.write_bytes(content)
         # Ignore one real evidence file: it MUST still be hashed and retained.
         ignore_rule=worktree/".gitignore"
-        ignore_rule.write_text("*.secret\n",encoding="utf-8")
+        ignore_rule.write_bytes(b"*.secret\n")
         ignored=worktree/"IGNORED.secret"
         ignored_content=b"ignored-binary-science-evidence"
         ignored.write_bytes(ignored_content)
