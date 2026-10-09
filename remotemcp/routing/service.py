@@ -3856,7 +3856,7 @@ class RoutingService:
                 "source_dir","release_commit","execution_root","runtime_dir",
                 "schema_version","schema_sha256","python_prefix",
                 "infrastructure_root","log_dir","temp_dir","cache_dir",
-                "control_dir","zero_c_mode",
+                "control_dir","zero_c_mode","supported_node_diagnostics",
                 "physical_process_safety_resolved",
                 "physical_process_blocker_count",
                 "physical_process_residual_job_count",
@@ -3874,6 +3874,18 @@ class RoutingService:
                 if k in node_attestation
             }
             for key,value in node_attestation.items():
+                if key=="supported_node_diagnostics":
+                    # Exact signed-node capability is a bounded structured list, not a scalar.
+                    # Do not drop it: the release pin intentionally requires this proof.
+                    if (not isinstance(value,list) or len(value)>8
+                        or any(not isinstance(cap,str) or len(cap)>64
+                               or not cap.isascii() or not cap.isidentifier()
+                               for cap in value)
+                        or len(set(value))!=len(value)):
+                        raise DurableError(
+                            "INVALID_ARGUMENT","invalid signed node diagnostic capabilities",
+                        )
+                    continue
                 if value is not None and not isinstance(value,(str,int)):
                     raise DurableError("INVALID_ARGUMENT",f"invalid node attestation field: {key}")
                 if isinstance(value,str) and len(value)>16384:
