@@ -3,7 +3,8 @@ param(
     [string]$Ref = "origin/main",
     [int]$HealthTimeoutSec = 5,
     [switch]$SkipFetch,
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [string]$PinnedNodeReleaseSha = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -447,10 +448,97 @@ if ($PreflightOnly) {
     exit 0
 }
 
+# An optional guarded gateway promotion permanently prevents old node dispatch.
+# This guard remains effective even when an older watchdog starter does not
+# propagate environment variables, because CommandRepository reads the
+# preserved gateway-config.json directly.
+if ($PinnedNodeReleaseSha) {
+    if ($PinnedNodeReleaseSha -notmatch '^[0-9A-Fa-f]{40}
+$cfg | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $ConfigFile
+
+$RestartScript = Join-Path $NewSource "Restart-RemoteMCP-Gateway.ps1"
+if (-not (Test-Path $RestartScript)) {
+    Copy-Item -Force $BackupFile $ConfigFile
+    throw "New release is missing Restart-RemoteMCP-Gateway.ps1"
+}
+
+try {
+    & $RestartScript
+    if ($LASTEXITCODE -ne 0) { throw "Gateway restart returned non-zero" }
+
+    $TestScript = Join-Path $NewSource "Test-RemoteMCP-Gateway.ps1"
+    if (Test-Path $TestScript) {
+        & $TestScript
+        if ($LASTEXITCODE -ne 0) { throw "Post-upgrade local health test failed" }
+    }
+
+    $cfgAfter = Get-Content $ConfigFile -Raw | ConvertFrom-Json
+    if ([IO.Path]::GetFullPath([string]$cfgAfter.source_dir) -ne [IO.Path]::GetFullPath($NewSource)) {
+        throw "Post-upgrade source_dir verification failed"
+    }
+
+    Write-Host "REMOTEMCP_GATEWAY_UPGRADE=PASS"
+    Write-Host "Commit : $Commit"
+    Write-Host "Release: $NewSource"
+    Write-Host "Previous source retained: $OldSourceResolved"
+    Write-Host "Gateway durable runtime/state/device identities were reused."
+    Write-Host "Execution nodes were not restarted."
+} catch {
+    $UpgradeFailure = $_
+    $Stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+    $SavedLiveOut = Join-Path $Base ("gateway-upgrade-failed-" + $Short + "-" + $Stamp + ".stdout.log")
+    $SavedLiveErr = Join-Path $Base ("gateway-upgrade-failed-" + $Short + "-" + $Stamp + ".stderr.log")
+
+    if (Test-Path $LiveLogFile) { Copy-Item -Force $LiveLogFile $SavedLiveOut }
+    if (Test-Path $LiveErrFile) { Copy-Item -Force $LiveErrFile $SavedLiveErr }
+
+    Write-Warning ("Upgrade failed; preserved stdout: " + $SavedLiveOut)
+    Write-Warning ("Upgrade failed; preserved stderr: " + $SavedLiveErr)
+    if ($PinnedNodeReleaseSha) {
+        # Automatic rollback to a pre-gate gateway would silently reenable
+        # agents against legacy nodes. Preserve the pinned config and stop
+        # for manual recovery rather than starting unprotected old code.
+        Write-Warning "FAIL_CLOSED_PINNED_RELEASE: legacy auto-rollback forbidden"
+        Write-Warning ("Pinned config retained; original config backup: " + $BackupFile)
+        throw ("Gateway guarded upgrade failed without unsafe auto-rollback: " + $UpgradeFailure.Exception.Message)
+    }
+    Write-Warning ("Rolling gateway source_dir back to: " + $OldSourceResolved)
+
+    Copy-Item -Force $BackupFile $ConfigFile
+
+    $RollbackStarter = Join-Path $NewSource "Start-RemoteMCP-Gateway.ps1"
+    $RollbackFailure = $null
+    if (Test-Path $RollbackStarter) {
+        try {
+            & $RollbackStarter -Restart -HealthTimeoutSec $HealthTimeoutSec
+        } catch {
+            $RollbackFailure = $_.Exception.Message
+            Write-Warning ("Rollback restart also failed: " + $RollbackFailure)
+        }
+    } else {
+        $RollbackFailure = "candidate release is missing Start-RemoteMCP-Gateway.ps1"
+        Write-Warning ("Rollback restart also failed: " + $RollbackFailure)
+    }
+
+    if ($RollbackFailure) {
+        throw ("Gateway upgrade failed: " + $UpgradeFailure.Exception.Message + "; rollback restart failed: " + $RollbackFailure + "; preserved stderr: " + $SavedLiveErr)
+    }
+
+    throw $UpgradeFailure
+}
+) {
+        throw "Invalid exact pinned node release commit: expected 40 hex digits"
+    }
+}
 $BackupFile = Join-Path $Base ("gateway-config.pre-upgrade-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".json")
 Copy-Item -Force $ConfigFile $BackupFile
 
 $cfg.source_dir = $NewSource
+if ($PinnedNodeReleaseSha) {
+    $cfg | Add-Member -NotePropertyName node_release_gate_enabled -NotePropertyValue $true -Force
+    $cfg | Add-Member -NotePropertyName required_node_release_commit_sha -NotePropertyValue $PinnedNodeReleaseSha.ToLowerInvariant() -Force
+    $cfg | Add-Member -NotePropertyName hold_science_job_dispatch -NotePropertyValue $true -Force
+}
 $cfg | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $ConfigFile
 
 $RestartScript = Join-Path $NewSource "Restart-RemoteMCP-Gateway.ps1"
