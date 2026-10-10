@@ -2,7 +2,7 @@
 
 **Loại:** bằng chứng vận hành, không phải kết quả khoa học, không thuộc `Lineage.md`.
 **Nguồn gốc:** operator chạy `Invoke-V31-19-Lease-ReadOnly-Snapshot.ps1` trên `machine-1` lúc ~14:38 +07 ngày 2026-10-10, kiểm tra chéo bằng kết quả đọc tệp RemoteDesktop.
-**Tệp chính:** `D:\WORK\RESEARCH\.remotemcp\machine-1\control\v31-19-leases-20261010-143838-8ed63c72.json`.
+**Tệp chính:** `<PRIVATE_RESEARCH_ROOT>\.remotemcp\machine-1\control\v31-19-leases-20261010-143838-8ed63c72.json`.
 **Snapshot time:** `1791617918286` ms; **digest SHA-256 của danh sách 19 hàng**: `9d316322454b5894a3093688d8a0b7090e221312b70153c6bf2ba038016fdd85`.
 **Bản chương trình phân loại:** `tools/v31_readonly_lease_classifier.py`, Git blob `0aa45857cb8911a694497fd8e088a41856d72600`. Kiểm thử tổng hợp Windows/Linux 2/2 PASS trên PR #72.
 
