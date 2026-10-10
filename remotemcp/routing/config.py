@@ -14,7 +14,10 @@ class RoutingConfig:
     heartbeat_seconds: int = 15
     offline_after_seconds: int = 60
     physical_process_max_age_seconds: int = 45
-    poll_long_wait_seconds: int = 25
+    # Keep signed node polls below intermediary HTTP idle deadlines.
+    # Long-lived empty polls were being reset upstream, delaying the next
+    # command delivery by reconnect backoff and exceeding tool wait budgets.
+    poll_long_wait_seconds: int = 2
     command_lease_seconds: int = 45
     mutation_ttl_seconds: int = 120
     gateway_wait_seconds: int = 55
