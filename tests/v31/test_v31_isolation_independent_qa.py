@@ -77,6 +77,11 @@ def test_public_code_does_not_embed_operational_identifiers_or_enable_by_default
     assert controller.count("exclusion") >= 5
     assert "before_create" in controller
     assert "JOB_RECOVER_ROUTED_JOB" in isolation
+    jobs=(root/"remotemcp/routing/routed_jobs.py").read_text(encoding="utf-8")
+    service=(root/"remotemcp/routing/service.py").read_text(encoding="utf-8")
+    assert "self._reject_protected(proxy_job_id=proxy_job_id)" in jobs
+    assert "self._reject_protected(operation_id=operation_id)" in jobs
+    assert "RoutedJobRepository(self.db,isolation=self.commands.isolation)" in service
     assert "private_manifest" in isolation
     assert "verify(signature" in isolation
     assert "REMOTEMCP_V31_EXPIRED_ISOLATION_" in controller
