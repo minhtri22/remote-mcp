@@ -79,7 +79,7 @@ def test_signed_pair_is_eligible_for_review_but_never_deploy_permission():
     "signature_tamper","too_close","stale","wrong_release",
     "unexpired_command","physical_job","unresolved_job",
     "replay","process_changed","changed_fingerprint","no_trust",
-    "not_singleton","not_fresh","anchor_mismatch",
+    "not_singleton","not_fresh","anchor_mismatch","bad_timestamp","bad_route",
 ])
 def test_fail_closed_panel_synthetic_cases(case):
     key,evidence=panel()
@@ -112,6 +112,10 @@ def test_fail_closed_panel_synthetic_cases(case):
         x["physical_process_singleton"]=2
     elif case=="not_fresh":
         x["capacity_signal_fresh"]=False
+    elif case=="bad_timestamp":
+        x["observed_at_ms"]="2026-not-a-timestamp"
+    elif case=="bad_route":
+        x["route_generation"]="1"
     if case not in ("signature_tamper","no_trust"):
         resigned(key,evidence,1)
     anchor=base64.b64encode(key.public_key().public_bytes(
