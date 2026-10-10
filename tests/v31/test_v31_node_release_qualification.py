@@ -79,7 +79,7 @@ def test_signed_pair_is_eligible_for_review_but_never_deploy_permission():
     "signature_tamper","too_close","stale","wrong_release",
     "unexpired_command","physical_job","unresolved_job",
     "replay","process_changed","changed_fingerprint","no_trust",
-    "not_singleton","not_fresh",
+    "not_singleton","not_fresh","anchor_mismatch",
 ])
 def test_fail_closed_panel_synthetic_cases(case):
     key,evidence=panel()
@@ -106,6 +106,8 @@ def test_fail_closed_panel_synthetic_cases(case):
         x["device_key_fingerprint_sha256"]="f"*64
     elif case=="no_trust":
         evidence.pop("trusted_node_public_key_b64")
+    elif case=="anchor_mismatch":
+        evidence["trusted_node_public_key_b64"]=base64.b64encode(b"z"*32).decode()
     elif case=="not_singleton":
         x["physical_process_singleton"]=2
     elif case=="not_fresh":
@@ -117,7 +119,8 @@ def test_fail_closed_panel_synthetic_cases(case):
         format=serialization.PublicFormat.Raw,
     )).decode()
     result=evaluate_private_signed_pair(
-        evidence,now_ms=NOW,pinned_trust_anchor_b64=anchor,
+        evidence,now_ms=NOW,
+        pinned_trust_anchor_b64=(None if case=="no_trust" else anchor),
     )
     assert result["verdict"]=="HOLD"
     assert result["operator_authorized"] is False
