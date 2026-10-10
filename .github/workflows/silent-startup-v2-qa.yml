@@ -42,7 +42,7 @@ jobs:
           foreach($s in @('REMOTEMCP_SILENT_STARTUP_AUDIT=PASS','REMOTEMCP_SILENT_STARTUP_APPLY=PASS','REMOTEMCP_SILENT_STARTUP_VERIFY=PASS')) {
             if(-not $installer.Contains($s)) { throw "MISSING_RESULT_MARKER: $s" }
           }
-          foreach($s in @('NODE_PRESENT_WATCHDOG_ABSENT_HOLD_NO_RESTART','SCIENCE_QUARANTINE_OR_RELEASE_GATE_NOT_ENFORCED','silent-bootstrap.jsonl','-WindowStyle Hidden')) {
+          foreach($s in @('NODE_PRESENT_WATCHDOG_ABSENT_HOLD_NO_RESTART','GATEWAY_RELEASE_GUARD_INVALID','silent-bootstrap.jsonl','-WindowStyle Hidden')) {
             if(-not $bootstrap.Contains($s)) { throw "MISSING_BOOT_GUARD: $s" }
           }
           if($bootstrap -match '(?i)Stop-Process|device_pair_begin|job_submit|hold_science_job_dispatch\s*=\s*\$false') {
