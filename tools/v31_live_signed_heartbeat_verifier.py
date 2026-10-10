@@ -10,6 +10,9 @@ import base64
 import hashlib
 import json
 import re
+import sys
+import time
+from pathlib import Path
 from typing import Any
 
 from remotemcp.durable.errors import DurableError
@@ -141,3 +144,39 @@ def evaluate_raw_signed_heartbeat_pair(
         "operator_authorized":False,
         "production_deployment_permitted":False,
     }
+
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Review a private capture locally; do not upload signatures to GitHub."""
+    argv=list(sys.argv[1:] if argv is None else argv)
+    if len(argv)!=3:
+        print("Usage: python -m tools.v31_live_signed_heartbeat_verifier "
+              "PRIVATE_RAW_CAPTURE.json EXTERNAL_PUBKEY_B64_FILE PUBKEY_FILE_SHA256",
+              file=sys.stderr)
+        return 2
+    capture_path,pubkey_path,anchor_sha256=argv
+    try:
+        raw_key=Path(pubkey_path).read_bytes()
+        if not HEX64.fullmatch(anchor_sha256) or (
+                hashlib.sha256(raw_key).hexdigest()!=anchor_sha256):
+            print(json.dumps({"node_signed_pair":"HOLD","release_gate":"HOLD",
+                              "blockers":["INDEPENDENT_TRUST_FILE_HASH_MISMATCH"]}))
+            return 1
+        capture=json.loads(Path(capture_path).read_text(encoding="utf-8"))
+        result=evaluate_raw_signed_heartbeat_pair(
+            capture,pinned_node_public_key_b64=raw_key.decode("ascii").strip(),
+            now_ms=time.time_ns()//1_000_000,
+        )
+    except (OSError,ValueError,TypeError,UnicodeError) as exc:
+        print(json.dumps({"node_signed_pair":"HOLD","release_gate":"HOLD",
+                          "blockers":["PRIVATE_INPUT_INVALID"]}))
+        return 1
+    print(json.dumps(result,sort_keys=True))
+    # Node-only proof, even if cryptographically valid, never means
+    # release authorization: gateway/ledger/operator proof remains separate.
+    return 1
+
+
+if __name__=="__main__":
+    raise SystemExit(main())
