@@ -94,6 +94,8 @@ class ProcessSafetyProbe:
             errors="replace",
             timeout=20,
             check=False,
+            # Suppress Windows Terminal/PowerShell popup on headless node probes.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if proc.returncode!=0:
             raise RuntimeError("windows process enumeration failed")
