@@ -9,9 +9,9 @@
 | Gateway sản xuất sau nâng cấp | `ef9f81f05ea2be9116751280340c47bd05d908ad` — bounded HTTP poll 2 giây |
 | Node được ghim, không đổi | `dabce9a76502dbae541a0eddff0096fb8dfe908a` |
 | Gateway cũ (đối chứng) | `9f10cec250a9a266daa073ebd0df31ea16727f39` |
-| Thiết bị | `dev_dd73ebfa742f468f2d212bade88c175b`; `machine-1`; generation `1` |
+| Thiết bị | `<PINNED_DEVICE_ID>`; `machine-1`; generation `1` |
 | Khóa công khai (fingerprint SHA-256) | `b657d5395e393e0957a9ed358bb5a1fe1588fde5d3a44be71295a68d1e73def9` |
-| Bằng chứng đối soát đã đóng băng | `D:\WORK\RESEARCH\.remotemcp\machine-1\control\v31-managed-route-post-promotion-20261010-121336-f0299cb4.json` |
+| Bằng chứng đối soát đã đóng băng | `<PRIVATE_RESEARCH_ROOT>\.remotemcp\machine-1\control\v31-managed-route-post-promotion-20261010-121336-f0299cb4.json` |
 | Hành vi hậu nâng gateway | Lượt `TASK_LIST_DIR` có `cmd_7bd71476d51c94ce8d39a18b859fb892`, tạo→node nhận **50.459 ms**, gateway/node cùng `SUCCEEDED`, nhưng lời gọi quản lý thất bại sau ~62,6 giây (`DEVICE_COMMAND_PENDING`) |
 | Thử PowerShell bảo trì | `cmd_270b172acdfca595d84c241f4c37fcba`, node nhận sau **2.359 ms**, gateway/node cùng `FAILED/COMMAND_NOT_ALLOWED` |
 | Hàng lệnh lịch sử tại bản chụp | **19 `LEASED`**, tất cả lệnh trạng thái `QUEUED/LEASED` còn hiệu lực **0** tại bản chụp vận hành trước đó; chưa có phân loại 19 bản ghi một-một |
@@ -48,7 +48,7 @@ Mỗi `poll_cycle` có các trường:
 Gateway tương ứng đo:
 `request_received_utc_ms`, `auth_duration_ms`, `command_poll_db_duration_ms`, `lease_transition_duration_ms`, `http_respond_duration_ms`, `gateway_command_created_utc_ms`, `wait_duration_ms`, `terminal_receipt_utc_ms`, `command_id`, `request_hash`, `delivery_attempt`.
 
-**Bảo mật:** nhật ký chỉ được chứa IDs, mã lỗi, thời lượng, status và digest; không in `Authorization`, chữ ký, public/private key material, `lease_token`, `argv` bí mật, payload, env, path nhạy cảm, stdout/stderr của job khoa học. Có `source_sha256`, số sự kiện, bản đồ các khóa và dấu vết host trước/sau. Tệp log mới trong `D:\WORK\RESEARCH\.remotemcp\machine-1\control\` với nhãn độc lập và không sửa các tệp cũ.
+**Bảo mật:** nhật ký chỉ được chứa IDs, mã lỗi, thời lượng, status và digest; không in `Authorization`, chữ ký, public/private key material, `lease_token`, `argv` bí mật, payload, env, path nhạy cảm, stdout/stderr của job khoa học. Có `source_sha256`, số sự kiện, bản đồ các khóa và dấu vết host trước/sau. Tệp log mới trong `<PRIVATE_RESEARCH_ROOT>\.remotemcp\machine-1\control\` với nhãn độc lập và không sửa các tệp cũ.
 
 **Lỗi SQLite:** `sqlite3.OperationalError: locking protocol` phải được phân loại riêng (khác `SQLITE_BUSY`, `SQLITE_LOCKED`, `database is locked`, `disk I/O`). Nếu cần retry ở nhánh triển khai, chỉ thử với **read-only capacity_snapshot** và backoff hữu hạn; tuyệt đối không retry mutation, command receipt, `job_submit`, hoặc suy diễn trạng thái công việc. Trường `capacity_unresolved` phải fail-closed, không báo capacity=0 từ lỗi đọc.
 
@@ -73,7 +73,7 @@ Khi phân loại `LEASED`, **thời điểm hết hạn lệnh** là `command_ex
 
 ## 4. Kênh bảo trì giới hạn năng lực (thiết kế, chưa kích hoạt)
 
-Giữ dự án `prj_5d111640140f57b6fb635537`, task `tsk_98ca0b059863f25a3b2b8d08` và root được phép `D:\WORK\RESEARCH\_REMOTEMCP_MAINTENANCE`. Agent bảo trì `agt_c49141b8185de3a87ad9f63041540c04` là đối tượng đã đăng ký, **không có lease hiện hành**. Không coi điều này là một shell hay một lối tắt bảo mật.
+Giữ dự án `prj_5d111640140f57b6fb635537`, task `tsk_98ca0b059863f25a3b2b8d08` và root được phép `<PRIVATE_RESEARCH_ROOT>\_REMOTEMCP_MAINTENANCE`. Agent bảo trì `<DEDICATED_MAINTENANCE_AGENT_ID>` là đối tượng đã đăng ký, **không có lease hiện hành**. Không coi điều này là một shell hay một lối tắt bảo mật.
 
 - Thêm **một API command loại `MAINTENANCE_OPERATION`** (đề xuất, CHƯA TRIỂN KHAI); receiver so khớp `device_id`, `project_id`, root, `approved_operation_id`, `script_sha256`, `capability_id`, `expiry`, nonce chống phát lại, đúng signing route generation và thế hệ lease task; mặc định DENY.
 - Registry chỉ có thao tác được đóng băng từ trước (`read_only_status`, `read_only_receipts`, `gateway_preflight`, `gateway_promote` có phê duyệt riêng và an toàn node, `admission_audit`), mỗi thao tác mapping đến script *và* argv profile cố định; không nhận arbitrary `argv`, `-Command`, `-EncodedCommand`, `Invoke-Expression`, wildcards hay symlink/junction escape.
