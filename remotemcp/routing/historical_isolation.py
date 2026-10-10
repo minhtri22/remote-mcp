@@ -191,9 +191,14 @@ class ExpiredFourIsolation:
                 raise DurableError("HISTORICAL_COMMAND_PROTECTED", "protected operation cannot be revived or replaced")
             if any(alias==operation_id for alias, _ in self.aliases):
                 raise DurableError("AMBIGUOUS_REPLACEMENT_HOLD", "protected operation cannot be continued with a different step")
-        if command_type in {"JOB_SUBMIT","JOB_RECOVER_ROUTED_JOB"}:
-            if isinstance(payload,dict) and payload.get("proxy_job_id") in self.proxys:
-                raise DurableError("HISTORICAL_COMMAND_PROTECTED","protected job proxy cannot be recovered or resubmitted")
+        # Any command targeting an uncertain protected proxy may change node
+        # job state, even a nominal GET/RESULT via its gateway side-effects.
+        # Fail closed before command creation for all proxy-bearing types.
+        if isinstance(payload,dict) and payload.get("proxy_job_id") in self.proxys:
+            raise DurableError(
+                "HISTORICAL_COMMAND_PROTECTED",
+                "uncertain historical job proxy is quarantined from all routed commands",
+            )
         # Unscoped identical replay has no independent operation identity.
         if operation_id is None and command_type in PROTECTED_TYPES and any(
             t["command_type"]==command_type
