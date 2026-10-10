@@ -74,6 +74,7 @@ def test_public_code_does_not_embed_operational_identifiers_or_enable_by_default
     assert "if any(v is not None for v in isolation_vars)" in controller
     assert "ExpiredFourIsolation.load_signed" in controller
     assert "self.isolation.assert_bound(con,device_id)" in controller
+    assert "self.isolation.assert_no_pending_proxy_aliases(con,device_id)" in controller
     assert controller.count("exclusion") >= 5
     assert "before_create" in controller
     assert "JOB_RECOVER_ROUTED_JOB" in isolation
