@@ -38,7 +38,7 @@ class RoutingService:
         self.verifier=SignedRequestVerifier(config,self.db,self.devices)
         self.commands=CommandRepository(config,self.db,self.devices)
         self.bindings=BindingRepository(self.db,self.devices)
-        self.routed_jobs=RoutedJobRepository(self.db)
+        self.routed_jobs=RoutedJobRepository(self.db,isolation=self.commands.isolation)
         self.job_admissions=multiagent.job_admissions
         self._stop=asyncio.Event();self._task=None
 
