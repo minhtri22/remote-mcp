@@ -6,6 +6,7 @@ fixtures can exercise the verifier but never establish live authorization.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 import re
@@ -29,7 +30,8 @@ HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
-def evaluate_private_signed_pair(evidence: dict, *, now_ms: int) -> dict:
+def evaluate_private_signed_pair(evidence: dict, *, now_ms: int,
+                                 pinned_trust_anchor_b64: str | None = None) -> dict:
     """Fail closed; PASS means *eligible for operator review* only."""
     blockers: list[str] = []
 
@@ -38,12 +40,17 @@ def evaluate_private_signed_pair(evidence: dict, *, now_ms: int) -> dict:
                 "operator_authorized": False}
     expected = evidence.get("expected")
     snapshots = evidence.get("snapshots")
-    key_b64 = evidence.get("trusted_node_public_key_b64")
+    # The trust anchor must be supplied independently of the evidence.
+    # An attacker must not self-authorize by embedding their own public key.
+    key_b64 = pinned_trust_anchor_b64
     if not isinstance(expected, dict) or not isinstance(snapshots, list) or len(snapshots) != 2:
         return {"verdict": "HOLD", "blockers": ["EVIDENCE_INCOMPLETE"],
                 "operator_authorized": False}
     if not isinstance(key_b64, str):
-        return {"verdict": "HOLD", "blockers": ["TRUST_ANCHOR_MISSING"],
+        return {"verdict": "HOLD", "blockers": ["EXTERNAL_TRUST_ANCHOR_REQUIRED"],
+                "operator_authorized": False}
+    if evidence.get("trusted_node_public_key_b64") not in (None,key_b64):
+        return {"verdict": "HOLD", "blockers": ["TRUST_ANCHOR_MISMATCH"],
                 "operator_authorized": False}
     try:
         key = Ed25519PublicKey.from_public_bytes(base64.b64decode(key_b64, validate=True))
@@ -115,12 +122,22 @@ def evaluate_private_signed_pair(evidence: dict, *, now_ms: int) -> dict:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("Usage: python -m tools.v31_node_release_qualifier PRIVATE_EVIDENCE.json",
+    if len(sys.argv) != 4:
+        print("Usage: python -m tools.v31_node_release_qualifier "
+              "PRIVATE_EVIDENCE.json TRUST_ANCHOR_B64_FILE INDEPENDENT_ANCHOR_FILE_SHA256",
               file=sys.stderr)
         return 2
+    anchor_raw=Path(sys.argv[2]).read_bytes()
+    claimed_digest=sys.argv[3]
+    if not HEX64.fullmatch(claimed_digest) or hashlib.sha256(anchor_raw).hexdigest()!=claimed_digest:
+        print(json.dumps({"verdict":"HOLD","blockers":["TRUST_ANCHOR_FILE_HASH_MISMATCH"],
+                          "operator_authorized":False}))
+        return 1
     raw=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-    result=evaluate_private_signed_pair(raw,now_ms=__import__("time").time_ns()//1_000_000)
+    result=evaluate_private_signed_pair(
+        raw,now_ms=__import__("time").time_ns()//1_000_000,
+        pinned_trust_anchor_b64=anchor_raw.decode("ascii").strip(),
+    )
     print(json.dumps(result,sort_keys=True))
     return 0 if result["verdict"]=="REVIEW_ELIGIBLE" else 1
 
