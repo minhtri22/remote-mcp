@@ -64,7 +64,10 @@ def resigned(key,evidence,index):
 
 def test_signed_pair_is_eligible_for_review_but_never_deploy_permission():
     _,evidence=panel()
-    verdict=evaluate_private_signed_pair(evidence,now_ms=NOW)
+    verdict=evaluate_private_signed_pair(
+        evidence,now_ms=NOW,
+        pinned_trust_anchor_b64=evidence["trusted_node_public_key_b64"],
+    )
     assert verdict["verdict"]=="REVIEW_ELIGIBLE"
     assert verdict["signed_snapshots_verified"]==2
     assert verdict["operator_authorized"] is False
@@ -109,7 +112,13 @@ def test_fail_closed_panel_synthetic_cases(case):
         x["capacity_signal_fresh"]=False
     if case not in ("signature_tamper","no_trust"):
         resigned(key,evidence,1)
-    result=evaluate_private_signed_pair(evidence,now_ms=NOW)
+    anchor=base64.b64encode(key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )).decode()
+    result=evaluate_private_signed_pair(
+        evidence,now_ms=NOW,pinned_trust_anchor_b64=anchor,
+    )
     assert result["verdict"]=="HOLD"
     assert result["operator_authorized"] is False
 
