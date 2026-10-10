@@ -9,6 +9,7 @@ import argparse
 import json
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED", "IN_DOUBT"}
@@ -50,7 +51,7 @@ def audit(gateway_db: Path, node_db: Path, device_id: str, task_ids: list[str]) 
     if any(not t.startswith("tsk_") for t in task_ids):
         raise ValueError("TASK_ID_FORMAT_UNEXPECTED")
     now = time.time_ns() // 1_000_000
-    with ro(gateway_db) as gw, ro(node_db) as nd:
+    with closing(ro(gateway_db)) as gw, closing(ro(node_db)) as nd:
         placeholders = ",".join("?" for _ in task_ids)
         commands = gw.execute(
             "SELECT command_id,task_id,operation_id,command_type,state,delivery_attempt,"
