@@ -299,6 +299,13 @@ def test_iso07_executing_receipt_is_never_marked_terminal(harness):
     assert before[-1]["command_type"]=="TASK_BASE_RESOLVE"
     assert before[-1]["state"]=="LEASED"
     assert repo.poll(DEVICE,1) is None
+    # A late signed terminal ACK must never rewrite the historical row.
+    old_request_hash = db.snapshot(protect_ids(repo))[-1]["request_hash"]
+    assert_denied("HISTORICAL_COMMAND_PROTECTED", lambda:
+        repo.commit_result(
+            DEVICE, 1, repo.isolation.ids[-1],
+            {"request_hash": old_request_hash, "state": "SUCCEEDED", "result": {}},
+        ))
     check_unchanged(repo,db,before)
 
 
