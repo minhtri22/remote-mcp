@@ -180,6 +180,27 @@ class ExpiredFourIsolation:
                 if proxy!=t["proxy_job_id"]:
                     _hold("protected job proxy alias drift")
 
+    def assert_no_pending_proxy_aliases(self, con, device_id: str) -> None:
+        """Fail closed if a command queued before activation targets a protected job."""
+        if device_id != self.device_id:
+            return
+        rows=con.execute(
+            "SELECT command_id,payload_json FROM device_commands "
+            "WHERE device_id=? AND state IN ('QUEUED','LEASED')",
+            (device_id,),
+        ).fetchall()
+        for row in rows:
+            if row["command_id"] in self.bindings:
+                continue
+            try:
+                payload=json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                _hold("pending command payload is not parseable under isolation")
+            if not isinstance(payload, dict):
+                _hold("pending command payload is not an object")
+            if payload.get("proxy_job_id") in self.proxys:
+                _hold("pre-existing pending command aliases a protected job proxy")
+
     def before_create(self, con, device_id: str, generation: int,
                       command_type: str, payload: dict, request_hash: str,
                       operation_id: str | None, operation_step: int) -> None:
