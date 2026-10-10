@@ -80,7 +80,7 @@ def test_unauthorized_or_incomplete_capture_is_fail_closed(problem):
     elif problem=="bad_operator_signature": permit["signature_b64"]="AA=="
     elif problem=="self_signed_operator":
         other=Ed25519PrivateKey.generate()
-        operator_pub=b64u(other.public_key().public_bytes_raw())
+        # Keep the independently pinned operator key; forged signatures fail.
         signed(other,permit)
     elif problem=="expired_permit": permit["payload"]["expires_at_ms"]=NOW-1
     elif problem=="long_permit": permit["payload"]["expires_at_ms"]=NOW+1_000_000
