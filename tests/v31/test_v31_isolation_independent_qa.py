@@ -77,7 +77,10 @@ def test_public_code_does_not_embed_operational_identifiers_or_enable_by_default
     assert "self.isolation.assert_no_pending_proxy_aliases(con,device_id)" in controller
     assert controller.count("exclusion") >= 5
     assert "before_create" in controller
-    assert "JOB_RECOVER_ROUTED_JOB" in isolation
+    # All proxy-bearing command types (including recovery, GET and CANCEL)
+    # must be rejected by identity; testing for one literal type misses this.
+    assert 'payload.get("proxy_job_id") in self.proxys' in isolation
+    assert "assert_no_pending_proxy_aliases" in isolation
     jobs=(root/"remotemcp/routing/routed_jobs.py").read_text(encoding="utf-8")
     service=(root/"remotemcp/routing/service.py").read_text(encoding="utf-8")
     assert "self._reject_protected(proxy_job_id=proxy_job_id)" in jobs
