@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "scripts/agent-recovery/Invoke-RemoteMCP-BoundedPoll-GatewayPromotion.ps1"
+      - "scripts/agent-recovery/reconcile_one_dead_node_job.py"
       - ".github/workflows/bounded-poll-promotion-guard-qa.yml"
   workflow_dispatch:
 
@@ -46,3 +47,29 @@ jobs:
             throw 'UNSAFE_INFRA_PROMOTION_SIDE_EFFECT'
           }
           Write-Host 'BOUNDED_POLL_GUARDED_PROMOTION_STATIC=PASS'
+
+      - name: Exact dead-job recovery script syntax and non-destructive contract
+        shell: powershell
+        run: |
+          python -m py_compile scripts/agent-recovery/reconcile_one_dead_node_job.py
+          $code = Get-Content -LiteralPath 'scripts/agent-recovery/reconcile_one_dead_node_job.py' -Raw
+          foreach($token in @(
+            'PINNED_NODE_CODE_MISMATCH',
+            'EXACT_NODE_JOB_OR_PROXY_MAPPING_MISSING',
+            'JOB_IDENTITY_OR_TASK_PROVENANCE_MISMATCH',
+            'OTHER_NONTERMINAL_JOBS_EXIST',
+            'OTHER_NONTERMINAL_ROUTED_JOBS_EXIST',
+            'WORKER_PROCESS_IS_STILL_ALIVE',
+            'PAYLOAD_PROCESS_IS_STILL_ALIVE',
+            'TARGET_JOB_CHANGED_BETWEEN_AUDIT_AND_RECONCILIATION',
+            'pre_mutation_sqlite_backup',
+            'science_replay_authorized',
+            'ReconcileDead',
+            'TARGET_JOB_TERMINALIZED'
+          )) {
+            if(-not $code.Contains($token)){throw "DEAD_JOB_RECONCILIATION_CONTRACT_MISSING: $token"}
+          }
+          if($code -match '(?i)Stop-Process|task_job_submit|kill\(|terminate\(|shutil\.rmtree|unlink\('){
+            throw 'UNSAFE_DEAD_JOB_RECONCILER'
+          }
+          Write-Host 'EXACT_DEAD_JOB_RECONCILIATION_STATIC=PASS'
