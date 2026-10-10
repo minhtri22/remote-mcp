@@ -43,8 +43,263 @@ try {
         $cfg.hold_science_job_dispatch -isnot [bool]) {
         throw 'GATEWAY_RELEASE_GUARD_INVALID'
     }
-    $release = [string]$cfg.source_dir
+    $gatewayRelease = [string]$cfg.source_dir
     $sha = [string]$cfg.required_node_release_commit_sha
+    if ($gatewayRelease -notmatch '^D:\\2\.RemoteMCP-releases\\[A-Za-z0-9_-]+
+
+    # Correctly escaped VBScript Run string. 0 = hidden; False = no blocking.
+    $cmd = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $bootstrap + '"'
+    $vbsText = 'Set sh = CreateObject("WScript.Shell")' + [Environment]::NewLine +
+        'sh.Run "' + $cmd.Replace('"','""') + '", 0, False' + [Environment]::NewLine
+    $expectedBytes = [System.Text.Encoding]::UTF8.GetBytes($vbsText)
+
+    if ($Mode -eq 'Audit') {
+        Write-Host 'PACKAGE_NONEMPTY=PASS'
+        Write-Host "LEGACY_CMD_EXISTS=$([bool](Test-Path -LiteralPath $legacyCmd))"
+        Write-Host "SILENT_VBS_EXISTS=$([bool](Test-Path -LiteralPath $newVbs))"
+        Write-Host "EXACT_RELEASE=$sha"
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_AUDIT=PASS'
+        exit 0
+    }
+
+    if ($Mode -eq 'Apply') {
+        New-Item -ItemType Directory -Path $control,$logDir -Force | Out-Null
+        if (Test-Path -LiteralPath $legacyCmd -PathType Leaf) {
+            $old = Get-Content -LiteralPath $legacyCmd -Raw
+            if ($old -notmatch 'Watch-RemoteMCP-Node\.ps1' -or
+                $old -notmatch [regex]::Escape($runtime) -or
+                $old -notmatch [regex]::Escape($release)) {
+                throw 'LEGACY_STARTUP_UNRECOGNIZED_NO_MODIFICATION'
+            }
+        }
+        if (Test-Path -LiteralPath $newVbs -PathType Leaf) {
+            if ((Get-Content -LiteralPath $newVbs -Raw) -ne $vbsText) {
+                throw 'EXISTING_SILENT_STARTUP_DIFFERS_NO_OVERWRITE'
+            }
+        } else {
+            $temp = Join-Path $startupDir ($name + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+            [System.IO.File]::WriteAllBytes($temp,$expectedBytes)
+            try { Move-Item -LiteralPath $temp -Destination $newVbs -ErrorAction Stop }
+            finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
+        }
+        # Retire only the exact previous launcher; never kill a running process.
+        if (Test-Path -LiteralPath $legacyCmd -PathType Leaf) {
+            $backup = Join-Path $control ('startup-legacy-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' +
+                [guid]::NewGuid().ToString('N').Substring(0,8) + '.cmd')
+            Copy-Item -LiteralPath $legacyCmd -Destination $backup -ErrorAction Stop
+            Remove-Item -LiteralPath $legacyCmd -ErrorAction Stop
+            Write-Host "LEGACY_CMD_BACKUP=$backup"
+        }
+        $logLine = [ordered]@{
+            utc = [DateTimeOffset]::UtcNow.ToString('o')
+            event = 'SILENT_STARTUP_INSTALL'
+            release = $sha
+            startup = $newVbs
+            node_restarted = $false
+            gateway_changed = $false
+            science_dispatch_released = $false
+        } | ConvertTo-Json -Compress
+        Add-Content -LiteralPath (Join-Path $logDir 'silent-bootstrap-install.jsonl') -Value $logLine -Encoding UTF8
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_APPLY=PASS'
+        exit 0
+    }
+
+    if ($Mode -eq 'Verify') {
+        if (-not (Test-Path -LiteralPath $newVbs -PathType Leaf)) {
+            throw 'SILENT_VBS_NOT_INSTALLED'
+        }
+        if (Test-Path -LiteralPath $legacyCmd) {
+            throw 'DUPLICATE_LEGACY_STARTUP_STILL_PRESENT'
+        }
+        $actualBytes = [System.IO.File]::ReadAllBytes($newVbs)
+        if ([Convert]::ToBase64String($actualBytes) -ne
+            [Convert]::ToBase64String($expectedBytes)) {
+            throw 'SILENT_VBS_CONTENT_MISMATCH'
+        }
+        Write-Host "SILENT_STARTUP_FILE=$newVbs"
+        Write-Host 'STARTUP_REGISTRATION=VERIFIED'
+        Write-Host 'SILENT_EXECUTION_AFTER_NEXT_LOGON=NOT_YET_TESTED'
+        Write-Host 'SCIENCE_DISPATCH=STILL_QUARANTINED'
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_VERIFY=PASS'
+        exit 0
+    }
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+ -or
+        $sha -notmatch '^[0-9a-f]{40}
+
+    # Correctly escaped VBScript Run string. 0 = hidden; False = no blocking.
+    $cmd = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $bootstrap + '"'
+    $vbsText = 'Set sh = CreateObject("WScript.Shell")' + [Environment]::NewLine +
+        'sh.Run "' + $cmd.Replace('"','""') + '", 0, False' + [Environment]::NewLine
+    $expectedBytes = [System.Text.Encoding]::UTF8.GetBytes($vbsText)
+
+    if ($Mode -eq 'Audit') {
+        Write-Host 'PACKAGE_NONEMPTY=PASS'
+        Write-Host "LEGACY_CMD_EXISTS=$([bool](Test-Path -LiteralPath $legacyCmd))"
+        Write-Host "SILENT_VBS_EXISTS=$([bool](Test-Path -LiteralPath $newVbs))"
+        Write-Host "EXACT_RELEASE=$sha"
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_AUDIT=PASS'
+        exit 0
+    }
+
+    if ($Mode -eq 'Apply') {
+        New-Item -ItemType Directory -Path $control,$logDir -Force | Out-Null
+        if (Test-Path -LiteralPath $legacyCmd -PathType Leaf) {
+            $old = Get-Content -LiteralPath $legacyCmd -Raw
+            if ($old -notmatch 'Watch-RemoteMCP-Node\.ps1' -or
+                $old -notmatch [regex]::Escape($runtime) -or
+                $old -notmatch [regex]::Escape($release)) {
+                throw 'LEGACY_STARTUP_UNRECOGNIZED_NO_MODIFICATION'
+            }
+        }
+        if (Test-Path -LiteralPath $newVbs -PathType Leaf) {
+            if ((Get-Content -LiteralPath $newVbs -Raw) -ne $vbsText) {
+                throw 'EXISTING_SILENT_STARTUP_DIFFERS_NO_OVERWRITE'
+            }
+        } else {
+            $temp = Join-Path $startupDir ($name + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+            [System.IO.File]::WriteAllBytes($temp,$expectedBytes)
+            try { Move-Item -LiteralPath $temp -Destination $newVbs -ErrorAction Stop }
+            finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
+        }
+        # Retire only the exact previous launcher; never kill a running process.
+        if (Test-Path -LiteralPath $legacyCmd -PathType Leaf) {
+            $backup = Join-Path $control ('startup-legacy-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' +
+                [guid]::NewGuid().ToString('N').Substring(0,8) + '.cmd')
+            Copy-Item -LiteralPath $legacyCmd -Destination $backup -ErrorAction Stop
+            Remove-Item -LiteralPath $legacyCmd -ErrorAction Stop
+            Write-Host "LEGACY_CMD_BACKUP=$backup"
+        }
+        $logLine = [ordered]@{
+            utc = [DateTimeOffset]::UtcNow.ToString('o')
+            event = 'SILENT_STARTUP_INSTALL'
+            release = $sha
+            startup = $newVbs
+            node_restarted = $false
+            gateway_changed = $false
+            science_dispatch_released = $false
+        } | ConvertTo-Json -Compress
+        Add-Content -LiteralPath (Join-Path $logDir 'silent-bootstrap-install.jsonl') -Value $logLine -Encoding UTF8
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_APPLY=PASS'
+        exit 0
+    }
+
+    if ($Mode -eq 'Verify') {
+        if (-not (Test-Path -LiteralPath $newVbs -PathType Leaf)) {
+            throw 'SILENT_VBS_NOT_INSTALLED'
+        }
+        if (Test-Path -LiteralPath $legacyCmd) {
+            throw 'DUPLICATE_LEGACY_STARTUP_STILL_PRESENT'
+        }
+        $actualBytes = [System.IO.File]::ReadAllBytes($newVbs)
+        if ([Convert]::ToBase64String($actualBytes) -ne
+            [Convert]::ToBase64String($expectedBytes)) {
+            throw 'SILENT_VBS_CONTENT_MISMATCH'
+        }
+        Write-Host "SILENT_STARTUP_FILE=$newVbs"
+        Write-Host 'STARTUP_REGISTRATION=VERIFIED'
+        Write-Host 'SILENT_EXECUTION_AFTER_NEXT_LOGON=NOT_YET_TESTED'
+        Write-Host 'SCIENCE_DISPATCH=STILL_QUARANTINED'
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_VERIFY=PASS'
+        exit 0
+    }
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+) {
+        throw 'GATEWAY_SOURCE_OR_NODE_PIN_INVALID'
+    }
+    $gatewayMarker = Get-Content -LiteralPath (Join-Path $gatewayRelease '.remotemcp-release.json') -Raw | ConvertFrom-Json
+    if ([string]$gatewayMarker.commit -notmatch '^[0-9a-f]{40}
+
+    # Correctly escaped VBScript Run string. 0 = hidden; False = no blocking.
+    $cmd = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $bootstrap + '"'
+    $vbsText = 'Set sh = CreateObject("WScript.Shell")' + [Environment]::NewLine +
+        'sh.Run "' + $cmd.Replace('"','""') + '", 0, False' + [Environment]::NewLine
+    $expectedBytes = [System.Text.Encoding]::UTF8.GetBytes($vbsText)
+
+    if ($Mode -eq 'Audit') {
+        Write-Host 'PACKAGE_NONEMPTY=PASS'
+        Write-Host "LEGACY_CMD_EXISTS=$([bool](Test-Path -LiteralPath $legacyCmd))"
+        Write-Host "SILENT_VBS_EXISTS=$([bool](Test-Path -LiteralPath $newVbs))"
+        Write-Host "EXACT_RELEASE=$sha"
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_AUDIT=PASS'
+        exit 0
+    }
+
+    if ($Mode -eq 'Apply') {
+        New-Item -ItemType Directory -Path $control,$logDir -Force | Out-Null
+        if (Test-Path -LiteralPath $legacyCmd -PathType Leaf) {
+            $old = Get-Content -LiteralPath $legacyCmd -Raw
+            if ($old -notmatch 'Watch-RemoteMCP-Node\.ps1' -or
+                $old -notmatch [regex]::Escape($runtime) -or
+                $old -notmatch [regex]::Escape($release)) {
+                throw 'LEGACY_STARTUP_UNRECOGNIZED_NO_MODIFICATION'
+            }
+        }
+        if (Test-Path -LiteralPath $newVbs -PathType Leaf) {
+            if ((Get-Content -LiteralPath $newVbs -Raw) -ne $vbsText) {
+                throw 'EXISTING_SILENT_STARTUP_DIFFERS_NO_OVERWRITE'
+            }
+        } else {
+            $temp = Join-Path $startupDir ($name + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+            [System.IO.File]::WriteAllBytes($temp,$expectedBytes)
+            try { Move-Item -LiteralPath $temp -Destination $newVbs -ErrorAction Stop }
+            finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
+        }
+        # Retire only the exact previous launcher; never kill a running process.
+        if (Test-Path -LiteralPath $legacyCmd -PathType Leaf) {
+            $backup = Join-Path $control ('startup-legacy-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' +
+                [guid]::NewGuid().ToString('N').Substring(0,8) + '.cmd')
+            Copy-Item -LiteralPath $legacyCmd -Destination $backup -ErrorAction Stop
+            Remove-Item -LiteralPath $legacyCmd -ErrorAction Stop
+            Write-Host "LEGACY_CMD_BACKUP=$backup"
+        }
+        $logLine = [ordered]@{
+            utc = [DateTimeOffset]::UtcNow.ToString('o')
+            event = 'SILENT_STARTUP_INSTALL'
+            release = $sha
+            startup = $newVbs
+            node_restarted = $false
+            gateway_changed = $false
+            science_dispatch_released = $false
+        } | ConvertTo-Json -Compress
+        Add-Content -LiteralPath (Join-Path $logDir 'silent-bootstrap-install.jsonl') -Value $logLine -Encoding UTF8
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_APPLY=PASS'
+        exit 0
+    }
+
+    if ($Mode -eq 'Verify') {
+        if (-not (Test-Path -LiteralPath $newVbs -PathType Leaf)) {
+            throw 'SILENT_VBS_NOT_INSTALLED'
+        }
+        if (Test-Path -LiteralPath $legacyCmd) {
+            throw 'DUPLICATE_LEGACY_STARTUP_STILL_PRESENT'
+        }
+        $actualBytes = [System.IO.File]::ReadAllBytes($newVbs)
+        if ([Convert]::ToBase64String($actualBytes) -ne
+            [Convert]::ToBase64String($expectedBytes)) {
+            throw 'SILENT_VBS_CONTENT_MISMATCH'
+        }
+        Write-Host "SILENT_STARTUP_FILE=$newVbs"
+        Write-Host 'STARTUP_REGISTRATION=VERIFIED'
+        Write-Host 'SILENT_EXECUTION_AFTER_NEXT_LOGON=NOT_YET_TESTED'
+        Write-Host 'SCIENCE_DISPATCH=STILL_QUARANTINED'
+        Write-Host 'REMOTEMCP_SILENT_STARTUP_VERIFY=PASS'
+        exit 0
+    }
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+) {
+        throw 'GATEWAY_MARKER_INVALID'
+    }
+    $release = Join-Path 'D:\2.RemoteMCP-releases' $sha.Substring(0,7)
     $marker = Get-Content -LiteralPath (Join-Path $release '.remotemcp-release.json') -Raw | ConvertFrom-Json
     if ($marker.commit -ne $sha) { throw 'NODE_RELEASE_PIN_MISMATCH' }
 
