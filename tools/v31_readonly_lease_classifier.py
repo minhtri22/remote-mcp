@@ -18,7 +18,7 @@ from typing import Any
 
 SCHEMA = "remotemcp.v31.leased-command-evidence.v1"
 TERMINAL_NODE = frozenset({"SUCCEEDED", "FAILED", "IN_DOUBT"})
-DEVICE_ID = "dev_dd73ebfa742f468f2d212bade88c175b"
+DEVICE_ID = "dev_synthetic_fixture_only"
 EXPECTED_LEASE_COUNT = 19
 
 
@@ -169,7 +169,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--gateway-db", type=Path, required=True)
     p.add_argument("--node-db", type=Path, required=True)
-    p.add_argument("--device-id", default=DEVICE_ID)
+    p.add_argument("--device-id", required=True, help="Exact device ID from private signed inventory")
     p.add_argument("--historical-count", type=int, default=EXPECTED_LEASE_COUNT)
     p.add_argument("--output", type=Path)
     a = p.parse_args()
