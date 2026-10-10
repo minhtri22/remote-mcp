@@ -191,7 +191,7 @@ class SixtyCycleFixtureClient(ModernFixtureClient):
         return None
 
 
-def test_sixteen_times_five_zero_science_poll_cycles_per_os(make_gateway,tmp_path):
+def test_sixty_zero_science_empty_poll_cycles_per_os(make_gateway,tmp_path):
     """Exactly 60 empty polls in the real node loop, with tracing ON and OFF.
 
     No production endpoint, node command or job is created. The associated
