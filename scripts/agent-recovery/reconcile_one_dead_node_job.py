@@ -33,7 +33,8 @@ def main():
     p.add_argument("--project-id", required=True)
     p.add_argument("--mode", choices=["Audit", "ReconcileDead"], default="Audit")
     a = p.parse_args()
-    assert a.job_id.startswith("job_") and a.proxy_job_id.startswith("rjob_")
+    if not (a.job_id.startswith("job_") and a.proxy_job_id.startswith("rjob_") and a.task_id.startswith("tsk_") and a.project_id.startswith("prj_")):
+        raise RuntimeError("TARGET_ID_FORMAT_INVALID")
     release_marker = json.loads((a.release / ".remotemcp-release.json").read_text("utf-8-sig"))
     if release_marker["commit"] != "dabce9a76502dbae541a0eddff0096fb8dfe908a":
         raise RuntimeError("PINNED_NODE_CODE_MISMATCH")
@@ -104,7 +105,7 @@ def main():
     if a.mode=="Audit":
         summary["result"]="AUDIT_PASS_NO_MUTATION"
     else:
-        if row["state"] not in ("RUNNING","CANCELLING","STARTING","SUCCEEDED","FAILED","CANCELLED","LOST"):
+        if row["state"] not in ("RUNNING","CANCELLING","SUCCEEDED","FAILED","CANCELLED","LOST"):
             raise RuntimeError("UNEXPECTED_DURABLE_JOB_STATE")
         if row["state"] in ("SUCCEEDED","FAILED","CANCELLED","LOST"):
             summary["result"]="ALREADY_TERMINAL_NO_MUTATION"
