@@ -40,8 +40,8 @@ try {
         throw 'DEVICE_IDENTITY_MISMATCH'
     }
     if ($cfg.node_release_gate_enabled -ne $true -or
-        $cfg.hold_science_job_dispatch -ne $true) {
-        throw 'GATEWAY_SCIENCE_QUARANTINE_NOT_ENABLED'
+        $cfg.hold_science_job_dispatch -isnot [bool]) {
+        throw 'GATEWAY_RELEASE_GUARD_INVALID'
     }
     $release = [string]$cfg.source_dir
     $sha = [string]$cfg.required_node_release_commit_sha
