@@ -126,7 +126,7 @@ class ExpiredFourIsolation:
         self.proxys=frozenset(proxys)
 
     @classmethod
-    def load_signed(cls, file_path: Path, expected_sha256: str, public_key_b64: str):
+    def load_signed(cls, file_path: Path, expected_sha256: str, public_key_b64: str,\n                    *, expected_inventory_digest: str = FROZEN_INVENTORY_SHA256):
         if not HEX64.fullmatch(expected_sha256):
             _hold("missing exact manifest SHA-256 pin")
         try:
@@ -149,7 +149,7 @@ class ExpiredFourIsolation:
             if isinstance(exc, DurableError):
                 raise
             raise DurableError("HISTORICAL_ISOLATION_INVALID_HOLD", "signature verification failed") from exc
-        return cls(manifest)
+        return cls(manifest, expected_digest=expected_inventory_digest)
 
     def assert_bound(self, con, device_id: str) -> None:
         """Read-only identity check performed before ANY applicable SQL mutation."""
@@ -185,9 +185,11 @@ class ExpiredFourIsolation:
         if device_id!=self.device_id:
             return
         self.assert_bound(con,device_id)
-        if (operation_id is not None and
-                (operation_id, int(operation_step)) in self.aliases):
-            raise DurableError("HISTORICAL_COMMAND_PROTECTED", "protected operation cannot be revived or replaced")
+        if operation_id is not None:
+            if (operation_id, int(operation_step)) in self.aliases:
+                raise DurableError("HISTORICAL_COMMAND_PROTECTED", "protected operation cannot be revived or replaced")
+            if any(alias==operation_id for alias, _ in self.aliases):
+                raise DurableError("AMBIGUOUS_REPLACEMENT_HOLD", "protected operation cannot be continued with a different step")
         if command_type in {"JOB_SUBMIT","JOB_RECOVER_ROUTED_JOB"}:
             if isinstance(payload,dict) and payload.get("proxy_job_id") in self.proxys:
                 raise DurableError("HISTORICAL_COMMAND_PROTECTED","protected job proxy cannot be recovered or resubmitted")
