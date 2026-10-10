@@ -15,20 +15,30 @@ assert spec is not None and spec.loader is not None
 f = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(f)
 
+FIXTURE_DEVICE = "dev_" + "a"*32
+FIXTURE_FOUR = {
+    f"cmd_{i:032x}": kind for i,kind in enumerate(
+        ("JOB_SUBMIT", "JOB_GET", "PROJECT_PROBE", "TASK_BASE_RESOLVE"), start=1
+    )
+}
+
 
 def setup(tmp_path, monkeypatch, *, with_durable_job=False):
-    four = list(f.FOUR.items())
+    four = list(FIXTURE_FOUR.items())
     rows = []
     for i, (cid, command_type) in enumerate(four):
         rows.append({
             "command_id": cid, "command_type": command_type,
             "task_id": "tsk_fixture" if command_type != "PROJECT_PROBE" else None,
             "gateway_state": "LEASED",
+            "classification": ("EXPIRED_NODE_RECEIVED_NONTERMINAL" if i==3
+                               else "EXPIRED_DELIVERED_NO_RECEIPT"),
             "delivery_attempt": 1, "request_hash": f"{i+1:064x}",
             "route_generation": 1,
         })
     for i in range(15):
-        rows.append({"command_id": "cmd_extra_"+str(i), "command_type":"JOB_GET"})
+        rows.append({"command_id": "cmd_extra_"+str(i), "command_type":"JOB_GET",
+                     "classification":"EXPIRED_NODE_TERMINAL_GATEWAY_STALE"})
     canonical = json.dumps(rows, sort_keys=True, ensure_ascii=False,
                            separators=(",", ":")).encode("utf-8")
     digest = hashlib.sha256(canonical).hexdigest()
@@ -36,7 +46,7 @@ def setup(tmp_path, monkeypatch, *, with_durable_job=False):
     frozen = tmp_path / "inventory.json"
     frozen.write_text(json.dumps({
         "schema": "remotemcp.v31.leased-command-evidence.v1",
-        "device_id": f.DEVICE, "actual_leased": 19,
+        "device_id": FIXTURE_DEVICE, "actual_leased": 19,
         "lease_inventory_digest_sha256": digest, "rows": rows,
     }), encoding="utf-8")
 
@@ -58,7 +68,7 @@ def setup(tmp_path, monkeypatch, *, with_durable_job=False):
         for row in rows[:4]:
             p = {"proxy_job_id":"rjob_fixture"} if row["command_type"] == "JOB_SUBMIT" else {}
             con.execute("INSERT INTO device_commands VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (
-                row["command_id"],f.DEVICE,row["task_id"],"prj_fixture",None,"LEASED",
+                row["command_id"],FIXTURE_DEVICE,row["task_id"],"prj_fixture",None,"LEASED",
                 row["command_type"],row["request_hash"],1,1,100,120,json.dumps(p),
             ))
         if with_durable_job:
@@ -93,7 +103,7 @@ def setup(tmp_path, monkeypatch, *, with_durable_job=False):
             "CREATE TABLE events (job_id TEXT,terminal INTEGER)"
         )
         if with_durable_job:
-            opid = f"v2bd-node-job:{f.DEVICE}:{four[0][0]}"
+            opid = f"v2bd-node-job:{FIXTURE_DEVICE}:{four[0][0]}"
             con.execute("INSERT INTO operations VALUES(?,?)", (opid,"SUCCEEDED"))
             con.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?)", (
                 "job_fixture",opid,"SUCCEEDED",95,"{fingerprint}","{payload-fingerprint}"
@@ -150,7 +160,7 @@ def test_receipt_mismatch_is_hold_not_a_repair(tmp_path,monkeypatch):
     with sqlite3.connect(paths[2]) as con:
         con.execute(
             "UPDATE node_commands SET request_hash=? WHERE command_id=?",
-            ("f"*64, list(f.FOUR)[3]),
+            ("f"*64, list(FIXTURE_FOUR)[3]),
         )
     before = [sha(p) for p in paths[1:]]
     report = f.forensic_snapshot(*paths)
