@@ -427,3 +427,67 @@ def test_iso12_db_lock_or_restart_does_not_replay(harness,monkeypatch):
     fresh.isolation=ExpiredFourIsolation(manifest,expected_digest=manifest["frozen_inventory_sha256"])
     assert fresh.poll(DEVICE,1) is None
     check_unchanged(fresh,db,before)
+
+
+def test_iso13_durable_signed_quarantine_survives_synthetic_gateway_restart(harness,monkeypatch,tmp_path):
+    """Restart is a new repository instance, never a real gateway process."""
+    repo,db,dev,payloads,_=harness
+    policy=repo.isolation
+    path=tmp_path/"gateway-config.json"
+    manifest=tmp_path/"signed-private-manifest.json"
+    manifest.write_text("fixture-only",encoding="utf-8")
+    digest="e"*64
+    public_key="fixture-ed25519-public-key"
+    path.write_text(json.dumps({
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":PIN,
+        "hold_science_job_dispatch":True,
+        "historical_isolation_gate_enabled":True,
+        "historical_isolation_manifest_path":str(manifest),
+        "historical_isolation_manifest_sha256":digest,
+        "historical_isolation_public_key_b64":public_key,
+    }),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(path))
+    monkeypatch.delenv("REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA",raising=False)
+    monkeypatch.delenv("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH",raising=False)
+    calls=[]
+    def synthetic_verified_loader(cls,private_path,sha,pub):
+        # The Ed25519 / inventory checker has its own non-mocked ISO-01 test.
+        calls.append((str(private_path),sha,pub))
+        return policy
+    monkeypatch.setattr(ExpiredFourIsolation,"load_signed",classmethod(synthetic_verified_loader))
+    before=db.snapshot(protect_ids(repo))
+    for _ in range(2):
+        restarted=CommandRepository(repo.config,db,dev)
+        assert restarted.isolation is policy
+        assert restarted.required_release_sha==PIN
+        assert restarted.science_dispatch_hold is True
+        assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+            restarted.create(DEVICE,"JOB_GET",payloads[1],project_id=PROJECT,
+                             task_id=TASK,operation_id="op_2"))
+        assert restarted.poll(DEVICE,1) is None
+        assert db.snapshot(protect_ids(repo))==before
+    assert calls==[(str(manifest),digest,public_key)]*2
+
+
+@pytest.mark.parametrize("case",["missing_pin","invalid_type","missing_signed_manifest"])
+def test_iso13_invalid_durable_isolation_fails_closed_at_reinitialization(
+        harness,monkeypatch,tmp_path,case):
+    repo,db,dev,_,_=harness
+    config={
+        "historical_isolation_gate_enabled":True,
+        "historical_isolation_manifest_path":str(tmp_path/"does-not-exist.json"),
+        "historical_isolation_manifest_sha256":"d"*64,
+        "historical_isolation_public_key_b64":"invalid",
+    }
+    if case=="missing_pin":
+        config.pop("historical_isolation_manifest_sha256")
+    elif case=="invalid_type":
+        config["historical_isolation_gate_enabled"]="true"
+    config_path=tmp_path/"gateway-config.json"
+    config_path.write_text(json.dumps(config),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(config_path))
+    before=db.snapshot(protect_ids(repo))
+    assert_denied("HISTORICAL_ISOLATION_INVALID_HOLD",lambda:
+        CommandRepository(repo.config,db,dev))
+    assert db.snapshot(protect_ids(repo))==before
