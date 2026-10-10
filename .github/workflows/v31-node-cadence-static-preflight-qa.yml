@@ -1,0 +1,54 @@
+name: V31 Node Cadence and Four-Command Static Preflight
+
+on:
+  pull_request:
+    paths:
+      - "remotemcp/node/cadence.py"
+      - "remotemcp/node/service.py"
+      - "tools/v31_four_command_forensics.py"
+      - "tests/v2bd/test_node_poll_cadence_instrumentation.py"
+      - "tests/v31/test_four_command_forensics.py"
+      - ".github/workflows/v31-node-cadence-static-preflight-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase-and-receipt-qa:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install isolated dependencies (no production credentials)
+        run: python -m pip install --disable-pip-version-check pytest "mcp[cli]<2" uvicorn httpx==0.28.1 cryptography==46.0.6
+      - name: Compile all new source and fixture tests
+        run: python -m py_compile remotemcp/node/cadence.py remotemcp/node/service.py tools/v31_four_command_forensics.py tests/v2bd/test_node_poll_cadence_instrumentation.py tests/v31/test_four_command_forensics.py
+      - name: Gate against unsafe power-shell/global-executable/replay policy
+        shell: python
+        run: |
+          from pathlib import Path
+          source=Path("remotemcp/node/service.py").read_text(encoding="utf-8")
+          tracer=Path("remotemcp/node/cadence.py").read_text(encoding="utf-8")
+          forensic=Path("tools/v31_four_command_forensics.py").read_text(encoding="utf-8")
+          assert 'self._cadence.cycle(self.identity.device)' in source
+          for key in ["capacity_duration_ms","process_safety_duration_ms","heartbeat_duration_ms","poll_http_duration_ms","execute_duration_ms","result_ack_duration_ms"]:
+              assert key in source and key in tracer
+          assert "REMOTEMCP_NODE_CADENCE_TRACE" in tracer
+          assert "PRAGMA query_only=ON" in forensic and "mode=ro" in forensic
+          assert 'FROZEN_DIGEST = "9d316322454b5894a3093688d8a0b7090e221312b70153c6bf2ba038016fdd85"' in forensic
+          for blocked in ["UPDATE node_commands", "DELETE FROM", "INSERT INTO", "task_job_submit", "Stop-Process", "subprocess.Popen"]:
+              assert blocked not in forensic
+          assert '"powershell"' not in Path("remotemcp/durable/config.py").read_text(encoding="utf-8")
+          print("V31_INSTRUMENTATION_AND_FORENSIC_STATIC_GATE=PASS")
+      - name: Run phase timing + SQLite fault + exact four-journal fixtures
+        run: python -m pytest -q tests/v2bd/test_node_poll_cadence_instrumentation.py tests/v31/test_four_command_forensics.py tests/v31/test_readonly_lease_classifier_contract.py
+      - name: Original Windows/Linux node reconnect, signed poll, two-node and admission regressions
+        run: python -m pytest -q tests/v2bd/test_node_reconnect.py tests/v2bd/test_bounded_signed_poll_no_starvation.py tests/v2bd/test_loopback_gateway_node.py tests/test_gateway_pinned_node_dispatch_hold.py

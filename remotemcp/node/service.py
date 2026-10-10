@@ -13,6 +13,7 @@ import httpx
 
 from remotemcp.durable.errors import DurableError
 from .cas import NodeCas
+from .cadence import NodeCadence
 from .command_journal import NodeCommandJournal
 from .db import NodeDatabase
 from .executor import NodeExecutor
@@ -64,6 +65,7 @@ class NodeService:
         self.executor=NodeExecutor(config,self.journal,self.projects,self.worktrees,self.cas,self.jobs)
         from .client import NodeClient
         self.client=(client_factory or NodeClient)(config,self.identity)
+        self._cadence=NodeCadence(config.runtime_dir)
         self._stop=asyncio.Event()
 
     async def start(self):
@@ -250,43 +252,59 @@ class NodeService:
             backoff=self.RECONNECT_INITIAL_SECONDS
             loop=asyncio.get_running_loop()
             while not self._stop.is_set():
+                trace=self._cadence.cycle(self.identity.device)
                 try:
                     now=loop.time()
-                    if now-last_hb>=self.config.heartbeat_seconds:
-                        capacity=self.jobs.capacity_snapshot()
+                    heartbeat_due=now-last_hb>=self.config.heartbeat_seconds
+                    if trace is not None:
+                        trace["heartbeat_due"]=heartbeat_due
+                    if heartbeat_due:
+                        with self._cadence.phase(trace,"capacity_duration_ms"):
+                            capacity=self.jobs.capacity_snapshot()
                         hb_params=inspect.signature(self.client.heartbeat).parameters
                         if "active_job_summaries" in hb_params:
-                            process_safety=await self._process_safety_for_heartbeat()
-                            process_safety.update(await self._research_inventory_for_heartbeat())
-                            await self.client.heartbeat(
-                                capacity["active_node_jobs"],
-                                capacity["unresolved_node_jobs"],
-                                capacity["capacity_reconciliation_complete"],
-                                capacity["candidate_nonterminal_routed_jobs"],
-                                capacity.get("active_job_summaries",[]),
-                                self._node_attestation(process_safety),
-                            )
+                            with self._cadence.phase(trace,"process_safety_duration_ms"):
+                                process_safety=await self._process_safety_for_heartbeat()
+                                process_safety.update(await self._research_inventory_for_heartbeat())
+                            with self._cadence.phase(trace,"heartbeat_duration_ms"):
+                                await self.client.heartbeat(
+                                    capacity["active_node_jobs"],
+                                    capacity["unresolved_node_jobs"],
+                                    capacity["capacity_reconciliation_complete"],
+                                    capacity["candidate_nonterminal_routed_jobs"],
+                                    capacity.get("active_job_summaries",[]),
+                                    self._node_attestation(process_safety),
+                                )
                         elif "unresolved_node_jobs" in hb_params:
                             # V3.0-compatible custom clients receive reconciled
                             # counts but not V3.1 provenance/attestation.
-                            await self.client.heartbeat(
-                                capacity["active_node_jobs"],
-                                capacity["unresolved_node_jobs"],
-                                capacity["capacity_reconciliation_complete"],
-                                capacity["candidate_nonterminal_routed_jobs"],
-                            )
+                            with self._cadence.phase(trace,"heartbeat_duration_ms"):
+                                await self.client.heartbeat(
+                                    capacity["active_node_jobs"],
+                                    capacity["unresolved_node_jobs"],
+                                    capacity["capacity_reconciliation_complete"],
+                                    capacity["candidate_nonterminal_routed_jobs"],
+                                )
                         else:
                             # Compatibility for older/custom node clients.
                             # Their heartbeat is accepted for liveness only;
                             # the gateway will not treat it as resolved capacity.
-                            await self.client.heartbeat(
-                                capacity["active_node_jobs"]
-                            )
+                            with self._cadence.phase(trace,"heartbeat_duration_ms"):
+                                await self.client.heartbeat(
+                                    capacity["active_node_jobs"]
+                                )
                         last_hb=now
-                    envelope=await self.client.poll()
+                    with self._cadence.phase(trace,"poll_http_duration_ms"):
+                        envelope=await self.client.poll()
+                    if trace is not None:
+                        trace["poll_status"]="COMMAND_200" if envelope is not None else "EMPTY_204"
                     if envelope is not None:
-                        result=await self.executor.execute(envelope)
-                        await self.client.result(envelope["command_id"],result)
+                        if trace is not None:
+                            trace["command_id"]=str(envelope.get("command_id") or "")[:72]
+                        with self._cadence.phase(trace,"execute_duration_ms"):
+                            result=await self.executor.execute(envelope)
+                        with self._cadence.phase(trace,"result_ack_duration_ms"):
+                            await self.client.result(envelope["command_id"],result)
                         if self.executor.restart_requested:
                             self._schedule_self_restart()
                             self._stop.set()
@@ -295,6 +313,9 @@ class NodeService:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    self._cadence.transport_exception(trace,exc)
+                    if trace is not None:
+                        trace["poll_status"]="ERROR" if trace.get("poll_status") is None else trace["poll_status"]
                     if not self._retryable_connection_error(exc):
                         raise
                     print(
@@ -303,7 +324,11 @@ class NodeService:
                         file=sys.stderr,
                         flush=True,
                     )
+                    if trace is not None:
+                        trace["reconnect_backoff_ms"]=round(backoff*1000,3)
                     await self._wait_reconnect(backoff)
                     backoff=min(backoff*2,self.RECONNECT_MAX_SECONDS)
+                finally:
+                    self._cadence.emit(trace)
         finally:
             await self.stop()
