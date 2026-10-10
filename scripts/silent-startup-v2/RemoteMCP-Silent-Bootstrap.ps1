@@ -37,9 +37,11 @@ try {
         [int]$device.route_generation -ne 1) {
         throw 'DEVICE_IDENTITY_MISMATCH'
     }
+    # The authorized dispatch-hold state may be true now and false after
+    # a separate, independently approved release gate. Never modify it here.
     if ($cfg.node_release_gate_enabled -ne $true -or
-        $cfg.hold_science_job_dispatch -ne $true) {
-        throw 'SCIENCE_QUARANTINE_OR_RELEASE_GATE_NOT_ENFORCED'
+        $cfg.hold_science_job_dispatch -isnot [bool]) {
+        throw 'GATEWAY_RELEASE_GUARD_INVALID'
     }
     $source = [string]$cfg.source_dir
     $sha = [string]$cfg.required_node_release_commit_sha
