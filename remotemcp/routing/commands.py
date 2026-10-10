@@ -158,7 +158,10 @@ class CommandRepository:
                 "gateway release pin forbids all agent commands to the old node",
                 device_id=device_id,
             )
-        if command_type=="JOB_SUBMIT" and self.science_dispatch_hold:
+        # A science recovery can resume/execute work after quarantine is lifted.
+        # Fail at admission time as well as the existing poll-time exclusion:
+        # no latent recovery commands may accumulate during operator HOLD.
+        if command_type in ("JOB_SUBMIT", "JOB_RECOVER_ROUTED_JOB") and self.science_dispatch_hold:
             raise DurableError(
                 "SCIENCE_DISPATCH_QUARANTINED",
                 "scientific job admission held until exact command evidence qualifies",
