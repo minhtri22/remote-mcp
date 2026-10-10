@@ -20,6 +20,7 @@ from remotemcp.durable.models import now_ms
 from remotemcp.routing.commands import CommandRepository
 from remotemcp.routing.crypto import canonical_json
 from remotemcp.routing.historical_isolation import ExpiredFourIsolation, SCHEMA
+from remotemcp.routing.routed_jobs import RoutedJobRepository
 
 DEVICE = "dev_" + "a" * 32
 PROJECT = "prj_fixture"
@@ -312,11 +313,45 @@ def test_iso07_executing_receipt_is_never_marked_terminal(harness):
 def test_iso08_protected_job_proxy_cannot_submit_or_recover(harness):
     repo,db,_,_,_=harness
     before=db.snapshot(protect_ids(repo))
-    for typ in ("JOB_SUBMIT","JOB_RECOVER_ROUTED_JOB"):
+    # Proxy aliases can also be used by GET / RESULT / CANCEL; the last
+    # command can cancel a historical physical job without replaying SUBMIT.
+    for typ in ("JOB_SUBMIT","JOB_RECOVER_ROUTED_JOB","JOB_GET","JOB_RESULT","JOB_CANCEL"):
         assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda t=typ:
             repo.create(DEVICE,t,{"proxy_job_id":PROXY},
                         project_id=PROJECT,task_id=TASK,operation_id="op_independent_new"))
     check_unchanged(repo,db,before)
+
+
+def test_iso08b_protected_proxy_registry_cannot_mutate_or_deduplicate(harness):
+    repo,db,_,_,_=harness
+    db.conn.executescript(
+        "CREATE TABLE routed_jobs("
+        "proxy_job_id TEXT PRIMARY KEY, operation_id TEXT, task_id TEXT, "
+        "project_id TEXT, device_id TEXT, execution_key TEXT, "
+        "argv_sha256 TEXT, cwd TEXT, node_job_id TEXT, "
+        "last_known_state TEXT, terminal_at_ms INTEGER, "
+        "terminal_result_json TEXT, last_seen_at_ms INTEGER, "
+        "created_at_ms INTEGER, updated_at_ms INTEGER);"
+    )
+    db.conn.execute(
+        "INSERT INTO routed_jobs(proxy_job_id,operation_id,task_id,project_id,"
+        "device_id,execution_key,last_known_state) VALUES(?,?,?,?,?,?,?)",
+        (PROXY,"op_1",TASK,PROJECT,DEVICE,"frozen-key","QUEUED"),
+    )
+    db.conn.commit()
+    before=[dict(r) for r in db.conn.execute("SELECT * FROM routed_jobs")]
+    guarded=RoutedJobRepository(db,isolation=repo.isolation)
+    assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+        guarded.update(PROXY,node_job_id="node_fixture",state="SUCCEEDED"))
+    assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+        guarded.create(db.conn,"op_1",TASK,PROJECT,DEVICE))
+    assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+        guarded.create(db.conn,"op_fresh",TASK,PROJECT,DEVICE,execution_key="frozen-key"))
+    assert [dict(r) for r in db.conn.execute("SELECT * FROM routed_jobs")]==before
+    # The ordinary repository remains unchanged when signed isolation is OFF.
+    baseline=RoutedJobRepository(db)
+    row=baseline.update(PROXY,state="QUEUED")
+    assert row["proxy_job_id"]==PROXY
 
 
 @pytest.mark.parametrize("status", ["offline","stale","wrong-pin"])
