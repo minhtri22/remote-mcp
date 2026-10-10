@@ -56,7 +56,7 @@ def test_six_managed_reads_both_tasks_do_not_starve_or_replay_jobs(make_gateway,
                 gw.routing.project_register_on_device("poll-project", dev_id, "pilot", 4),
                 timeout=12,
             )
-            agent = gw.multi.agent_register("poll-agent", "infra-ci", "test-install", [])
+            agent = await gw.multi.agent_register("poll-agent", "infra-ci", "test-install", [])
             ids = []
             for idx in range(2):
                 task = await asyncio.wait_for(
