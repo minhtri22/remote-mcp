@@ -10,6 +10,7 @@ from pathlib import Path
 from remotemcp.durable.errors import DurableError
 from remotemcp.durable.models import now_ms
 from .crypto import canonical_json
+from .historical_isolation import ExpiredFourIsolation
 from .models import ALLOWED_COMMANDS,CommandState,TERMINAL_COMMAND_STATES
 
 
@@ -26,6 +27,24 @@ class CommandRepository:
         self.science_dispatch_hold=(
             os.environ.get("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","0")=="1"
         )
+        # Disabled unless ALL explicit operator pins are present. Production
+        # activation is a separately authorized change; this branch is QA-only.
+        prefix="REMOTEMCP_V31_EXPIRED_ISOLATION_"
+        isolation_vars=(
+            os.environ.get(prefix+"MANIFEST_PATH"),
+            os.environ.get(prefix+"MANIFEST_SHA256"),
+            os.environ.get(prefix+"PUBKEY_B64"),
+        )
+        self.isolation=None
+        if any(v is not None for v in isolation_vars):
+            if not all(isinstance(v,str) and v.strip() for v in isolation_vars):
+                raise DurableError(
+                    "HISTORICAL_ISOLATION_INVALID_HOLD",
+                    "private signed manifest requires path, exact SHA and pinned public key",
+                )
+            self.isolation=ExpiredFourIsolation.load_signed(
+                Path(isolation_vars[0]),isolation_vars[1],isolation_vars[2],
+            )
         # Durable gateway-config.json has precedence over transient launcher
         # variables when an operator has activated the cutover gate.
         # This prevents a legacy watchdog launcher from silently dropping the
@@ -126,6 +145,11 @@ class CommandRepository:
             if dev["state"]!="ONLINE":raise DurableError("DEVICE_OFFLINE","device is not online")
             route_generation=int(dev["route_generation"])
         rh=self.request_hash(device_id,int(route_generation),command_type,project_id,task_id,payload)
+        if self.isolation is not None:
+            self.isolation.before_create(
+                con,device_id,int(route_generation),command_type,payload,rh,
+                operation_id,int(operation_step),
+            )
         if expires_at_ms is None:
             expires_at_ms=now_ms()+self.config.mutation_ttl_seconds*1000
         t=now_ms()
@@ -199,21 +223,30 @@ class CommandRepository:
             # The node can still send its signed heartbeat and be inspected.
             return None
         with self.db.transaction() as con:
+            # A separate immutable exclusion list is applied to EVERY poll
+            # UPDATE/SELECT before the transaction mutates unrelated commands.
+            # No schema migration, no status normalization of protected rows.
+            if self.isolation is not None:
+                self.isolation.assert_bound(con,device_id)
+                exclusion,excluded_ids=self.isolation.exclude_clause()
+            else:
+                exclusion,excluded_ids="",()
             con.execute(
                 "UPDATE device_commands SET state='CANCELLED',error_code='DEVICE_COMMAND_EXPIRED',finished_at_ms=?,updated_at_ms=? "
-                "WHERE device_id=? AND state='QUEUED' AND command_expires_at_ms<=?",
-                (t,t,device_id,t),
+                "WHERE device_id=? AND state='QUEUED' AND command_expires_at_ms<=?"+exclusion,
+                (t,t,device_id,t,*excluded_ids),
             )
             con.execute(
                 "UPDATE device_commands SET state='QUEUED',lease_expires_at_ms=NULL,updated_at_ms=? "
-                "WHERE device_id=? AND state='LEASED' AND lease_expires_at_ms<=? AND command_expires_at_ms>? AND route_generation=?",
-                (t,device_id,t,t,int(route_generation)),
+                "WHERE device_id=? AND state='LEASED' AND lease_expires_at_ms<=? AND command_expires_at_ms>? AND route_generation=?"+exclusion,
+                (t,device_id,t,t,int(route_generation),*excluded_ids),
             )
             row=con.execute(
                 "SELECT * FROM device_commands WHERE device_id=? AND route_generation=? AND state='QUEUED' "
                 "AND command_expires_at_ms>? "
                 + ("AND command_type NOT IN ('JOB_SUBMIT','JOB_RECOVER_ROUTED_JOB') " if science_blocked else "")
-                + "ORDER BY CASE command_type "
+                + exclusion
+                + " ORDER BY CASE command_type "
                 "WHEN 'NODE_RESTART' THEN 0 "
                 "WHEN 'NODE_PROCESS_INSPECT' THEN -1 "
                 "WHEN 'NODE_COMMAND_ATTEST' THEN -1 "
@@ -225,15 +258,15 @@ class CommandRepository:
                 "WHEN 'PROJECT_BIND' THEN 1 "
                 "WHEN 'JOB_SUBMIT' THEN 2 "
                 "ELSE 3 END, created_at_ms,command_id LIMIT 1",
-                (device_id,int(route_generation),t),
+                (device_id,int(route_generation),t,*excluded_ids),
             ).fetchone()
             if row is None:
                 return None
             lease=t+self.config.command_lease_seconds*1000
             con.execute(
                 "UPDATE device_commands SET state='LEASED',delivery_attempt=delivery_attempt+1,lease_expires_at_ms=?,updated_at_ms=? "
-                "WHERE command_id=? AND state='QUEUED'",
-                (lease,t,row["command_id"]),
+                "WHERE command_id=? AND state='QUEUED'"+exclusion,
+                (lease,t,row["command_id"],*excluded_ids),
             )
             return con.execute("SELECT * FROM device_commands WHERE command_id=?",(row["command_id"],)).fetchone()
 
@@ -249,6 +282,13 @@ class CommandRepository:
         }
 
     def commit_result(self,device_id:str,route_generation:int,command_id:str,payload:dict):
+        # A delayed terminal acknowledgement is NOT permission to rewrite any
+        # of the four frozen historical command rows.
+        if self.isolation is not None and command_id in self.isolation.bindings:
+            raise DurableError(
+                "HISTORICAL_COMMAND_PROTECTED",
+                "protected historical command cannot be terminalized or replayed",
+            )
         row=self.get(command_id)
         if row["device_id"]!=device_id:
             raise DurableError("FORBIDDEN","command belongs to another device")
