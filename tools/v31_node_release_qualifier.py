@@ -32,7 +32,7 @@ HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 def evaluate_private_signed_pair(evidence: dict, *, now_ms: int,
                                  pinned_trust_anchor_b64: str | None = None) -> dict:
-    """Fail closed; PASS means *eligible for operator review* only."""
+    """Synthetic summary evaluator; never counts as real node signature proof."""
     blockers: list[str] = []
 
     if evidence.get("schema") != "remotemcp.v31.private-node-release-preflight.v1":
@@ -121,11 +121,12 @@ def evaluate_private_signed_pair(evidence: dict, *, now_ms: int,
         if left["device_id"] != right["device_id"]:
             blockers.append("DEVICE_CHANGED")
     return {
-        "verdict": "REVIEW_ELIGIBLE" if not blockers else "HOLD",
+        "verdict": "SYNTHETIC_SUMMARY_VALID_ONLY" if not blockers else "HOLD",
         "blockers": sorted(set(blockers)),
         "signed_snapshots_verified": len(signed),
         "operator_authorized": False,
         "production_deployment_permitted": False,
+        "actual_rmcpnode1_signature_verified": False,
         "live_six_pass": False,
     }
 
@@ -148,7 +149,8 @@ def main() -> int:
         pinned_trust_anchor_b64=anchor_raw.decode("ascii").strip(),
     )
     print(json.dumps(result,sort_keys=True))
-    return 0 if result["verdict"]=="REVIEW_ELIGIBLE" else 1
+    # A synthetic JSON signature must never return an authorization-like exit.
+    return 1
 
 
 if __name__ == "__main__":
