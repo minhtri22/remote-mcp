@@ -1,0 +1,48 @@
+name: Bounded Poll Gateway-Only Promotion Static QA
+
+on:
+  pull_request:
+    paths:
+      - "scripts/agent-recovery/Invoke-RemoteMCP-BoundedPoll-GatewayPromotion.ps1"
+      - ".github/workflows/bounded-poll-promotion-guard-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  safety-parse:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: PowerShell syntax and no-science guard
+        shell: powershell
+        run: |
+          $path = 'scripts/agent-recovery/Invoke-RemoteMCP-BoundedPoll-GatewayPromotion.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | Format-Table -AutoSize
+            throw 'BOUNDED_POLL_GATEWAY_PROMOTION_PARSE_FAIL'
+          }
+          $s = Get-Content -LiteralPath $path -Raw
+          foreach($required in @(
+            "'Preflight','Promote'",
+            'EXPLICIT_PROMOTION_AUTHORIZATION_REQUIRED',
+            'NODE_WATCHDOG_TOPOLOGY_DRIFT',
+            'ACTIVE_JOB_OR_UNEXPIRED_COMMAND_HOLD',
+            'FROZEN_SOURCE_INTEGRITY_FAILURE',
+            "'-PreflightOnly'",
+            'GATEWAY_PROMOTED_QUARANTINED',
+            'ADMISSION_SCRIPT_BLOB_MISMATCH_LEAVE_QUARANTINE',
+            'SIGNED_ATTESTATION_AND_LIVE_SIX_READS=PENDING',
+            'scientific_replay_authorized=$false'
+          )) {
+            if (-not $s.Contains($required)) { throw "GUARDED_PROMOTION_CONTRACT_MISSING: $required" }
+          }
+          if ($s -match '(?i)\bStop-Process\b|\btask_job_submit\b|\bdevice_pair_begin\b|\bjob_submit\b') {
+            throw 'UNSAFE_INFRA_PROMOTION_SIDE_EFFECT'
+          }
+          Write-Host 'BOUNDED_POLL_GUARDED_PROMOTION_STATIC=PASS'
