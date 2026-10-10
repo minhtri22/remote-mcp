@@ -30,8 +30,10 @@ def compare_immutable_history(
     if not isinstance(old,list) or not isinstance(new,list):
         return {"verdict":"HOLD","blockers":["LEDGER_ROWS_MISSING"],
                 "production_deployment_permitted":False}
-    if (len(old)!=19 or len(new)!=19 or
-            not all(isinstance(x,dict) for x in old+new)):
+    if not all(isinstance(x,dict) for x in old+new):
+        return {"verdict":"HOLD","blockers":["MALFORMED_LEDGER_ROW"],
+                "release_gate":"HOLD","production_deployment_permitted":False}
+    if len(old)!=19 or len(new)!=19:
         hold("HISTORICAL_19_ROW_CENSUS_NOT_EXACT")
     old_ids=[x.get("command_id") for x in old if isinstance(x,dict)]
     new_ids=[x.get("command_id") for x in new if isinstance(x,dict)]
