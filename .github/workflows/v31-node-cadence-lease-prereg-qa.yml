@@ -1,0 +1,57 @@
+name: V31 Node Cadence and 19-Lease Prereg Static QA
+
+on:
+  pull_request:
+    paths:
+      - "docs/v31/REMOTEMCP_V31_NODE_POLL_CADENCE_AND_DURABLE_COMMAND_POLICY_RECOVERY_PREREGISTRATION.md"
+      - "tools/v31_readonly_lease_classifier.py"
+      - "tests/v31/test_readonly_lease_classifier_contract.py"
+      - ".github/workflows/v31-node-cadence-lease-prereg-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lease-classification-static:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install isolated test runner
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Compile read-only classifier and synthetic QA
+        run: python -m py_compile tools/v31_readonly_lease_classifier.py tests/v31/test_readonly_lease_classifier_contract.py
+      - name: Assert frozen governance contract
+        shell: python
+        run: |
+          from pathlib import Path
+          doc=Path("docs/v31/REMOTEMCP_V31_NODE_POLL_CADENCE_AND_DURABLE_COMMAND_POLICY_RECOVERY_PREREGISTRATION.md").read_text(encoding="utf-8")
+          src=Path("tools/v31_readonly_lease_classifier.py").read_text(encoding="utf-8")
+          checks=[
+              "REMOTEMCP_V31_NODE_POLL_CADENCE_AND_DURABLE_COMMAND_POLICY_RECOVERY_PREREGISTRATION",
+              "ef9f81f05ea2be9116751280340c47bd05d908ad",
+              "dabce9a76502dbae541a0eddff0096fb8dfe908a",
+              "MAINTENANCE_OPERATION", "COMMAND_NOT_ALLOWED",
+              "SIX_CONSECUTIVE_LIVE_MANAGED_READS=NOT_PASS",
+              "EXPIRED_NODE_TERMINAL_GATEWAY_STALE",
+              "EXPIRED_DELIVERED_NO_RECEIPT",
+              "INVENTORY_DRIFT",
+              "T-POLL-01", "T-MAINT-01",
+          ]
+          missing=[x for x in checks if x not in doc]
+          assert not missing, "PREREG_CONTRACT_MISSING: "+repr(missing)
+          for required in ["PRAGMA query_only=ON", "mode=ro", "auto_replay_authorized", "HOLD", "command_expires_at_ms", "lease_expires_at_ms"]:
+              assert required in src, "CLASSIFIER_CONTRACT_MISSING: "+required
+          for forbidden in ["UPDATE device_commands", "DELETE FROM", "INSERT INTO", "subprocess.Popen", "Stop-Process"]:
+              assert forbidden not in src, "FORBIDDEN_MUTATION_STRING: "+forbidden
+          print("V31_NODE_CADENCE_PREREG_STATIC=PASS")
+      - name: Run synthetic 19-lease fixture (NO production DB)
+        run: python -m pytest -q tests/v31/test_readonly_lease_classifier_contract.py
