@@ -155,3 +155,77 @@ def test_simulated_rollback_restores_source_and_ledger_exactly(tmp_path):
     rollback.replace(live/"binary.bin")
     assert hashlib.sha256((live/"binary.bin").read_bytes()).hexdigest()==old_digest
     assert hashlib.sha256((live/"ledger.db").read_bytes()).hexdigest()==ledger_digest
+
+
+
+def test_sqlite_consistent_checkpoint_rollback_keeps_19_rows_and_release_pin(tmp_path):
+    """Windows/Linux disk-backed SQLite backup; no production process/files."""
+    import sqlite3
+
+    live=tmp_path/"synthetic-live"
+    saved=tmp_path/"rollback-checkpoint"
+    stage=tmp_path/"candidate"
+    for d in (live,saved,stage):
+        d.mkdir()
+    db_path=live/"gateway.db"
+    con=sqlite3.connect(db_path)
+    con.execute(
+        "CREATE TABLE device_commands(command_id TEXT PRIMARY KEY,state TEXT,"
+        "delivery_attempt INTEGER,request_hash TEXT)"
+    )
+    frozen=[
+        (f"cmd_{i:032x}","LEASED",1,f"{i:064x}") for i in range(19)
+    ]
+    con.executemany("INSERT INTO device_commands VALUES(?,?,?,?)",frozen)
+    con.commit()
+    backup=sqlite3.connect(saved/"gateway.db")
+    con.backup(backup)
+    assert backup.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
+    backup.close()
+    con.close()
+
+    original_release=b"gateway-production-old"
+    new_release=b"gateway-candidate-dryrun"
+    original_config={
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":"a"*40,
+        "hold_science_job_dispatch":True,
+        "historical_isolation_gate_enabled":True,
+        "historical_isolation_manifest_sha256":"b"*64,
+    }
+    (live/"release.bin").write_bytes(original_release)
+    (stage/"release.bin").write_bytes(new_release)
+    (live/"gateway-config.json").write_text(
+        json.dumps(original_config,sort_keys=True),encoding="utf-8"
+    )
+    (saved/"release.bin").write_bytes(original_release)
+    (saved/"gateway-config.json").write_bytes(
+        (live/"gateway-config.json").read_bytes()
+    )
+    snap=lambda p: [
+        list(row) for row in sqlite3.connect(p).execute(
+            "SELECT * FROM device_commands ORDER BY command_id"
+        ).fetchall()
+    ]
+    before=snap(saved/"gateway.db")
+    assert len(before)==19 and before==snap(db_path)
+    # Dry-run an upgrade and injected rejection before the pin can be altered.
+    (live/"release.bin").write_bytes((stage/"release.bin").read_bytes())
+    try:
+        raise RuntimeError("synthetic post-cutover attestation failure")
+    except RuntimeError:
+        (live/"release.bin").write_bytes((saved/"release.bin").read_bytes())
+        (live/"gateway-config.json").write_bytes(
+            (saved/"gateway-config.json").read_bytes()
+        )
+    assert (live/"release.bin").read_bytes()==original_release
+    assert (live/"gateway-config.json").read_bytes()==(
+        saved/"gateway-config.json"
+    ).read_bytes()
+    assert snap(db_path)==before
+    assert original_config["hold_science_job_dispatch"] is True
+    assert original_config["historical_isolation_gate_enabled"] is True
+    for path in (db_path,saved/"gateway.db"):
+        x=sqlite3.connect(path)
+        assert x.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
+        x.close()
