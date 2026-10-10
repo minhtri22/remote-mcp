@@ -65,6 +65,8 @@ def inspect_windows_research_processes(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
          _WINDOWS_PROCESS_SNAPSHOT_PS],
         capture_output=True, text=True, timeout=12, check=False,
+        # Suppress Windows Terminal/PowerShell popup for periodic CIM probes.
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if completed.returncode != 0:
         return {
