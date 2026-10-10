@@ -43,14 +43,270 @@ try {
         $cfg.hold_science_job_dispatch -isnot [bool]) {
         throw 'GATEWAY_RELEASE_GUARD_INVALID'
     }
-    $source = [string]$cfg.source_dir
+    # A gateway-only security fix may use a newer source commit while the
+    # exact pinned node release stays unchanged. Never confuse the two.
+    $gatewaySource = [string]$cfg.source_dir
     $sha = [string]$cfg.required_node_release_commit_sha
-    if ($source -notmatch '^D:\\2\.RemoteMCP-releases\\[A-Za-z0-9_-]+$' -or
-        $sha -notmatch '^[0-9a-f]{40}$') {
+    if ($gatewaySource -notmatch '^D:\\2\.RemoteMCP-releases\\[A-Za-z0-9_-]+
+    $watchScript = Join-Path $source 'Watch-RemoteMCP-Node.ps1'
+    if (-not (Test-Path -LiteralPath $watchScript -PathType Leaf)) {
+        throw 'WATCHDOG_SCRIPT_MISSING'
+    }
+
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $rx = [regex]::Escape($runtime)
+    $watches = @($all | Where-Object {
+        $_.Name -match '^(powershell|pwsh)\.exe$' -and
+        $_.CommandLine -match 'Watch-RemoteMCP-Node\.ps1' -and
+        $_.CommandLine -match $rx
+    })
+    $nodes = @($all | Where-Object {
+        $_.Name -match '^python(w)?\.exe$' -and
+        $_.CommandLine -match 'remotemcp\.node run' -and
+        $_.CommandLine -match $rx
+    })
+    if ($watches.Count -gt 1) { throw 'MULTIPLE_WATCHDOGS' }
+    if ($watches.Count -eq 1) {
+        if ($watches[0].CommandLine -notmatch [regex]::Escape($source)) {
+            throw 'WATCHDOG_EXISTING_WRONG_RELEASE'
+        }
+        Write-BootEvent 'NOOP_PINNED_WATCHDOG_ALREADY_RUNNING' 'no process changed'
+        exit 0
+    }
+    if ($nodes.Count -gt 0) {
+        throw 'NODE_PRESENT_WATCHDOG_ABSENT_HOLD_NO_RESTART'
+    }
+
+    $short = $sha.Substring(0,7)
+    $venv = Join-Path $infra "venv\$short"
+    $env:REMOTEMCP_NODE_VENV = $venv
+    $env:REMOTEMCP_LOG_DIR = $logDir
+    $env:REMOTEMCP_TEMP_DIR = Join-Path $infra 'tmp'
+    $env:REMOTEMCP_CACHE_DIR = Join-Path $infra 'cache'
+    $env:REMOTEMCP_CONTROL_DIR = Join-Path $infra 'control'
+    $env:REMOTEMCP_LONG_LIVED_PROCESS_PATTERNS = 'ru0_c_u3_executor.py'
+    foreach ($dir in @($venv,$logDir,$env:REMOTEMCP_TEMP_DIR,
+        $env:REMOTEMCP_CACHE_DIR,$env:REMOTEMCP_CONTROL_DIR)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    # Check again immediately before launch; do not spawn a second watchdog.
+    $recent = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    if (@($recent | Where-Object {
+        $_.CommandLine -match 'Watch-RemoteMCP-Node\.ps1' -and
+        $_.CommandLine -match $rx
+    }).Count -gt 0) { throw 'WATCHDOG_APPEARED_DURING_BOOTSTRAP' }
+    if (@($recent | Where-Object {
+        $_.Name -match '^python(w)?\.exe$' -and
+        $_.CommandLine -match 'remotemcp\.node run' -and
+        $_.CommandLine -match $rx
+    }).Count -gt 0) { throw 'NODE_APPEARED_DURING_BOOTSTRAP' }
+
+    $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ' +
+        (Quote-Arg $watchScript) +
+        ' -RuntimeDir ' + (Quote-Arg $runtime) +
+        ' -RootDir ' + (Quote-Arg $root) +
+        ' -SourceDir ' + (Quote-Arg $source) +
+        ' -NodeSourceDir ' + (Quote-Arg $source) +
+        ' -VenvDir ' + (Quote-Arg $venv) +
+        ' -LogDir ' + (Quote-Arg $logDir) +
+        ' -TempDir ' + (Quote-Arg $env:REMOTEMCP_TEMP_DIR) +
+        ' -CacheDir ' + (Quote-Arg $env:REMOTEMCP_CACHE_DIR) +
+        ' -ControlDir ' + (Quote-Arg $env:REMOTEMCP_CONTROL_DIR) +
+        ' -DeclaredLongLivedProcessPatterns ru0_c_u3_executor.py'
+    Write-BootEvent 'WATCHDOG_START_REQUESTED' "release=$sha"
+    $p = Start-Process -FilePath $ps -ArgumentList $arguments -WindowStyle Hidden -PassThru -ErrorAction Stop
+    Start-Sleep -Seconds 3
+    $confirmed = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $_.ProcessId -eq $p.Id -and
+        $_.CommandLine -match [regex]::Escape($watchScript) -and
+        $_.CommandLine -match $rx
+    })
+    if ($confirmed.Count -ne 1) { throw 'PINNED_WATCHDOG_NOT_CONFIRMED' }
+    Write-BootEvent 'WATCHDOG_STARTED' "release=$sha; watchdog_pid=$($p.Id); signed_heartbeat_pending=true"
+    exit 0
+} catch {
+    try { Write-BootEvent 'BOOTSTRAP_ERROR' $_.Exception.Message } catch {}
+    exit 1
+}
+ -or
+        $sha -notmatch '^[0-9a-f]{40}
+    $watchScript = Join-Path $source 'Watch-RemoteMCP-Node.ps1'
+    if (-not (Test-Path -LiteralPath $watchScript -PathType Leaf)) {
+        throw 'WATCHDOG_SCRIPT_MISSING'
+    }
+
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $rx = [regex]::Escape($runtime)
+    $watches = @($all | Where-Object {
+        $_.Name -match '^(powershell|pwsh)\.exe$' -and
+        $_.CommandLine -match 'Watch-RemoteMCP-Node\.ps1' -and
+        $_.CommandLine -match $rx
+    })
+    $nodes = @($all | Where-Object {
+        $_.Name -match '^python(w)?\.exe$' -and
+        $_.CommandLine -match 'remotemcp\.node run' -and
+        $_.CommandLine -match $rx
+    })
+    if ($watches.Count -gt 1) { throw 'MULTIPLE_WATCHDOGS' }
+    if ($watches.Count -eq 1) {
+        if ($watches[0].CommandLine -notmatch [regex]::Escape($source)) {
+            throw 'WATCHDOG_EXISTING_WRONG_RELEASE'
+        }
+        Write-BootEvent 'NOOP_PINNED_WATCHDOG_ALREADY_RUNNING' 'no process changed'
+        exit 0
+    }
+    if ($nodes.Count -gt 0) {
+        throw 'NODE_PRESENT_WATCHDOG_ABSENT_HOLD_NO_RESTART'
+    }
+
+    $short = $sha.Substring(0,7)
+    $venv = Join-Path $infra "venv\$short"
+    $env:REMOTEMCP_NODE_VENV = $venv
+    $env:REMOTEMCP_LOG_DIR = $logDir
+    $env:REMOTEMCP_TEMP_DIR = Join-Path $infra 'tmp'
+    $env:REMOTEMCP_CACHE_DIR = Join-Path $infra 'cache'
+    $env:REMOTEMCP_CONTROL_DIR = Join-Path $infra 'control'
+    $env:REMOTEMCP_LONG_LIVED_PROCESS_PATTERNS = 'ru0_c_u3_executor.py'
+    foreach ($dir in @($venv,$logDir,$env:REMOTEMCP_TEMP_DIR,
+        $env:REMOTEMCP_CACHE_DIR,$env:REMOTEMCP_CONTROL_DIR)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    # Check again immediately before launch; do not spawn a second watchdog.
+    $recent = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    if (@($recent | Where-Object {
+        $_.CommandLine -match 'Watch-RemoteMCP-Node\.ps1' -and
+        $_.CommandLine -match $rx
+    }).Count -gt 0) { throw 'WATCHDOG_APPEARED_DURING_BOOTSTRAP' }
+    if (@($recent | Where-Object {
+        $_.Name -match '^python(w)?\.exe$' -and
+        $_.CommandLine -match 'remotemcp\.node run' -and
+        $_.CommandLine -match $rx
+    }).Count -gt 0) { throw 'NODE_APPEARED_DURING_BOOTSTRAP' }
+
+    $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ' +
+        (Quote-Arg $watchScript) +
+        ' -RuntimeDir ' + (Quote-Arg $runtime) +
+        ' -RootDir ' + (Quote-Arg $root) +
+        ' -SourceDir ' + (Quote-Arg $source) +
+        ' -NodeSourceDir ' + (Quote-Arg $source) +
+        ' -VenvDir ' + (Quote-Arg $venv) +
+        ' -LogDir ' + (Quote-Arg $logDir) +
+        ' -TempDir ' + (Quote-Arg $env:REMOTEMCP_TEMP_DIR) +
+        ' -CacheDir ' + (Quote-Arg $env:REMOTEMCP_CACHE_DIR) +
+        ' -ControlDir ' + (Quote-Arg $env:REMOTEMCP_CONTROL_DIR) +
+        ' -DeclaredLongLivedProcessPatterns ru0_c_u3_executor.py'
+    Write-BootEvent 'WATCHDOG_START_REQUESTED' "release=$sha"
+    $p = Start-Process -FilePath $ps -ArgumentList $arguments -WindowStyle Hidden -PassThru -ErrorAction Stop
+    Start-Sleep -Seconds 3
+    $confirmed = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $_.ProcessId -eq $p.Id -and
+        $_.CommandLine -match [regex]::Escape($watchScript) -and
+        $_.CommandLine -match $rx
+    })
+    if ($confirmed.Count -ne 1) { throw 'PINNED_WATCHDOG_NOT_CONFIRMED' }
+    Write-BootEvent 'WATCHDOG_STARTED' "release=$sha; watchdog_pid=$($p.Id); signed_heartbeat_pending=true"
+    exit 0
+} catch {
+    try { Write-BootEvent 'BOOTSTRAP_ERROR' $_.Exception.Message } catch {}
+    exit 1
+}
+) {
         throw 'SOURCE_OR_SHA_UNEXPECTED'
     }
+    $gatewayMarker = Get-Content -LiteralPath (Join-Path $gatewaySource '.remotemcp-release.json') -Raw | ConvertFrom-Json
+    if ([string]$gatewayMarker.commit -notmatch '^[0-9a-f]{40}
+    $watchScript = Join-Path $source 'Watch-RemoteMCP-Node.ps1'
+    if (-not (Test-Path -LiteralPath $watchScript -PathType Leaf)) {
+        throw 'WATCHDOG_SCRIPT_MISSING'
+    }
+
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $rx = [regex]::Escape($runtime)
+    $watches = @($all | Where-Object {
+        $_.Name -match '^(powershell|pwsh)\.exe$' -and
+        $_.CommandLine -match 'Watch-RemoteMCP-Node\.ps1' -and
+        $_.CommandLine -match $rx
+    })
+    $nodes = @($all | Where-Object {
+        $_.Name -match '^python(w)?\.exe$' -and
+        $_.CommandLine -match 'remotemcp\.node run' -and
+        $_.CommandLine -match $rx
+    })
+    if ($watches.Count -gt 1) { throw 'MULTIPLE_WATCHDOGS' }
+    if ($watches.Count -eq 1) {
+        if ($watches[0].CommandLine -notmatch [regex]::Escape($source)) {
+            throw 'WATCHDOG_EXISTING_WRONG_RELEASE'
+        }
+        Write-BootEvent 'NOOP_PINNED_WATCHDOG_ALREADY_RUNNING' 'no process changed'
+        exit 0
+    }
+    if ($nodes.Count -gt 0) {
+        throw 'NODE_PRESENT_WATCHDOG_ABSENT_HOLD_NO_RESTART'
+    }
+
+    $short = $sha.Substring(0,7)
+    $venv = Join-Path $infra "venv\$short"
+    $env:REMOTEMCP_NODE_VENV = $venv
+    $env:REMOTEMCP_LOG_DIR = $logDir
+    $env:REMOTEMCP_TEMP_DIR = Join-Path $infra 'tmp'
+    $env:REMOTEMCP_CACHE_DIR = Join-Path $infra 'cache'
+    $env:REMOTEMCP_CONTROL_DIR = Join-Path $infra 'control'
+    $env:REMOTEMCP_LONG_LIVED_PROCESS_PATTERNS = 'ru0_c_u3_executor.py'
+    foreach ($dir in @($venv,$logDir,$env:REMOTEMCP_TEMP_DIR,
+        $env:REMOTEMCP_CACHE_DIR,$env:REMOTEMCP_CONTROL_DIR)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    # Check again immediately before launch; do not spawn a second watchdog.
+    $recent = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    if (@($recent | Where-Object {
+        $_.CommandLine -match 'Watch-RemoteMCP-Node\.ps1' -and
+        $_.CommandLine -match $rx
+    }).Count -gt 0) { throw 'WATCHDOG_APPEARED_DURING_BOOTSTRAP' }
+    if (@($recent | Where-Object {
+        $_.Name -match '^python(w)?\.exe$' -and
+        $_.CommandLine -match 'remotemcp\.node run' -and
+        $_.CommandLine -match $rx
+    }).Count -gt 0) { throw 'NODE_APPEARED_DURING_BOOTSTRAP' }
+
+    $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ' +
+        (Quote-Arg $watchScript) +
+        ' -RuntimeDir ' + (Quote-Arg $runtime) +
+        ' -RootDir ' + (Quote-Arg $root) +
+        ' -SourceDir ' + (Quote-Arg $source) +
+        ' -NodeSourceDir ' + (Quote-Arg $source) +
+        ' -VenvDir ' + (Quote-Arg $venv) +
+        ' -LogDir ' + (Quote-Arg $logDir) +
+        ' -TempDir ' + (Quote-Arg $env:REMOTEMCP_TEMP_DIR) +
+        ' -CacheDir ' + (Quote-Arg $env:REMOTEMCP_CACHE_DIR) +
+        ' -ControlDir ' + (Quote-Arg $env:REMOTEMCP_CONTROL_DIR) +
+        ' -DeclaredLongLivedProcessPatterns ru0_c_u3_executor.py'
+    Write-BootEvent 'WATCHDOG_START_REQUESTED' "release=$sha"
+    $p = Start-Process -FilePath $ps -ArgumentList $arguments -WindowStyle Hidden -PassThru -ErrorAction Stop
+    Start-Sleep -Seconds 3
+    $confirmed = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $_.ProcessId -eq $p.Id -and
+        $_.CommandLine -match [regex]::Escape($watchScript) -and
+        $_.CommandLine -match $rx
+    })
+    if ($confirmed.Count -ne 1) { throw 'PINNED_WATCHDOG_NOT_CONFIRMED' }
+    Write-BootEvent 'WATCHDOG_STARTED' "release=$sha; watchdog_pid=$($p.Id); signed_heartbeat_pending=true"
+    exit 0
+} catch {
+    try { Write-BootEvent 'BOOTSTRAP_ERROR' $_.Exception.Message } catch {}
+    exit 1
+}
+) {
+        throw 'GATEWAY_RELEASE_MARKER_INVALID'
+    }
+    $source = Join-Path 'D:\2.RemoteMCP-releases' $sha.Substring(0,7)
     $marker = Get-Content -LiteralPath (Join-Path $source '.remotemcp-release.json') -Raw | ConvertFrom-Json
-    if ($marker.commit -ne $sha) { throw 'PINNED_RELEASE_SHA_MISMATCH' }
+    if ($marker.commit -ne $sha) { throw 'PINNED_NODE_RELEASE_SHA_MISMATCH' }
     $watchScript = Join-Path $source 'Watch-RemoteMCP-Node.ps1'
     if (-not (Test-Path -LiteralPath $watchScript -PathType Leaf)) {
         throw 'WATCHDOG_SCRIPT_MISSING'
