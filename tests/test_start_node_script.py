@@ -23,3 +23,13 @@ def test_root_start_script_contract():
     assert "NODE_ROOT_MISMATCH_RESTART_REQUIRED" in text
     assert "[switch]$Restart" in text
     assert " pair " not in text.lower()
+
+
+def test_starter_archives_old_node_logs_before_redirecting_new_process():
+    p = Path(__file__).resolve().parents[1] / "Start-RemoteMCP-Node.ps1"
+    text = p.read_text(encoding="utf-8")
+    assert 'node-error.log' in text
+    assert 'node.log' in text
+    assert 'Move-Item -LiteralPath $oldLog -Destination $archive -ErrorAction Stop' in text
+    assert '$info.Length -gt 0' in text
+    assert text.index('Move-Item -LiteralPath $oldLog') < text.index('Start-Process -FilePath $NodePython')
