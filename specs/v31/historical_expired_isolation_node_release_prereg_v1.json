@@ -1,0 +1,102 @@
+{
+  "schema": "remotemcp.v31.historical-expired-isolation-release-prereg.v1",
+  "phase": "PREREGISTRATION_ONLY",
+  "frozen_date": "2026-10-10",
+  "base_gateway_commit": "ef9f81f05ea2be9116751280340c47bd05d908ad",
+  "base_node_commit": "dabce9a76502dbae541a0eddff0096fb8dfe908a",
+  "instrumentation_candidate_commit": "1106f960dc2670234a9e4bba4ff3703c154eb30c",
+  "frozen_leased_inventory": {
+    "rows": 19,
+    "terminal_node_gateway_stale": 15,
+    "expired_delivered_no_node_receipt": 3,
+    "expired_node_nonterminal": 1,
+    "sha256": "9d316322454b5894a3093688d8a0b7090e221312b70153c6bf2ba038016fdd85"
+  },
+  "frozen_four_forensics": {
+    "rows": 4,
+    "node_nonterminal": 1,
+    "no_proven_execution": 3,
+    "result_sha256": "99b041d1de02c63593992262133dca4a1f34c262536d684e0d3c66cf48e03d31",
+    "all_terminal_reconciled": false
+  },
+  "protected_command_identity_source": "PRIVATE_FROZEN_SNAPSHOT_ONLY",
+  "protected_types": [
+    "JOB_SUBMIT",
+    "JOB_GET",
+    "PROJECT_PROBE",
+    "TASK_BASE_RESOLVE"
+  ],
+  "guards": {
+    "source_identity_verification": [
+      "device_id",
+      "route_generation",
+      "command_id",
+      "command_type",
+      "request_hash",
+      "operation_id",
+      "operation_step"
+    ],
+    "protected_actions": [
+      "CREATE_REUSE",
+      "REVIVE_EXPIRED",
+      "REQUEUE",
+      "LEASE",
+      "DELIVER",
+      "RECOVER_ROUTED_JOB",
+      "HISTORICAL_REPLAY"
+    ],
+    "historical_command_write_authorized": false,
+    "science_job_write_authorized": false,
+    "powershell_global_allowlist_authorized": false,
+    "offline_or_stale_capacity": "FAIL_CLOSED",
+    "invalid_snapshot": "HOLD",
+    "operation_alias_unresolved": "HOLD",
+    "expired_does_not_imply_replay": true
+  },
+  "synthetic_isolation_test_cases": [
+    "ISO-01",
+    "ISO-02",
+    "ISO-03",
+    "ISO-04",
+    "ISO-05",
+    "ISO-06",
+    "ISO-07",
+    "ISO-08",
+    "ISO-09",
+    "ISO-10",
+    "ISO-11",
+    "ISO-12"
+  ],
+  "release_qualification": {
+    "qa_operating_systems": [
+      "windows-latest",
+      "ubuntu-latest"
+    ],
+    "baseline_pr73_required_checks": 14,
+    "baseline_pr72_required_checks": 2,
+    "consecutive_empty_poll_cycles_per_os": 60,
+    "telemetry_p95_overhead_milliseconds_max": 5,
+    "signed_fresh_capacity_required": true,
+    "preflight_snapshot_min_gap_seconds": 30,
+    "no_unexpired_commands": true,
+    "physical_nonterminal_node_jobs": 0,
+    "physical_unresolved_node_jobs": 0,
+    "private_approval_required": true,
+    "release_pin_requalification_required": true,
+    "production_activation_from_prereg": false
+  },
+  "live_qualification": {
+    "sequential_reads": 6,
+    "each_client_elapsed_milliseconds_strictly_less_than": 55000,
+    "receipt_match_required": true,
+    "stop_at_first_failure": true
+  },
+  "terminal_status": {
+    "preregistration": "LOCK_CANDIDATE",
+    "static_isolation_implemented": false,
+    "node_upgraded": false,
+    "live_six_pass": false,
+    "historical_four_reconciled": false,
+    "science_agents_resume_authorized": false
+  }
+}
