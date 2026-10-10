@@ -310,6 +310,18 @@ if ($Restart -and $existing.Count -gt 0) {
 if ($existing.Count -eq 0) {
     $logFile = Join-Path $LogDir "node.log"
     $errFile = Join-Path $LogDir "node-error.log"
+    # Preserve previous stderr/stdout before Start-Process truncates log paths.
+    # Never truncate or overwrite previous startup evidence across watchdog relaunches.
+    $archiveStamp = (Get-Date -Format "yyyyMMdd-HHmmss-fff") + "-" + ([guid]::NewGuid().ToString("N").Substring(0,8))
+    foreach ($oldLog in @($logFile,$errFile)) {
+        if (Test-Path -LiteralPath $oldLog -PathType Leaf) {
+            $info = Get-Item -LiteralPath $oldLog -ErrorAction Stop
+            if ($info.Length -gt 0) {
+                $archive = $oldLog + "." + $archiveStamp + ".previous"
+                Move-Item -LiteralPath $oldLog -Destination $archive -ErrorAction Stop
+            }
+        }
+    }
     Write-Host "Starting RemoteMCP node..."
     $NodeArgs = @("-m","remotemcp.node","run","--runtime-dir",$RuntimeDir,"--root",$RootDir)
     foreach ($legacy in $ResolvedLegacyRootDirs) {
