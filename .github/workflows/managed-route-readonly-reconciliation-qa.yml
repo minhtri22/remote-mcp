@@ -1,0 +1,30 @@
+name: Managed Route Read-Only Reconciliation QA
+
+on:
+  pull_request:
+    paths:
+      - "scripts/agent-recovery/readonly_managed_command_reconciliation.py"
+      - "tests/test_managed_command_reconciliation_readonly.py"
+      - ".github/workflows/managed-route-readonly-reconciliation-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-ledger:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test runner
+        run: python -m pip install pytest
+      - name: Readonly exact journal tests
+        run: python -m pytest -q tests/test_managed_command_reconciliation_readonly.py
