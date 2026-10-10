@@ -354,6 +354,27 @@ def test_iso08b_protected_proxy_registry_cannot_mutate_or_deduplicate(harness):
     assert row["proxy_job_id"]==PROXY
 
 
+def test_iso08c_preexisting_proxy_cancel_queued_before_activation_holds(harness):
+    repo,db,_,_,_=harness
+    protected=repo.isolation
+    repo.isolation=None
+    queued,created=repo.create(
+        DEVICE,"JOB_CANCEL",{"proxy_job_id":PROXY},
+        project_id=PROJECT,task_id=TASK,operation_id="queued_before_activation",
+    )
+    assert created and queued["state"]=="QUEUED"
+    repo.isolation=protected
+    before=[dict(r) for r in db.conn.execute(
+        "SELECT * FROM device_commands ORDER BY command_id"
+    )]
+    assert_denied("HISTORICAL_ISOLATION_INVALID_HOLD",lambda:
+        repo.poll(DEVICE,1))
+    after=[dict(r) for r in db.conn.execute(
+        "SELECT * FROM device_commands ORDER BY command_id"
+    )]
+    assert after==before
+
+
 @pytest.mark.parametrize("status", ["offline","stale","wrong-pin"])
 def test_iso09_attestation_offline_prevents_mutations(harness,status):
     repo,db,dev,payloads,_=harness
