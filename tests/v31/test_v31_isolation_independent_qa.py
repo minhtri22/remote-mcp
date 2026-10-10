@@ -96,6 +96,7 @@ def test_failing_bound_identity_does_not_modify_protected_table(tmp_path,monkeyp
         "UPDATE device_commands SET request_hash=? WHERE command_id=?",
         ("f"*64,target),
     )
+    db.conn.commit()
     before=independent_digest(independent_sql_snapshot(db))
     with pytest.raises(DurableError) as e:
         repo.poll(DEVICE,1)
