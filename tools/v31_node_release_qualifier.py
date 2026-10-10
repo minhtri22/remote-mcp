@@ -65,6 +65,10 @@ def evaluate_private_signed_pair(evidence: dict, *, now_ms: int,
         "device_key_fingerprint_sha256","frozen_inventory_sha256"
     )):
         blockers.append("IDENTITY_PIN_INVALID")
+    if not re.fullmatch(r"dev_[0-9a-f]{32}",str(expected.get("device_id",""))):
+        blockers.append("DEVICE_PIN_INVALID")
+    if type(expected.get("route_generation")) is not int or expected["route_generation"] < 1:
+        blockers.append("ROUTE_GENERATION_PIN_INVALID")
     signed: list[dict] = []
     for index, item in enumerate(snapshots):
         if not isinstance(item, dict) or not isinstance(item.get("payload"), dict):
@@ -85,6 +89,8 @@ def evaluate_private_signed_pair(evidence: dict, *, now_ms: int,
                   "gateway_release_commit","node_release_commit","frozen_inventory_sha256"):
             if payload.get(k) != expected.get(k):
                 blockers.append(f"SNAPSHOT_{index}_{k.upper()}_MISMATCH")
+        if type(payload["route_generation"]) is not int or payload["route_generation"] < 1:
+            blockers.append(f"SNAPSHOT_{index}_ROUTE_GENERATION_INVALID")
         if type(payload["observed_at_ms"]) is not int:
             blockers.append(f"SNAPSHOT_{index}_TIMESTAMP_INVALID")
         elif payload["observed_at_ms"] > now_ms + 5_000 or now_ms - payload["observed_at_ms"] > 90_000:
@@ -105,8 +111,11 @@ def evaluate_private_signed_pair(evidence: dict, *, now_ms: int,
             blockers.append(f"SNAPSHOT_{index}_PROCESS_EPOCH_INVALID")
     if len(signed)==2:
         left,right=signed
-        if right["observed_at_ms"]-left["observed_at_ms"] < 30_000:
-            blockers.append("SIGNED_SNAPSHOT_INTERVAL_LT_30S")
+        if all(type(x.get("observed_at_ms")) is int for x in signed):
+            if right["observed_at_ms"]-left["observed_at_ms"] < 30_000:
+                blockers.append("SIGNED_SNAPSHOT_INTERVAL_LT_30S")
+        else:
+            blockers.append("SIGNED_SNAPSHOT_INTERVAL_UNVERIFIABLE")
         if left["process_epoch"] != right["process_epoch"]:
             blockers.append("PROCESS_EPOCH_CHANGED")
         if left["device_id"] != right["device_id"]:
