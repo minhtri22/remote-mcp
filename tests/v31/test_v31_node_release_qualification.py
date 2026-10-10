@@ -68,7 +68,8 @@ def test_signed_pair_is_eligible_for_review_but_never_deploy_permission():
         evidence,now_ms=NOW,
         pinned_trust_anchor_b64=evidence["trusted_node_public_key_b64"],
     )
-    assert verdict["verdict"]=="REVIEW_ELIGIBLE"
+    assert verdict["verdict"]=="SYNTHETIC_SUMMARY_VALID_ONLY"
+    assert verdict["actual_rmcpnode1_signature_verified"] is False
     assert verdict["signed_snapshots_verified"]==2
     assert verdict["operator_authorized"] is False
     assert verdict["production_deployment_permitted"] is False
