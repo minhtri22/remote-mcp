@@ -228,9 +228,18 @@ def test_sixty_zero_science_empty_poll_cycles_per_os(make_gateway,tmp_path):
         assert len({x["route_generation"] for x in xs})==1
         assert all("result_ack_duration_ms" not in x for x in xs)
         assert all("execute_duration_ms" not in x for x in xs)
+        assert sum(bool(x["heartbeat_due"]) for x in xs) >= 1
         for x in xs:
-            assert "capacity_duration_ms" in x
-            assert "process_safety_duration_ms" in x
+            # Capacity and process safety are sampled only when heartbeat
+            # is due; forcing these phases in all 60 polls would silently
+            # change the production heartbeat cadence.
+            if x["heartbeat_due"]:
+                assert "capacity_duration_ms" in x
+                assert "process_safety_duration_ms" in x
+                assert "heartbeat_duration_ms" in x
+            else:
+                assert "capacity_duration_ms" not in x
+                assert "process_safety_duration_ms" not in x
         blob=log.read_bytes()
         assert b"SECRET" not in blob
         print("V31_CADENCE_60_EMPTY_POLLS=PASS "
