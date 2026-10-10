@@ -11,8 +11,25 @@ TERMINAL={"SUCCEEDED","FAILED","CANCELLED","LOST"}
 
 
 class RoutedJobRepository:
-    def __init__(self,db):
+    def __init__(self,db,*,isolation=None):
         self.db=db
+        # Default disabled. Signed isolation policy is injected only when
+        # separately authorized in the gateway.
+        self.isolation=isolation
+
+    def _reject_protected(self,*,proxy_job_id=None,operation_id=None):
+        policy=self.isolation
+        if policy is None:
+            return
+        protected_operation=(
+            operation_id is not None
+            and any(alias==operation_id for alias, _ in policy.aliases)
+        )
+        if protected_operation or proxy_job_id in policy.proxys:
+            raise DurableError(
+                "HISTORICAL_COMMAND_PROTECTED",
+                "historical routed job identity cannot be reused or updated",
+            )
 
     def get(self,proxy_job_id:str):
         row=self.db.query_one("SELECT * FROM routed_jobs WHERE proxy_job_id=?",(proxy_job_id,))
@@ -34,14 +51,18 @@ class RoutedJobRepository:
         self,con,operation_id:str,task_id:str,project_id:str,device_id:str,
         *,execution_key:str|None=None,argv_sha256:str|None=None,cwd:str|None=None,
     ):
+        self._reject_protected(operation_id=operation_id)
         old=con.execute("SELECT * FROM routed_jobs WHERE operation_id=?",(operation_id,)).fetchone()
-        if old:return old,False
+        if old:
+            self._reject_protected(proxy_job_id=old["proxy_job_id"])
+            return old,False
         proxy="rjob_"+secrets.token_hex(16);t=now_ms()
         if execution_key:
             existing=con.execute(
                 "SELECT * FROM routed_jobs WHERE execution_key=?",(execution_key,)
             ).fetchone()
             if existing:
+                self._reject_protected(proxy_job_id=existing["proxy_job_id"])
                 return existing,False
         con.execute(
             "INSERT INTO routed_jobs("
@@ -56,6 +77,7 @@ class RoutedJobRepository:
         return con.execute("SELECT * FROM routed_jobs WHERE proxy_job_id=?",(proxy,)).fetchone(),True
 
     def update(self,proxy_job_id:str,*,node_job_id=None,state=None,terminal_result=None):
+        self._reject_protected(proxy_job_id=proxy_job_id)
         t=now_ms()
         fields=["last_seen_at_ms=?","updated_at_ms=?"];vals=[t,t]
         if node_job_id is not None: fields.append("node_job_id=?");vals.append(node_job_id)
