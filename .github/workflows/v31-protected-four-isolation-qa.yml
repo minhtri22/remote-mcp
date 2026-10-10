@@ -1,0 +1,54 @@
+name: V31 Protected Four Nonmutating Isolation QA
+
+on:
+  pull_request:
+    paths:
+      - "remotemcp/routing/commands.py"
+      - "remotemcp/routing/historical_isolation.py"
+      - "tests/v31/test_v31_expired_four_isolation.py"
+      - "tests/v31/test_v31_isolation_independent_qa.py"
+      - ".github/workflows/v31-protected-four-isolation-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protected-four-iso-qa:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install test-only dependencies; no live credentials
+        run: python -m pip install --disable-pip-version-check pytest "mcp[cli]<2" uvicorn httpx==0.28.1 cryptography==46.0.6
+      - name: Compile changed runtime and QA
+        run: python -m py_compile remotemcp/routing/historical_isolation.py remotemcp/routing/commands.py tests/v31/test_v31_expired_four_isolation.py tests/v31/test_v31_isolation_independent_qa.py
+      - name: ISO-01 to ISO-12 synthetic no-replay and independent immutable-state QA
+        run: python -m pytest -q tests/v31/test_v31_expired_four_isolation.py tests/v31/test_v31_isolation_independent_qa.py
+      - name: Release pin and signed bounded poll regression
+        run: python -m pytest -q tests/test_gateway_pinned_node_dispatch_hold.py tests/v2bd/test_bounded_signed_poll_no_starvation.py tests/v2bd/test_node_reconnect.py
+      - name: Branch-serial and readonly prereg contract regression
+        run: python -m pytest -q tests/v2bd/test_branch_serial_routed_admission.py tests/v31/test_readonly_lease_classifier_contract.py tests/v31/test_four_command_forensics.py tests/v31/test_historical_isolation_release_prereg_contract.py
+      - name: Public repository hygiene
+        run: python -m pytest -q tests/test_public_repo_hygiene.py
+      - name: No production activation static evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path("remotemcp/routing/commands.py").read_text()
+          n=Path("remotemcp/routing/historical_isolation.py").read_text()
+          assert 'self.isolation=None' in p
+          assert 'HISTORICAL_ISOLATION_INVALID_HOLD' in p
+          assert 'REMOTEMCP_V31_EXPIRED_ISOLATION_' in p
+          assert "manifest.get(" in n
+          assert "signed" in n.lower()
+          assert "CREATE TABLE" not in n and "UPDATE device_commands" not in n
+          assert "REMOTEMCP_NODE_CADENCE_TRACE" in Path("remotemcp/node/cadence.py").read_text()
+          print("V31_FOUR_ISOLATION_STATIC_QA=PASS / PRODUCTION_GATEWAY_NODE=UNTOUCHED")
