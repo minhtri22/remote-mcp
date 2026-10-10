@@ -156,6 +156,9 @@ def setup(monkeypatch, tmp_path):
             "command_type": "TASK_LIST_DIR",
             "classification": "EXPIRED_NODE_TERMINAL_GATEWAY_STALE",
         })
+    # Fixture setup is a committed frozen baseline. A rejection must not
+    # roll back the setup itself (sqlite3 implicit transaction semantics).
+    db.conn.commit()
     manifest = dict(
         schema=SCHEMA, device_id=DEVICE, inventory_rows=inventory,
         frozen_inventory_sha256=sha_rows(inventory),
@@ -240,6 +243,7 @@ def test_iso03_cancelled_expired_operation_cannot_revive(harness):
     repo,db,_,payloads,_=harness
     cid=f"cmd_{3:032x}"
     db.conn.execute("UPDATE device_commands SET state='CANCELLED',error_code='DEVICE_COMMAND_EXPIRED' WHERE command_id=?", (cid,))
+    db.conn.commit()
     before=db.snapshot(protect_ids(repo))
     assert_denied("HISTORICAL_COMMAND_PROTECTED", lambda:
         repo.create(DEVICE,"PROJECT_PROBE",payloads[2],project_id=PROJECT,task_id=TASK,operation_id="op_3",operation_step=0))
