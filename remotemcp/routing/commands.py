@@ -282,6 +282,13 @@ class CommandRepository:
         }
 
     def commit_result(self,device_id:str,route_generation:int,command_id:str,payload:dict):
+        # A delayed terminal acknowledgement is NOT permission to rewrite any
+        # of the four frozen historical command rows.
+        if self.isolation is not None and command_id in self.isolation.bindings:
+            raise DurableError(
+                "HISTORICAL_COMMAND_PROTECTED",
+                "protected historical command cannot be terminalized or replayed",
+            )
         row=self.get(command_id)
         if row["device_id"]!=device_id:
             raise DurableError("FORBIDDEN","command belongs to another device")
