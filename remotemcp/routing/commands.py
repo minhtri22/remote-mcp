@@ -51,7 +51,16 @@ class CommandRepository:
                         "durable node release guard requires an exact 40-hex commit",
                     )
                 self.required_release_sha=pin
-                self.science_dispatch_hold=True
+                # Exact release pin is mandatory independently from the
+                # explicitly operator-controlled dispatch quarantine.
+                # Missing hold defaults to ON; malformed hold fails closed.
+                hold=data.get("hold_science_job_dispatch",True)
+                if type(hold) is not bool:
+                    raise DurableError(
+                        "GATEWAY_SCIENCE_QUARANTINE_CONFIG_INVALID",
+                        "pinned science dispatch hold must be a boolean",
+                    )
+                self.science_dispatch_hold=hold
 
     def _node_release_blocker(self,device_id:str)->str|None:
         if not self.required_release_sha:

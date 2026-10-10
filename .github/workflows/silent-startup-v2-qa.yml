@@ -45,6 +45,17 @@ jobs:
           foreach($s in @('NODE_PRESENT_WATCHDOG_ABSENT_HOLD_NO_RESTART','GATEWAY_RELEASE_GUARD_INVALID','silent-bootstrap.jsonl','-WindowStyle Hidden')) {
             if(-not $bootstrap.Contains($s)) { throw "MISSING_BOOT_GUARD: $s" }
           }
+          # The gateway may advance independently; the silent boot script MUST
+          # continue selecting the exact signed/pinned NODE release.
+          foreach($part in @(
+              'Join-Path $releaseBase $sha.Substring(0,7)',
+              "PINNED_NODE_RELEASE_SHA_MISMATCH"
+          )) {
+            if(-not $bootstrap.Contains($part)) { throw "PINNED_NODE_BOOTSTRAP_CONTRACT_MISSING: $part" }
+          }
+          if(-not $installer.Contains('Join-Path $releaseBase $sha.Substring(0,7)')) {
+            throw 'INSTALLER_GATEWAY_NODE_SHA_CONFLATION'
+          }
           if($bootstrap -match '(?i)Stop-Process|device_pair_begin|job_submit|hold_science_job_dispatch\s*=\s*\$false') {
             throw 'BOOTSTRAP_FORBIDDEN_MUTATION'
           }

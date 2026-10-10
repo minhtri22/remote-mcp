@@ -19,13 +19,17 @@ try {
     if (-not $bootstrapText.Contains('REMOTEMCP_SILENT_BOOTSTRAP_V2')) {
         throw 'BOOTSTRAP_CONTENT_MARKER_MISSING'
     }
-    $dir = 'D:\WORK\RESEARCH\.remotemcp\machine-1'
+    $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+    $dir = Join-Path $root '.remotemcp\machine-1'
+    $releaseBase = Join-Path ([IO.Path]::GetPathRoot($root)) '2.RemoteMCP-releases'
     $control = Join-Path $dir 'control'
     $logDir = Join-Path $dir 'logs'
     $runtime = Join-Path $env:LOCALAPPDATA 'RemoteMCP\runtime'
     $cfgFile = Join-Path $env:LOCALAPPDATA 'RemoteMCP\gateway-config.json'
-    $deviceId = 'dev_dd73ebfa742f468f2d212bade88c175b'
-    $fingerprint = 'b657d5395e393e0957a9ed358bb5a1fe1588fde5d3a44be71295a68d1e73def9'
+    $identity = Get-Content -LiteralPath (Join-Path $runtime 'device.json') -Raw | ConvertFrom-Json
+    $deviceId = [string]$identity.device_id
+    $fingerprint = [string]$identity.key_fingerprint_sha256
+    if ($deviceId -notmatch '^dev_[0-9a-f]{32}$' -or $fingerprint -notmatch '^[0-9a-f]{64}$') { throw 'PAIRING_IDENTITY_FORMAT_INVALID' }
     $name = "RemoteMCP-Node-Supervisor-$deviceId"
     $startupDir = [Environment]::GetFolderPath('Startup')
     if (-not $startupDir) { throw 'STARTUP_FOLDER_UNAVAILABLE' }
@@ -43,8 +47,15 @@ try {
         $cfg.hold_science_job_dispatch -isnot [bool]) {
         throw 'GATEWAY_RELEASE_GUARD_INVALID'
     }
-    $release = [string]$cfg.source_dir
+    # The gateway code commit and the pinned node commit may differ.
+    $gatewayRelease = [string]$cfg.source_dir
     $sha = [string]$cfg.required_node_release_commit_sha
+    if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'NODE_PIN_SHA_INVALID' }
+    $gatewayMarker = Get-Content -LiteralPath (Join-Path $gatewayRelease '.remotemcp-release.json') -Raw | ConvertFrom-Json
+    if ([string]$gatewayMarker.commit -notmatch '^[0-9a-f]{40}$') { throw 'GATEWAY_MARKER_INVALID' }
+    $expectedGateway = Join-Path $releaseBase ([string]$gatewayMarker.commit).Substring(0,7)
+    if ($gatewayRelease -ine $expectedGateway) { throw 'GATEWAY_RELEASE_PATH_MISMATCH' }
+    $release = Join-Path $releaseBase $sha.Substring(0,7)
     $marker = Get-Content -LiteralPath (Join-Path $release '.remotemcp-release.json') -Raw | ConvertFrom-Json
     if ($marker.commit -ne $sha) { throw 'NODE_RELEASE_PIN_MISMATCH' }
 
