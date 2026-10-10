@@ -2,14 +2,17 @@
 # Per-user Windows logon bootstrap. Never pair, stop/restart a node, or admit scientific jobs.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$infra = 'D:\WORK\RESEARCH\.remotemcp\machine-1'
+$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$infra = Join-Path $root '.remotemcp\machine-1'
+$releaseBase = Join-Path ([IO.Path]::GetPathRoot($root)) '2.RemoteMCP-releases'
 $logDir = Join-Path $infra 'logs'
 $logFile = Join-Path $logDir 'silent-bootstrap.jsonl'
 $runtime = Join-Path $env:LOCALAPPDATA 'RemoteMCP\runtime'
 $configFile = Join-Path $env:LOCALAPPDATA 'RemoteMCP\gateway-config.json'
-$deviceId = 'dev_dd73ebfa742f468f2d212bade88c175b'
-$fingerprint = 'b657d5395e393e0957a9ed358bb5a1fe1588fde5d3a44be71295a68d1e73def9'
-$root = 'D:\WORK\RESEARCH'
+$identity = Get-Content -LiteralPath (Join-Path $runtime 'device.json') -Raw | ConvertFrom-Json
+$deviceId = [string]$identity.device_id
+$fingerprint = [string]$identity.key_fingerprint_sha256
+if ($deviceId -notmatch '^dev_[0-9a-f]{32}$' -or $fingerprint -notmatch '^[0-9a-f]{64}$') { throw 'PAIRING_IDENTITY_FORMAT_INVALID' }
 
 function Write-BootEvent {
     param([string]$EventName, [string]$Detail)
@@ -49,9 +52,9 @@ try {
     if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'NODE_PIN_SHA_INVALID' }
     $gatewayMarker = Get-Content -LiteralPath (Join-Path $gatewaySource '.remotemcp-release.json') -Raw | ConvertFrom-Json
     if ([string]$gatewayMarker.commit -notmatch '^[0-9a-f]{40}$') { throw 'GATEWAY_MARKER_INVALID' }
-    $expectedGateway = Join-Path 'D:\2.RemoteMCP-releases' ([string]$gatewayMarker.commit).Substring(0,7)
+    $expectedGateway = Join-Path $releaseBase ([string]$gatewayMarker.commit).Substring(0,7)
     if ($gatewaySource -ine $expectedGateway) { throw 'GATEWAY_RELEASE_PATH_MISMATCH' }
-    $source = Join-Path 'D:\2.RemoteMCP-releases' $sha.Substring(0,7)
+    $source = Join-Path $releaseBase $sha.Substring(0,7)
     $marker = Get-Content -LiteralPath (Join-Path $source '.remotemcp-release.json') -Raw | ConvertFrom-Json
     if ($marker.commit -ne $sha) { throw 'PINNED_NODE_RELEASE_SHA_MISMATCH' }
 
