@@ -47,7 +47,7 @@ def sample():
             },
             "body_b64":base64.b64encode(body).decode(),
         })
-    return pk,{
+    return key,pk,{
         "schema":"remotemcp.v31.raw-signed-node-heartbeat-pair.v1",
         "expected":{
             "device_id":DEVICE,"route_generation":1,
@@ -59,7 +59,7 @@ def sample():
 
 
 def test_true_node_protocol_signatures_verify_but_release_stays_hold():
-    pk,evidence=sample()
+    _,pk,evidence=sample()
     r=evaluate_raw_signed_heartbeat_pair(
         evidence,pinned_node_public_key_b64=pk,now_ms=NOW,
     )
@@ -71,13 +71,25 @@ def test_true_node_protocol_signatures_verify_but_release_stays_hold():
     assert "GATEWAY_SIGNED_UNEXPIRED_COMMAND_COUNT_MISSING" in r["blockers"]
 
 
+def resign_real_rmcpnode1(key,item):
+    """Re-sign modified HTTP packet to exercise semantic guards."""
+    h=item["headers"]
+    body=base64.b64decode(item["body_b64"])
+    signed=canonical_node(
+        h["X-RMCP-Device"],int(h["X-RMCP-Route-Generation"]),
+        item["method"],item["path"],int(h["X-RMCP-Timestamp"]),
+        h["X-RMCP-Nonce"],body,
+    )
+    h["X-RMCP-Signature"]=b64u(key.sign(signed))
+
+
 @pytest.mark.parametrize("attack",[
     "missing_external_key","self_signed_replacement","changed_body",
     "changed_route","wrong_release","not_fresh","too_close","same_nonce",
     "job_not_zero","physical_blocker","bad_path","missing_headers",
 ])
 def test_node_protocol_fail_closed(attack):
-    pk,e=sample()
+    key,pk,e=sample()
     first,second=e["signed_heartbeat_requests"]
     if attack=="missing_external_key":
         pk=None
@@ -113,6 +125,11 @@ def test_node_protocol_fail_closed(attack):
         second["path"]="/device/v1/poll"
     elif attack=="missing_headers":
         second["headers"].pop("X-RMCP-Signature")
+    # These requests are re-signed by the fixture key; a valid signature
+    # must NOT bypass semantic safety controls.
+    if attack in ("changed_route","not_fresh","too_close","same_nonce",
+                  "job_not_zero","physical_blocker","bad_path"):
+        resign_real_rmcpnode1(key,second)
     verdict=evaluate_raw_signed_heartbeat_pair(
         e,pinned_node_public_key_b64=pk,now_ms=NOW,
     )
@@ -121,7 +138,7 @@ def test_node_protocol_fail_closed(attack):
 
 
 def test_signed_semantics_missing_gateway_evidence_cannot_authorize_anything():
-    pk,e=sample()
+    _,pk,e=sample()
     for field in ("gateway_release_commit","unexpired_commands",
                   "operator_approval","historical_command_reconciliation"):
         e[field]="FAKE_APPROVED"
