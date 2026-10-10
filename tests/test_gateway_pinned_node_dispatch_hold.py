@@ -177,7 +177,7 @@ def test_persistent_gateway_pin_survives_legacy_watchdog_environment(tmp_path,mo
     file.write_text(json.dumps({
         "node_release_gate_enabled":True,
         "required_node_release_commit_sha":SHA,
-        "hold_science_job_dispatch":False,
+        "hold_science_job_dispatch":True,
     }),encoding="utf-8")
     monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(file))
     monkeypatch.delenv("REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA",raising=False)
@@ -208,3 +208,68 @@ def test_bad_durable_release_pin_is_startup_fatal(tmp_path,monkeypatch):
     with pytest.raises(DurableError) as exc:
         CommandRepository(config,db,device)
     assert exc.value.code=="GATEWAY_RELEASE_PIN_INVALID"
+
+
+def test_explicit_durable_release_preserves_pin_and_ignores_environment_hold(tmp_path,monkeypatch):
+    import json
+
+    file=tmp_path/"gateway-config.json"
+    file.write_text(json.dumps({
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":SHA,
+        "hold_science_job_dispatch":False,
+    }),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(file))
+    monkeypatch.setenv("REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA","b"*40)
+    monkeypatch.setenv("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","1")
+    db=DB()
+    devices=Devices(SHA)
+    repo=CommandRepository(
+        SimpleNamespace(command_lease_seconds=30,mutation_ttl_seconds=120),
+        db,devices,
+    )
+    assert repo.required_release_sha==SHA
+    assert repo.science_dispatch_hold is False
+    assert repo._science_dispatch_blocker("device1") is None
+    # Unqualified node still blocked, even with explicit dispatch release.
+    devices.sha="old"
+    assert repo._science_dispatch_blocker("device1")=="NODE_RELEASE_PIN_MISMATCH"
+    devices.sha=SHA
+    t=now_ms()
+    insert_command(db,"cmd_qualified","JOB_SUBMIT",t)
+    assert repo.poll("device1",1)["command_id"]=="cmd_qualified"
+
+
+def test_missing_durable_hold_defaults_to_quarantine(tmp_path,monkeypatch):
+    import json
+    file=tmp_path/"gateway-config.json"
+    file.write_text(json.dumps({
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":SHA,
+    }),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(file))
+    monkeypatch.setenv("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH","0")
+    repo=CommandRepository(
+        SimpleNamespace(command_lease_seconds=30,mutation_ttl_seconds=120),
+        DB(),Devices(SHA),
+    )
+    assert repo.science_dispatch_hold is True
+    assert repo._science_dispatch_blocker("device1")=="SCIENCE_DISPATCH_QUARANTINED"
+
+
+@pytest.mark.parametrize("invalid_hold",[None,0,1,"false","true",[],{}])
+def test_invalid_durable_hold_fails_closed_at_startup(tmp_path,monkeypatch,invalid_hold):
+    import json
+    file=tmp_path/"gateway-config.json"
+    file.write_text(json.dumps({
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":SHA,
+        "hold_science_job_dispatch":invalid_hold,
+    }),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(file))
+    with pytest.raises(DurableError) as exc:
+        CommandRepository(
+            SimpleNamespace(command_lease_seconds=30,mutation_ttl_seconds=120),
+            DB(),Devices(SHA),
+        )
+    assert exc.value.code=="GATEWAY_SCIENCE_QUARANTINE_CONFIG_INVALID"
