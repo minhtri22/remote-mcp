@@ -80,6 +80,31 @@ class CommandRepository:
                         "pinned science dispatch hold must be a boolean",
                     )
                 self.science_dispatch_hold=hold
+            # This flag is deliberately independent of the node release gate:
+            # the signed four-command quarantine must survive a watchdog
+            # re-launch that omits transient environment variables.
+            isolation_gate=data.get("historical_isolation_gate_enabled",False)
+            if type(isolation_gate) is not bool:
+                raise DurableError(
+                    "HISTORICAL_ISOLATION_INVALID_HOLD",
+                    "durable historical isolation gate must be a boolean",
+                )
+            if isolation_gate:
+                fields=(
+                    data.get("historical_isolation_manifest_path"),
+                    data.get("historical_isolation_manifest_sha256"),
+                    data.get("historical_isolation_public_key_b64"),
+                )
+                if not all(isinstance(v,str) and v.strip() for v in fields):
+                    raise DurableError(
+                        "HISTORICAL_ISOLATION_INVALID_HOLD",
+                        "durable historical isolation requires all three operator pins",
+                    )
+                # No unsigned fallback: the new instance must reverify bytes,
+                # exact SHA-256 and Ed25519 signature on every restart.
+                self.isolation=ExpiredFourIsolation.load_signed(
+                    Path(fields[0]),fields[1],fields[2],
+                )
 
     def _node_release_blocker(self,device_id:str)->str|None:
         if not self.required_release_sha:
