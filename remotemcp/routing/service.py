@@ -3952,16 +3952,25 @@ class RoutingService:
         }
 
     async def poll_http(self,device_row):
-        deadline=asyncio.get_running_loop().time()+self.config.poll_long_wait_seconds
+        # Never pin an inbound HTTP request to the historical 25-second
+        # long-poll. Reverse proxies may close idle POSTs first (502) while
+        # the signed node remains ONLINE; reconnect backoff then starves
+        # commands well beyond the 55-second managed tool wait.
+        # A prompt 204 makes the unchanged node client issue a fresh signed
+        # poll without invalidating its identity, journal, or command lease.
+        loop=asyncio.get_running_loop()
+        wait=min(2.0,max(0.0,float(self.config.poll_long_wait_seconds)))
+        deadline=loop.time()+wait
         while True:
             row=self.commands.poll(
                 device_row["device_id"],int(device_row["route_generation"])
             )
             if row is not None:
                 return self.commands.envelope(row)
-            if asyncio.get_running_loop().time()>=deadline:
+            remaining=deadline-loop.time()
+            if remaining<=0:
                 return None
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(min(0.1,remaining))
 
     def result_http(self,device_row,command_id:str,payload:dict)->dict:
         row=self.commands.commit_result(
