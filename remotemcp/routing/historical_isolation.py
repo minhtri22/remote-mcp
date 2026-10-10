@@ -126,7 +126,8 @@ class ExpiredFourIsolation:
         self.proxys=frozenset(proxys)
 
     @classmethod
-    def load_signed(cls, file_path: Path, expected_sha256: str, public_key_b64: str,\n                    *, expected_inventory_digest: str = FROZEN_INVENTORY_SHA256):
+    def load_signed(cls, file_path: Path, expected_sha256: str, public_key_b64: str,
+                    *, expected_inventory_digest: str = FROZEN_INVENTORY_SHA256):
         if not HEX64.fullmatch(expected_sha256):
             _hold("missing exact manifest SHA-256 pin")
         try:
