@@ -180,6 +180,27 @@ class ExpiredFourIsolation:
                 if proxy!=t["proxy_job_id"]:
                     _hold("protected job proxy alias drift")
 
+    def assert_no_pending_proxy_aliases(self, con, device_id: str) -> None:
+        """Fail closed if a command queued before activation targets a protected job."""
+        if device_id != self.device_id:
+            return
+        rows=con.execute(
+            "SELECT command_id,payload_json FROM device_commands "
+            "WHERE device_id=? AND state IN ('QUEUED','LEASED')",
+            (device_id,),
+        ).fetchall()
+        for row in rows:
+            if row["command_id"] in self.bindings:
+                continue
+            try:
+                payload=json.loads(row["payload_json"])
+            except (TypeError, ValueError):
+                _hold("pending command payload is not parseable under isolation")
+            if not isinstance(payload, dict):
+                _hold("pending command payload is not an object")
+            if payload.get("proxy_job_id") in self.proxys:
+                _hold("pre-existing pending command aliases a protected job proxy")
+
     def before_create(self, con, device_id: str, generation: int,
                       command_type: str, payload: dict, request_hash: str,
                       operation_id: str | None, operation_step: int) -> None:
@@ -191,9 +212,14 @@ class ExpiredFourIsolation:
                 raise DurableError("HISTORICAL_COMMAND_PROTECTED", "protected operation cannot be revived or replaced")
             if any(alias==operation_id for alias, _ in self.aliases):
                 raise DurableError("AMBIGUOUS_REPLACEMENT_HOLD", "protected operation cannot be continued with a different step")
-        if command_type in {"JOB_SUBMIT","JOB_RECOVER_ROUTED_JOB"}:
-            if isinstance(payload,dict) and payload.get("proxy_job_id") in self.proxys:
-                raise DurableError("HISTORICAL_COMMAND_PROTECTED","protected job proxy cannot be recovered or resubmitted")
+        # Any command targeting an uncertain protected proxy may change node
+        # job state, even a nominal GET/RESULT via its gateway side-effects.
+        # Fail closed before command creation for all proxy-bearing types.
+        if isinstance(payload,dict) and payload.get("proxy_job_id") in self.proxys:
+            raise DurableError(
+                "HISTORICAL_COMMAND_PROTECTED",
+                "uncertain historical job proxy is quarantined from all routed commands",
+            )
         # Unscoped identical replay has no independent operation identity.
         if operation_id is None and command_type in PROTECTED_TYPES and any(
             t["command_type"]==command_type

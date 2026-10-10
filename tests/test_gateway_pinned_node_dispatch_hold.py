@@ -108,10 +108,15 @@ def test_fail_closed_submit_before_any_sql_write(monkeypatch):
     assert exc.value.code=="NODE_RELEASE_PIN_MISMATCH"
     device.sha=SHA
     repo.science_dispatch_hold=True
-    with db.transaction() as con:
-        with pytest.raises(DurableError) as exc:
-            repo.create_in_tx(con,"device1","JOB_SUBMIT",{"argv":["python"]},route_generation=1)
-    assert exc.value.code=="SCIENCE_DISPATCH_QUARANTINED"
+    # Both new submissions and recoveries must be blocked before any write;
+    # otherwise a recovery can remain queued and run after the hold is lifted.
+    for kind in ("JOB_SUBMIT", "JOB_RECOVER_ROUTED_JOB"):
+        with db.transaction() as con:
+            with pytest.raises(DurableError) as exc:
+                repo.create_in_tx(
+                    con,"device1",kind,{"argv":["python"]},route_generation=1,
+                )
+        assert exc.value.code=="SCIENCE_DISPATCH_QUARANTINED"
     assert db.conn.execute("SELECT COUNT(*) FROM device_commands").fetchone()[0]==0
 
 

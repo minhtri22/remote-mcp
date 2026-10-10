@@ -20,6 +20,7 @@ from remotemcp.durable.models import now_ms
 from remotemcp.routing.commands import CommandRepository
 from remotemcp.routing.crypto import canonical_json
 from remotemcp.routing.historical_isolation import ExpiredFourIsolation, SCHEMA
+from remotemcp.routing.routed_jobs import RoutedJobRepository
 
 DEVICE = "dev_" + "a" * 32
 PROJECT = "prj_fixture"
@@ -312,11 +313,66 @@ def test_iso07_executing_receipt_is_never_marked_terminal(harness):
 def test_iso08_protected_job_proxy_cannot_submit_or_recover(harness):
     repo,db,_,_,_=harness
     before=db.snapshot(protect_ids(repo))
-    for typ in ("JOB_SUBMIT","JOB_RECOVER_ROUTED_JOB"):
+    # Proxy aliases can also be used by GET / RESULT / CANCEL; the last
+    # command can cancel a historical physical job without replaying SUBMIT.
+    for typ in ("JOB_SUBMIT","JOB_RECOVER_ROUTED_JOB","JOB_GET","JOB_RESULT","JOB_CANCEL"):
         assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda t=typ:
             repo.create(DEVICE,t,{"proxy_job_id":PROXY},
                         project_id=PROJECT,task_id=TASK,operation_id="op_independent_new"))
     check_unchanged(repo,db,before)
+
+
+def test_iso08b_protected_proxy_registry_cannot_mutate_or_deduplicate(harness):
+    repo,db,_,_,_=harness
+    db.conn.executescript(
+        "CREATE TABLE routed_jobs("
+        "proxy_job_id TEXT PRIMARY KEY, operation_id TEXT, task_id TEXT, "
+        "project_id TEXT, device_id TEXT, execution_key TEXT, "
+        "argv_sha256 TEXT, cwd TEXT, node_job_id TEXT, "
+        "last_known_state TEXT, terminal_at_ms INTEGER, "
+        "terminal_result_json TEXT, last_seen_at_ms INTEGER, "
+        "created_at_ms INTEGER, updated_at_ms INTEGER);"
+    )
+    db.conn.execute(
+        "INSERT INTO routed_jobs(proxy_job_id,operation_id,task_id,project_id,"
+        "device_id,execution_key,last_known_state) VALUES(?,?,?,?,?,?,?)",
+        (PROXY,"op_1",TASK,PROJECT,DEVICE,"frozen-key","QUEUED"),
+    )
+    db.conn.commit()
+    before=[dict(r) for r in db.conn.execute("SELECT * FROM routed_jobs")]
+    guarded=RoutedJobRepository(db,isolation=repo.isolation)
+    assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+        guarded.update(PROXY,node_job_id="node_fixture",state="SUCCEEDED"))
+    assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+        guarded.create(db.conn,"op_1",TASK,PROJECT,DEVICE))
+    assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+        guarded.create(db.conn,"op_fresh",TASK,PROJECT,DEVICE,execution_key="frozen-key"))
+    assert [dict(r) for r in db.conn.execute("SELECT * FROM routed_jobs")]==before
+    # The ordinary repository remains unchanged when signed isolation is OFF.
+    baseline=RoutedJobRepository(db)
+    row=baseline.update(PROXY,state="QUEUED")
+    assert row["proxy_job_id"]==PROXY
+
+
+def test_iso08c_preexisting_proxy_cancel_queued_before_activation_holds(harness):
+    repo,db,_,_,_=harness
+    protected=repo.isolation
+    repo.isolation=None
+    queued,created=repo.create(
+        DEVICE,"JOB_CANCEL",{"proxy_job_id":PROXY},
+        project_id=PROJECT,task_id=TASK,operation_id="queued_before_activation",
+    )
+    assert created and queued["state"]=="QUEUED"
+    repo.isolation=protected
+    before=[dict(r) for r in db.conn.execute(
+        "SELECT * FROM device_commands ORDER BY command_id"
+    )]
+    assert_denied("HISTORICAL_ISOLATION_INVALID_HOLD",lambda:
+        repo.poll(DEVICE,1))
+    after=[dict(r) for r in db.conn.execute(
+        "SELECT * FROM device_commands ORDER BY command_id"
+    )]
+    assert after==before
 
 
 @pytest.mark.parametrize("status", ["offline","stale","wrong-pin"])
@@ -371,3 +427,67 @@ def test_iso12_db_lock_or_restart_does_not_replay(harness,monkeypatch):
     fresh.isolation=ExpiredFourIsolation(manifest,expected_digest=manifest["frozen_inventory_sha256"])
     assert fresh.poll(DEVICE,1) is None
     check_unchanged(fresh,db,before)
+
+
+def test_iso13_durable_signed_quarantine_survives_synthetic_gateway_restart(harness,monkeypatch,tmp_path):
+    """Restart is a new repository instance, never a real gateway process."""
+    repo,db,dev,payloads,_=harness
+    policy=repo.isolation
+    path=tmp_path/"gateway-config.json"
+    manifest=tmp_path/"signed-private-manifest.json"
+    manifest.write_text("fixture-only",encoding="utf-8")
+    digest="e"*64
+    public_key="fixture-ed25519-public-key"
+    path.write_text(json.dumps({
+        "node_release_gate_enabled":True,
+        "required_node_release_commit_sha":PIN,
+        "hold_science_job_dispatch":True,
+        "historical_isolation_gate_enabled":True,
+        "historical_isolation_manifest_path":str(manifest),
+        "historical_isolation_manifest_sha256":digest,
+        "historical_isolation_public_key_b64":public_key,
+    }),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(path))
+    monkeypatch.delenv("REMOTEMCP_REQUIRED_NODE_RELEASE_COMMIT_SHA",raising=False)
+    monkeypatch.delenv("REMOTEMCP_HOLD_SCIENCE_JOB_DISPATCH",raising=False)
+    calls=[]
+    def synthetic_verified_loader(cls,private_path,sha,pub):
+        # The Ed25519 / inventory checker has its own non-mocked ISO-01 test.
+        calls.append((str(private_path),sha,pub))
+        return policy
+    monkeypatch.setattr(ExpiredFourIsolation,"load_signed",classmethod(synthetic_verified_loader))
+    before=db.snapshot(protect_ids(repo))
+    for _ in range(2):
+        restarted=CommandRepository(repo.config,db,dev)
+        assert restarted.isolation is policy
+        assert restarted.required_release_sha==PIN
+        assert restarted.science_dispatch_hold is True
+        assert_denied("HISTORICAL_COMMAND_PROTECTED",lambda:
+            restarted.create(DEVICE,"JOB_GET",payloads[1],project_id=PROJECT,
+                             task_id=TASK,operation_id="op_2"))
+        assert restarted.poll(DEVICE,1) is None
+        assert db.snapshot(protect_ids(repo))==before
+    assert calls==[(str(manifest),digest,public_key)]*2
+
+
+@pytest.mark.parametrize("case",["missing_pin","invalid_type","missing_signed_manifest"])
+def test_iso13_invalid_durable_isolation_fails_closed_at_reinitialization(
+        harness,monkeypatch,tmp_path,case):
+    repo,db,dev,_,_=harness
+    config={
+        "historical_isolation_gate_enabled":True,
+        "historical_isolation_manifest_path":str(tmp_path/"does-not-exist.json"),
+        "historical_isolation_manifest_sha256":"d"*64,
+        "historical_isolation_public_key_b64":"invalid",
+    }
+    if case=="missing_pin":
+        config.pop("historical_isolation_manifest_sha256")
+    elif case=="invalid_type":
+        config["historical_isolation_gate_enabled"]="true"
+    config_path=tmp_path/"gateway-config.json"
+    config_path.write_text(json.dumps(config),encoding="utf-8")
+    monkeypatch.setenv("REMOTEMCP_GATEWAY_CONFIG_PATH",str(config_path))
+    before=db.snapshot(protect_ids(repo))
+    assert_denied("HISTORICAL_ISOLATION_INVALID_HOLD",lambda:
+        CommandRepository(repo.config,db,dev))
+    assert db.snapshot(protect_ids(repo))==before

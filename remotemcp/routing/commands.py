@@ -80,6 +80,31 @@ class CommandRepository:
                         "pinned science dispatch hold must be a boolean",
                     )
                 self.science_dispatch_hold=hold
+            # This flag is deliberately independent of the node release gate:
+            # the signed four-command quarantine must survive a watchdog
+            # re-launch that omits transient environment variables.
+            isolation_gate=data.get("historical_isolation_gate_enabled",False)
+            if type(isolation_gate) is not bool:
+                raise DurableError(
+                    "HISTORICAL_ISOLATION_INVALID_HOLD",
+                    "durable historical isolation gate must be a boolean",
+                )
+            if isolation_gate:
+                fields=(
+                    data.get("historical_isolation_manifest_path"),
+                    data.get("historical_isolation_manifest_sha256"),
+                    data.get("historical_isolation_public_key_b64"),
+                )
+                if not all(isinstance(v,str) and v.strip() for v in fields):
+                    raise DurableError(
+                        "HISTORICAL_ISOLATION_INVALID_HOLD",
+                        "durable historical isolation requires all three operator pins",
+                    )
+                # No unsigned fallback: the new instance must reverify bytes,
+                # exact SHA-256 and Ed25519 signature on every restart.
+                self.isolation=ExpiredFourIsolation.load_signed(
+                    Path(fields[0]),fields[1],fields[2],
+                )
 
     def _node_release_blocker(self,device_id:str)->str|None:
         if not self.required_release_sha:
@@ -133,7 +158,10 @@ class CommandRepository:
                 "gateway release pin forbids all agent commands to the old node",
                 device_id=device_id,
             )
-        if command_type=="JOB_SUBMIT" and self.science_dispatch_hold:
+        # A science recovery can resume/execute work after quarantine is lifted.
+        # Fail at admission time as well as the existing poll-time exclusion:
+        # no latent recovery commands may accumulate during operator HOLD.
+        if command_type in ("JOB_SUBMIT", "JOB_RECOVER_ROUTED_JOB") and self.science_dispatch_hold:
             raise DurableError(
                 "SCIENCE_DISPATCH_QUARANTINED",
                 "scientific job admission held until exact command evidence qualifies",
@@ -228,6 +256,9 @@ class CommandRepository:
             # No schema migration, no status normalization of protected rows.
             if self.isolation is not None:
                 self.isolation.assert_bound(con,device_id)
+                # Previously queued alias commands must not bypass create-time
+                # policy when the protection is activated after their creation.
+                self.isolation.assert_no_pending_proxy_aliases(con,device_id)
                 exclusion,excluded_ids=self.isolation.exclude_clause()
             else:
                 exclusion,excluded_ids="",()

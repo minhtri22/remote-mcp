@@ -1,0 +1,76 @@
+{
+  "schema": "remotemcp.v31.node-cadence-release-qualification-evidence-pack.v1",
+  "date": "2026-10-10",
+  "gate": "REMOTEMCP_V31_NODE_CADENCE_RELEASE_QUALIFICATION_EVIDENCE_PACK_AND_OPERATOR_AUTHORIZATION_GATE",
+  "phase": "STATIC_CANDIDATE_UNQUALIFIED",
+  "sources": {
+    "handoff_commit": "70fbadeff7a37a285bc2a9f9f0a714f9d32b5ca4",
+    "prereg_sha": "a7c4caa18820d1d3c704235f4b49326d72d5a48c",
+    "pr75_static_pass_sha": "6c946d1903b4d0b5b890b735f9439ea14b127105",
+    "gateway_prod_sha": "ef9f81f05ea2be9116751280340c47bd05d908ad",
+    "node_prod_sha": "dabce9a76502dbae541a0eddff0096fb8dfe908a",
+    "telemetry_candidate_sha": "1106f960dc2670234a9e4bba4ff3703c154eb30c",
+    "inventory19_digest": "9d316322454b5894a3093688d8a0b7090e221312b70153c6bf2ba038016fdd85",
+    "four_forensic_digest": "99b041d1de02c63593992262133dca4a1f34c262536d684e0d3c66cf48e03d31"
+  },
+  "independent_audit": {
+    "pr75_gap": "PROTECTED_PROXY_ALIAS_NOT_GUARDED_FOR_JOB_CANCEL_GET_RESULT_OR_REGISTRY_REUSE",
+    "candidate_change": "FAIL_CLOSED_ALL_PROXY_COMMANDS_AND_ROUTED_JOB_MUTATION_GUARD",
+    "pass_on_candidate_sha": false,
+    "synthetic_fixtures": [
+      "ISO-01",
+      "ISO-02",
+      "ISO-03",
+      "ISO-04",
+      "ISO-05",
+      "ISO-06",
+      "ISO-07",
+      "ISO-08",
+      "ISO-08b",
+      "ISO-09",
+      "ISO-10",
+      "ISO-11",
+      "ISO-12"
+    ],
+    "qa_os": [
+      "windows-latest",
+      "ubuntu-latest"
+    ]
+  },
+  "read_only_management_observation": {
+    "observation_date": "2026-10-10",
+    "machine": "machine-1",
+    "online": true,
+    "capacity_fresh_at_observation": true,
+    "active_physical_jobs_at_observation": 0,
+    "unresolved_physical_jobs_at_observation": 0,
+    "gateway_registry_active_commands": 19,
+    "gateway_registry_nonterminal_jobs": 239,
+    "independently_signed_two_snapshot_gate": "NOT_VERIFIED_FOR_OPERATOR_WINDOW"
+  },
+  "release_guards": {
+    "cadence_poll_cycles_per_os_min": 60,
+    "telemetry_p95_overhead_ms_max": 5,
+    "signed_snapshots_min_gap_s": 30,
+    "no_unexpired_commands": true,
+    "physical_jobs_expected": 0,
+    "unresolved_jobs_expected": 0,
+    "private_manifest_required": true,
+    "separate_operator_authorization_required": true,
+    "global_shell_enable_authorized": false,
+    "sequential_live_reads": 6,
+    "each_client_ms_strictly_less_than": 55000,
+    "stop_at_first_failure": true
+  },
+  "verdict": {
+    "pr75_static_qa": "PASS",
+    "candidate_static_qa": "PENDING",
+    "live_preflight": "HOLD",
+    "node_release": "UNCHANGED",
+    "operator_authorization": "NOT_GRANTED",
+    "production_isolation": "NOT_ACTIVE",
+    "historical_four": "UNRESOLVED",
+    "live_6x": "NOT_PASS",
+    "science_agents_resume": "FORBIDDEN"
+  }
+}

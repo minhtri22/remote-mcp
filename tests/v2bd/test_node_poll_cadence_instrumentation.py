@@ -180,3 +180,115 @@ def test_sqlite_lock_failure_never_becomes_false_zero_capacity(make_gateway, tmp
         assert row["heartbeat_due"] is True
         assert "heartbeat_duration_ms" not in row
     asyncio.run(run())
+
+
+
+class SixtyCycleFixtureClient(ModernFixtureClient):
+    async def poll(self):
+        self.poll_calls+=1
+        if self.poll_calls>=60:
+            self.service._stop.set()
+        return None
+
+
+def test_sixty_zero_science_empty_poll_cycles_per_os(make_gateway,tmp_path):
+    """Exactly 60 empty polls in the real node loop, with tracing ON and OFF.
+
+    No production endpoint, node command or job is created. The associated
+    overhead panel isolates tracer cost below; loop wall time is not a
+    substitute for a trace-overhead measurement.
+    """
+    import hashlib
+
+    async def run_one(enabled: bool):
+        gw=make_gateway()
+        label="cadence60-on" if enabled else "cadence60-off"
+        node,_=await pair_node(gw,tmp_path/(label+"-root"),
+                               tmp_path/(label+"-rt"),label)
+        trace_root=tmp_path/(label+"-trace")
+        node._cadence=NodeCadence(trace_root,enabled=enabled)
+        node.client=SixtyCycleFixtureClient(node)
+        await asyncio.wait_for(node.run_forever(),timeout=20)
+        fake=node.client
+        assert fake.poll_calls==60
+        assert fake.heartbeats>=1
+        assert fake.results==[]
+        assert fake.closed
+        log=trace_root/"cadence"/"node-poll-cadence-v1.jsonl"
+        if not enabled:
+            assert not log.exists()
+            return None
+        xs=records(trace_root)
+        assert len(xs)==60
+        assert [x["cycle_seq"] for x in xs]==list(range(1,61))
+        assert all(x["poll_status"]=="EMPTY_204" for x in xs)
+        assert all(x["poll_http_duration_ms"]>=0 for x in xs)
+        assert all("command_id" not in x for x in xs)
+        assert len({x["node_process_epoch"] for x in xs})==1
+        assert len({x["route_generation"] for x in xs})==1
+        assert all("result_ack_duration_ms" not in x for x in xs)
+        assert all("execute_duration_ms" not in x for x in xs)
+        assert sum(bool(x["heartbeat_due"]) for x in xs) >= 1
+        for x in xs:
+            # Capacity and process safety are sampled only when heartbeat
+            # is due; forcing these phases in all 60 polls would silently
+            # change the production heartbeat cadence.
+            if x["heartbeat_due"]:
+                assert "capacity_duration_ms" in x
+                assert "process_safety_duration_ms" in x
+                assert "heartbeat_duration_ms" in x
+            else:
+                assert "capacity_duration_ms" not in x
+                assert "process_safety_duration_ms" not in x
+        blob=log.read_bytes()
+        assert b"SECRET" not in blob
+        print("V31_CADENCE_60_EMPTY_POLLS=PASS "
+              "sha256="+hashlib.sha256(blob).hexdigest()+
+              " cycles=60 status=EMPTY_204",flush=True)
+        return xs
+
+    assert asyncio.run(run_one(False)) is None
+    assert len(asyncio.run(run_one(True)))==60
+
+
+def test_60_cycle_opt_in_telemetry_overhead_p95_is_under_5ms(tmp_path):
+    """Pair reproducible in-memory empty polls; measure only tracer overhead."""
+    import math
+    import statistics
+    import hashlib
+
+    samples={}
+    for flag in (False,True):
+        tracer=NodeCadence(tmp_path/("enabled" if flag else "disabled"),
+                           enabled=flag)
+        latencies=[]
+        for i in range(60):
+            started=time.perf_counter_ns()
+            row=tracer.cycle({"device_id":"dev_fixture","route_generation":1})
+            with tracer.phase(row,"poll_http_duration_ms"):
+                envelope=None  # deterministic empty signed-poll fixture
+            if row is not None:
+                row["poll_status"]="EMPTY_204" if envelope is None else "COMMAND_200"
+            tracer.emit(row)
+            latencies.append((time.perf_counter_ns()-started)/1_000_000)
+        samples[flag]=latencies
+    def nearest_rank_p95(values):
+        seq=sorted(values)
+        return seq[math.ceil(.95*len(seq))-1]
+    # A paired conservative comparison allows separate baseline loop overhead
+    # without declaring the OS scheduler or network as telemetry overhead.
+    on_p95=nearest_rank_p95(samples[True])
+    off_p95=nearest_rank_p95(samples[False])
+    incremental=max(0,on_p95-off_p95)
+    print(
+        "V31_CADENCE_OVERHEAD_60=PASS_OR_FAIL "
+        f"off_p95_ms={off_p95:.4f} on_p95_ms={on_p95:.4f} "
+        f"incremental_p95_ms={incremental:.4f} threshold_ms=5.0000",
+        flush=True,
+    )
+    log=tmp_path/"enabled"/"cadence"/"node-poll-cadence-v1.jsonl"
+    rows=records(tmp_path/"enabled")
+    assert len(rows)==60
+    assert all(x["poll_status"]=="EMPTY_204" for x in rows)
+    assert not (tmp_path/"disabled"/"cadence").exists()
+    assert incremental <= 5.0

@@ -1,0 +1,66 @@
+name: V31 Node Release Qualification Evidence QA (NOT deployment)
+
+on:
+  pull_request:
+    paths:
+      - "remotemcp/routing/commands.py"
+      - "tests/test_gateway_pinned_node_dispatch_hold.py"
+      - "remotemcp/routing/historical_isolation.py"
+      - "remotemcp/node/cadence.py"
+      - "tests/v31/test_v31_expired_four_isolation.py"
+      - "tests/v31/test_v31_node_release_qualification.py"
+      - "tests/v2bd/test_node_poll_cadence_instrumentation.py"
+      - "tools/v31_node_release_qualifier.py"
+      - "tools/v31_live_signed_heartbeat_verifier.py"
+      - "tests/v31/test_v31_live_signed_heartbeat_verifier.py"
+      - "tools/v31_operator_capture_authorization.py"
+      - "tests/v31/test_v31_operator_capture_authorization.py"
+      - "tools/v31_frozen_command_readonly_comparator.py"
+      - "tests/v31/test_v31_frozen_command_readonly_comparator.py"
+      - ".github/workflows/v31-node-release-qualification-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualification-fixture:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install test-only dependencies; no real operator credentials
+        run: python -m pip install --disable-pip-version-check pytest "mcp[cli]<2" uvicorn httpx==0.28.1 cryptography==46.0.6
+      - name: Compile release evidence code
+        run: python -m py_compile remotemcp/routing/commands.py remotemcp/routing/historical_isolation.py remotemcp/node/cadence.py tools/v31_node_release_qualifier.py tests/v31/test_v31_node_release_qualification.py tests/v31/test_v31_live_signed_heartbeat_verifier.py tools/v31_live_signed_heartbeat_verifier.py tests/v31/test_v31_expired_four_isolation.py tests/v2bd/test_node_poll_cadence_instrumentation.py
+      - name: Exactly 60 empty polls per OS; p95 telemetry budget <= 5ms
+        run: python -m pytest -q -s tests/v2bd/test_node_poll_cadence_instrumentation.py -k "sixty_zero_science_empty_poll_cycles_per_os or 60_cycle_opt_in_telemetry_overhead_p95_is_under_5ms"
+      - name: Synthetic summary panel, raw RMCPNODE1 protocol signature QA and rollback
+        run: python -m pytest -q tests/v31/test_v31_node_release_qualification.py tests/v31/test_v31_live_signed_heartbeat_verifier.py
+      - name: Operator-scoped read-only heartbeat capture authorization panel
+        run: python -m pytest -q tests/v31/test_v31_operator_capture_authorization.py
+      - name: Frozen 19-command independent structural audit (never adjudicate terminal)
+        run: python -m pytest -q tests/v31/test_v31_frozen_command_readonly_comparator.py
+      - name: Private signed isolation restart and bypass regressions
+        run: python -m pytest -q tests/v31/test_v31_expired_four_isolation.py tests/v31/test_v31_isolation_independent_qa.py
+      - name: Reject both science submit and routed-job recovery before any SQL write
+        run: python -m pytest -q tests/test_gateway_pinned_node_dispatch_hold.py
+      - name: Guard against accidental production activation
+        shell: python
+        run: |
+          from pathlib import Path
+          commands=Path("remotemcp/routing/commands.py").read_text()
+          qualifier=Path("tools/v31_node_release_qualifier.py").read_text()
+          assert "self.isolation=None" in commands
+          assert 'historical_isolation_gate_enabled' in commands
+          assert 'ExpiredFourIsolation.load_signed' in commands
+          assert '"production_deployment_permitted": False' in qualifier
+          assert '"operator_authorized": False' in qualifier
+          print("V31_NODE_RELEASE_QUALIFICATION_STATIC=PASS; PRODUCTION_UNCHANGED")
