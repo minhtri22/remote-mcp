@@ -228,6 +228,9 @@ class CommandRepository:
             # No schema migration, no status normalization of protected rows.
             if self.isolation is not None:
                 self.isolation.assert_bound(con,device_id)
+                # Previously queued alias commands must not bypass create-time
+                # policy when the protection is activated after their creation.
+                self.isolation.assert_no_pending_proxy_aliases(con,device_id)
                 exclusion,excluded_ids=self.isolation.exclude_clause()
             else:
                 exclusion,excluded_ids="",()
