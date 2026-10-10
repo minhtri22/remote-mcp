@@ -15,14 +15,9 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-DEVICE = "dev_dd73ebfa742f468f2d212bade88c175b"
 FROZEN_DIGEST = "9d316322454b5894a3093688d8a0b7090e221312b70153c6bf2ba038016fdd85"
-FOUR = {
-    "cmd_263f75d83d21a301738979bedb0f8439": "JOB_SUBMIT",
-    "cmd_bc9f6cd38fdf6b765feca7ccc2608f26": "JOB_GET",
-    "cmd_575ae5e343814a195d3f76bcac2b1803": "PROJECT_PROBE",
-    "cmd_7c85d6475d4156332e8a45d3714b5a89": "TASK_BASE_RESOLVE",
-}
+EXPECTED_TYPES = frozenset({"JOB_SUBMIT", "JOB_GET", "PROJECT_PROBE", "TASK_BASE_RESOLVE"})
+TARGET_COUNTS = {"EXPIRED_DELIVERED_NO_RECEIPT": 3, "EXPIRED_NODE_RECEIVED_NONTERMINAL": 1}
 TERMINAL = frozenset({"SUCCEEDED", "FAILED", "CANCELLED", "LOST"})
 
 
@@ -39,7 +34,9 @@ def load_frozen(path: Path) -> dict:
     raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if raw.get("schema") != "remotemcp.v31.leased-command-evidence.v1":
         raise RuntimeError("FROZEN_SCHEMA_INVALID")
-    if raw.get("device_id") != DEVICE or raw.get("actual_leased") != 19:
+    device = raw.get("device_id")
+    if (not isinstance(device, str) or not device.startswith("dev_")
+            or len(device) != 36 or raw.get("actual_leased") != 19):
         raise RuntimeError("FROZEN_INVENTORY_IDENTITY_INVALID")
     if raw.get("lease_inventory_digest_sha256") != FROZEN_DIGEST:
         raise RuntimeError("FROZEN_DIGEST_FIELD_MISMATCH")
@@ -50,9 +47,17 @@ def load_frozen(path: Path) -> dict:
     if hashlib.sha256(canonical).hexdigest() != FROZEN_DIGEST:
         raise RuntimeError("FROZEN_ROWS_DIGEST_INVALID")
     index = {r.get("command_id"): r for r in rows}
-    if len(index) != 19 or any(index.get(cid, {}).get("command_type") != typ for cid, typ in FOUR.items()):
+    targets = {
+        cid: row for cid, row in index.items()
+        if row.get("classification") in TARGET_COUNTS
+    }
+    counts = {kind: sum(r.get("classification") == kind for r in targets.values())
+              for kind in TARGET_COUNTS}
+    if (len(index) != 19 or len(targets) != 4 or counts != TARGET_COUNTS
+            or set(r.get("command_type") for r in targets.values()) != EXPECTED_TYPES
+            or any(not isinstance(cid, str) or not cid.startswith("cmd_") for cid in targets)):
         raise RuntimeError("FROZEN_FOUR_COMMANDS_INVALID")
-    return index
+    return {"device_id": device, "targets": targets}
 
 
 def _one(db, sql, args):
@@ -65,8 +70,8 @@ def forensic_snapshot(frozen_path: Path, gateway_db: Path, node_db: Path,
     frozen = load_frozen(frozen_path)
     results = []
     with closing(ro(gateway_db)) as gw, closing(ro(node_db)) as nd, closing(ro(durable_db)) as dd:
-        for cid, expected_type in FOUR.items():
-            orig = frozen[cid]
+        for cid, orig in frozen["targets"].items():
+            expected_type = orig["command_type"]
             g = _one(gw,
                 "SELECT command_id,device_id,task_id,project_id,operation_id,"
                 "state,command_type,request_hash,route_generation,"
@@ -78,7 +83,7 @@ def forensic_snapshot(frozen_path: Path, gateway_db: Path, node_db: Path,
                 "FROM node_commands WHERE command_id=?", (cid,))
             exact = (
                 g is not None
-                and g["device_id"] == DEVICE and g["command_type"] == expected_type
+                and g["device_id"] == frozen["device_id"] and g["command_type"] == expected_type
                 and g["request_hash"] == orig["request_hash"]
                 and g["route_generation"] == orig["route_generation"]
             )
@@ -124,7 +129,7 @@ def forensic_snapshot(frozen_path: Path, gateway_db: Path, node_db: Path,
                         exact = False
                     # Node durable operation id is derived by NodeJobs.submit,
                     # not by parsing or re-executing a shell command.
-                    opid = f"v2bd-node-job:{DEVICE}:{cid}"
+                    opid = f"v2bd-node-job:{frozen['device_id']}:{cid}"
                     d = _one(dd,
                         "SELECT o.operation_id,o.state AS operation_state,"
                         "j.job_id,j.state AS job_state,j.finished_at_ms,"
@@ -193,7 +198,7 @@ def forensic_snapshot(frozen_path: Path, gateway_db: Path, node_db: Path,
         "observed_at_ms": time.time_ns() // 1_000_000,
         "frozen_inventory_digest_sha256": FROZEN_DIGEST,
         "result_digest_sha256": hashlib.sha256(serialized).hexdigest(),
-        "device_id": DEVICE,
+        "device_id": frozen["device_id"],
         "rows": results,
         "all_four_accounted_for": len(results) == 4,
         "all_fully_reconciled": False,
