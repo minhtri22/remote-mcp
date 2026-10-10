@@ -65,3 +65,43 @@ Kết quả đọc tại ngày 10/10/2026 qua kết nối quản lý chính:
 `STATIC_QA_PR75=PASS`; `BYPASS_REMEDIATION=UNQUALIFIED_PENDING_CI`; `RELEASE_EVIDENCE_COMPLETE=NO`; `NODE_UPGRADE_AUTHORIZED=NO`; `PRODUCTION_ISOLATION=NOT_ACTIVE`; `HISTORICAL_FOUR=UNRESOLVED`; `LIVE_6X=NOT_PASS`; `SCIENCE_AGENTS_RESUME=FORBIDDEN`.
 
 **Bước hợp lệ kế tiếp sau bộ hồ sơ:** hoàn tất kiểm định độc lập của ứng viên chặn đường proxy trên cả hai hệ điều hành, khóa SHA, hoàn thiện bài đo cadence và signed evidence; chỉ sau đó mới được trình xin phê duyệt vận hành riêng. Không triển khai node/gateway ở gate này.
+
+
+---
+
+## Phụ lục: kiểm định độc lập tiếp diễn ngày 10/10/2026
+
+**Tính chất:** chỉ tạo công cụ và chứng cứ kiểm định trên PR #76 nháp; không triển khai bản ứng viên, không thay gateway/node, tiến trình Windows, bộ giám sát, nhật ký hay cơ sở dữ liệu sản xuất. Không thay `Lineage.md`.
+
+### Chốt quan sát thực địa
+
+- Mốc kiểm định đã PASS **9/9** là mã `349689524f7d903654285d5bcb68709202c9c019`. Bất cứ commit bổ sung nào sau mốc này **phải kiểm lại CI tại đúng HEAD mới**; không kế thừa kết quả 9/9 một cách mặc định.
+- Ảnh chụp chỉ đọc ngoài băng lúc khoảng **14:42 UTC ngày 10/10/2026**: 19 lệnh gateway còn trạng thái thuê đều đã hết hạn, 0 lệnh chưa hết hạn, không cắt cụt danh sách; công việc vật lý trên node 0 đang chạy và 0 chưa đối soát. Đây là **quan sát tại một thời điểm**, không phải khóa kỹ thuật duy trì số 0.
+- Đối chiếu hai nguồn độc lập theo thời điểm: hồ sơ `v31-19-leases-20261010-143838-8ed63c72.json` và `gateway-pending-ledger-crossproof.json`: 19/19 định danh trùng nhau, không sinh/mất định danh, không lệch các trường chung `command_type`, `route_generation`, `gateway_state`, `delivery_attempt`, `task_id`, `project_id`. Hồ sơ bốn lệnh ghim cùng SHA danh mục `9d316322454b5894a3093688d8a0b7090e221312b70153c6bf2ba038016fdd85`; hồ sơ bốn lệnh có mã băm kết quả `99b041d1de02c63593992262133dca4a1f34c262536d684e0d3c66cf48e03d31`. Phép so sánh **chỉ đạt tương hợp cấu trúc một phần**, vì nguồn mới không có đủ `request_hash`, `command_expires_at_ms` để tái dựng chứng cứ toàn hàng bất biến.
+- Bốn lệnh được bảo vệ vẫn không phân xử: `JOB_SUBMIT`, `JOB_GET`, `PROJECT_PROBE` không có biên nhận node; `TASK_BASE_RESOLVE` có bản ghi node `EXECUTING` nhưng chưa terminal. Không dùng ảnh chụp tiến trình hiện thời để suy diễn công việc lịch sử chắc chắn đã kết thúc.
+- Ảnh chụp tiến trình thấy đúng **một node gốc logic** gồm hai tiến trình có quan hệ cha–con; gateway listener trỏ tới bản phát hành `ef9f81f`. Chưa có biên nhận hoàn chỉnh cho danh tính và đường chạy **bộ giám sát node hiện hành** theo PID + thời gian tạo + tác vụ khởi động. Có tập tin khởi động cũ `startup-legacy-20261010-081338-4ccf9f36.cmd` tham chiếu mã `4f0d849`, khác bản node ghim `dabce9a`; đây là nguy cơ đường khởi động cũ, **không phải bằng chứng đã tái khởi động sai**.
+- Trạng thái quản lý node sản xuất còn `command_quarantine_active=false`, `new_job_admission_allowed=true`. Do đó **khóa phát lệnh khoa học thực địa chưa đạt**. Mã ứng viên có cổng `SCIENCE_DISPATCH_QUARANTINED` và kiểm thử giữ cấu hình sau tái khởi tạo, nhưng không được đánh đồng với trạng thái thực thi hiện tại.
+
+### Cơ chế thu chứng cứ chữ ký có giới hạn, chỉ chuẩn bị ngoại tuyến
+
+Đã bổ sung `tools/v31_operator_capture_authorization.py` và kiểm thử. Cơ chế này **chỉ kiểm định** giấy phép thu hai yêu cầu nhịp tim gốc đã có, không cài bộ thu hay chạm hệ thống thật:
+
+1. Giấy phép riêng bắt buộc có chữ ký Ed25519 của **người vận hành**; khóa công khai kiểm tra phải được ghim **ngoài** giấy phép và gói chứng cứ.
+2. Giấy phép buộc ghim định danh thiết bị, thế hệ định tuyến, SHA gateway/node, SHA khóa công khai node, phạm vi **chỉ** hai `POST /device/v1/heartbeat`, thời hạn tối đa 10 phút và tuyệt đối không có quyền thay đổi sản xuất.
+3. Nội dung cặp gói thô phải được ghi lại từ kênh quan sát **được phê duyệt riêng**, sau khi gateway xác thực, trong kho cục bộ có kiểm soát truy cập; không sao chép khóa riêng, token hoặc nội dung gói thô lên GitHub.
+4. Kiểm lại giao thức ký `RMCPNODE1` trên byte yêu cầu gốc, hai dấu thời gian cách ít nhất 30 giây, hai nonce khác nhau, cùng khóa thiết bị/route/release và các điều kiện an toàn node. **Một chữ ký hợp lệ của node không tự chứng minh gateway đã chấp nhận gói**; phải có bằng chứng độc lập về nguồn capture, phía gateway và sổ lệnh.
+5. Ngay cả khi gói/giấy phép hợp lệ: `release_gate=HOLD`, `production_deployment_permitted=false`. Giấy phép chỉ phạm vi bằng chứng, **không phải giấy phép cài bộ quan sát hoặc nâng cấp**.
+
+**Hiện trạng:** không tìm được hai gói gốc qua kênh đọc đã cấp quyền. Không được triển khai bộ nghe mạng, ghi log nhạy cảm hay thay gateway/node chỉ để tạo chứng cứ khi chưa có phê duyệt riêng.
+
+### Tái kiểm định bất biến và hoàn nguyên
+
+- Công cụ `tools/v31_frozen_command_readonly_comparator.py` chỉ kiểm tra tập định danh 19 lệnh, trường chung và ghim bốn lệnh với dữ liệu tổng hợp trong CI; kết quả tối đa `PARTIAL_STRUCTURAL_MATCH`, **không chứng nhận byte-for-byte bất biến và không xác nhận lệnh lịch sử terminal**.
+- Hoàn nguyên mô phỏng SQLite và tệp cấu hình đã PASS ở mốc ứng viên trước; còn thiếu kiểm toán tác vụ khởi động Windows, PID/start-time của bộ giám sát, mã nguồn thực sự đang chạy, phương án chuyển tệp nguyên tử và diễn tập hoàn nguyên trên môi trường tách biệt cùng cấu hình tương đương, không đụng tiến trình nghiên cứu.
+- Không có quyền tạo công việc RemoteMCP mới chỉ để truy vấn Windows: đường thực thi `run_command` trả rào cản cần `task_job_submit`. Không vượt qua rào cản bằng cách phát công việc mới trong phạm vi HOLD.
+
+### Các điều kiện để được trình quyền nâng cấp riêng
+
+`CI_EXACT_FINAL_SHA=REVALIDATE`; `SIGNED_RAW_PAIR=HOLD`; `FOUR_COMMAND_IMMUTABILITY=PARTIAL_NOT_COMPLETE`; `FOUR_COMMAND_OUTCOME=UNRESOLVED`; `LIVE_WATCHDOG_SOURCE_AND_SINGLETON=HOLD`; `ISOLATED_ROLLBACK_REHEARSAL=HOLD`; `LIVE_SCIENCE_DISPATCH_HOLD=NOT_ACTIVE`; `AUTHORIZATION_TO_CAPTURE_LIVE_PACKETS=NOT_GIVEN`; `NODE_OR_GATEWAY_UPGRADE_AUTHORIZED=NO`.
+
+Chỉ được trình **đề xuất** phê duyệt nâng cấp khi độc lập kiểm định xong tất cả chứng cứ tương ứng. Không được tự động nâng cấp, khởi động lại hay chạy lại các tác nhân nghiên cứu.
