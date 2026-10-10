@@ -316,7 +316,10 @@ def test_iso09_attestation_offline_prevents_mutations(harness,status):
     if status=="stale":dev.fresh=False
     if status=="wrong-pin":dev.sha="c"*40
     before=db.snapshot(protect_ids(repo))
-    assert repo.poll(DEVICE,1) is None if status!="offline" else True  # offline raises below
+    if status=="offline":
+        assert_denied("DEVICE_OFFLINE", lambda: repo.poll(DEVICE,1))
+    else:
+        assert repo.poll(DEVICE,1) is None
     check_unchanged(repo,db,before)
 
 
